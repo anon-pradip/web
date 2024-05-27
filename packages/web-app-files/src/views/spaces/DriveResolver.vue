@@ -2,11 +2,7 @@
   <app-loading-spinner v-if="isLoading" />
   <template v-else>
     <app-banner :file-id="fileId"></app-banner>
-    <drive-redirect
-      v-if="!space"
-      :drive-alias-and-item="driveAliasAndItem"
-      :append-home-folder="isSpaceRoute"
-    />
+    <drive-redirect v-if="!space" :drive-alias-and-item="driveAliasAndItem" />
     <generic-trash v-else-if="isTrashRoute" :space="space" :item-id="itemId" />
     <generic-space v-else :space="space" :item="item" :item-id="itemId" />
   </template>
@@ -20,29 +16,24 @@ import GenericTrash from './GenericTrash.vue'
 import { computed, defineComponent, onMounted, ref, unref } from 'vue'
 import {
   queryItemAsString,
+  useAuthStore,
   useClientService,
-  useConfigurationManager,
+  useConfigStore,
   useDriveResolver,
   useGetMatchingSpace,
   useRouteParam,
   useRouteQuery,
-  useRouter,
-  useStore,
-  useUserContext
+  useRouter
 } from '@ownclouders/web-pkg'
 import { useActiveLocation } from '@ownclouders/web-pkg'
-import {
-  createLocationSpaces,
-  isLocationSpacesActive,
-  isLocationTrashActive
-} from '@ownclouders/web-pkg'
+import { createLocationSpaces, isLocationTrashActive } from '@ownclouders/web-pkg'
 import {
   isPublicSpaceResource,
   PublicSpaceResource,
+  SharePermissionBit,
   SpaceResource
-} from '@ownclouders/web-client/src/helpers'
+} from '@ownclouders/web-client'
 import { locationPublicUpload } from '@ownclouders/web-pkg'
-import { linkRoleUploaderFolder } from '@ownclouders/web-client/src/helpers/share'
 import { createFileRouteOptions } from '@ownclouders/web-pkg'
 import { AppLoadingSpinner } from '@ownclouders/web-pkg'
 import { dirname } from 'path'
@@ -57,16 +48,14 @@ export default defineComponent({
     AppLoadingSpinner
   },
   setup() {
-    const store = useStore()
-    const isUserContext = useUserContext({ store })
+    const authStore = useAuthStore()
+    const configStore = useConfigStore()
     const clientService = useClientService()
     const router = useRouter()
     const driveAliasAndItem = useRouteParam('driveAliasAndItem')
-    const isSpaceRoute = useActiveLocation(isLocationSpacesActive, 'files-spaces-generic')
     const isTrashRoute = useActiveLocation(isLocationTrashActive, 'files-trash-generic')
-    const resolvedDrive = useDriveResolver({ store, driveAliasAndItem })
+    const resolvedDrive = useDriveResolver({ driveAliasAndItem })
     const { getInternalSpace } = useGetMatchingSpace()
-    const configurationManager = useConfigurationManager()
 
     const loading = ref(true)
     const isLoading = computed(() => {
@@ -91,7 +80,11 @@ export default defineComponent({
     const resolveToInternalLocation = async (path: string) => {
       const internalSpace = getInternalSpace(unref(fileId).split('!')[0])
       if (internalSpace) {
-        const resource = await clientService.webdav.getFileInfo(internalSpace, { path })
+        const resource = await clientService.webdav.getFileInfo(
+          internalSpace,
+          { path },
+          { headers: { Authorization: `Bearer ${authStore.accessToken}` } }
+        )
 
         const resourceId = resource.type !== 'folder' ? resource.parentFolderId : resource.fileId
         const resourcePath = resource.type !== 'folder' ? dirname(path) : path
@@ -108,7 +101,7 @@ export default defineComponent({
             query: {
               ...query,
               scrollTo: unref(resource).fileId,
-              ...(configurationManager.options.openLinksWithDefaultApp && {
+              ...(configStore.options.openLinksWithDefaultApp && {
                 openWithDefaultApp: 'true'
               })
             }
@@ -121,7 +114,7 @@ export default defineComponent({
         name: 'resolvePrivateLink',
         params: { fileId: unref(fileId) },
         query: {
-          ...(configurationManager.options.openLinksWithDefaultApp && {
+          ...(configStore.options.openLinksWithDefaultApp && {
             openWithDefaultApp: 'true'
           })
         }
@@ -134,7 +127,7 @@ export default defineComponent({
           name: 'resolvePrivateLink',
           params: { fileId: unref(fileId) },
           query: {
-            ...(configurationManager.options.openLinksWithDefaultApp && {
+            ...(configStore.options.openLinksWithDefaultApp && {
               openWithDefaultApp: 'true'
             })
           }
@@ -143,10 +136,12 @@ export default defineComponent({
 
       const space = unref(resolvedDrive.space)
       if (space && isPublicSpaceResource(space)) {
-        const isRunningOnEos = store.getters.configuration?.options?.runningOnEos
-        if (unref(isUserContext) && unref(fileId) && !isRunningOnEos) {
+        const isRunningOnEos = configStore.options.runningOnEos
+        if (authStore.userContextReady && unref(fileId) && !isRunningOnEos) {
           try {
-            const path = await clientService.webdav.getPathForFileId(unref(fileId))
+            const path = await clientService.webdav.getPathForFileId(unref(fileId), {
+              headers: { Authorization: `Bearer ${authStore.accessToken}` }
+            })
             await resolveToInternalLocation(path)
             loading.value = false
             return
@@ -157,7 +152,8 @@ export default defineComponent({
 
         let publicSpace = (await getSpaceResource()) as PublicSpaceResource
 
-        if (linkRoleUploaderFolder.bitmask(false) === publicSpace.publicLinkPermission) {
+        // FIXME: check for type once https://github.com/owncloud/ocis/issues/8740 is resolved
+        if (publicSpace.publicLinkPermission === SharePermissionBit.Create) {
           router.push({
             name: locationPublicUpload.name,
             params: { token: space.id.toString() }
@@ -171,7 +167,6 @@ export default defineComponent({
     return {
       ...resolvedDrive,
       driveAliasAndItem,
-      isSpaceRoute,
       isTrashRoute,
       isLoading,
       fileId

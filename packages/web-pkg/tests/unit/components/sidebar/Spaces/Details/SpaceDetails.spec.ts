@@ -1,11 +1,12 @@
 import SpaceDetails from '../../../../../../src/components/SideBar/Spaces/Details/SpaceDetails.vue'
-import { spaceRoleManager, ShareTypes } from '@ownclouders/web-client/src/helpers/share'
 import {
-  createStore,
-  defaultPlugins,
-  shallowMount,
-  defaultStoreMockOptions
-} from 'web-test-helpers'
+  CollaboratorShare,
+  ShareRole,
+  GraphShareRoleIdMap,
+  SpaceResource
+} from '@ownclouders/web-client'
+import { mock } from 'vitest-mock-extended'
+import { defaultPlugins, shallowMount } from 'web-test-helpers'
 
 const spaceMock = {
   type: 'space',
@@ -21,19 +22,16 @@ const spaceMock = {
     used: 100,
     total: 1000
   }
-}
+} as unknown as SpaceResource
 
 const spaceShare = {
   id: '1',
-  shareType: ShareTypes.spaceUser.value,
-  collaborator: {
-    onPremisesSamAccountName: 'Alice',
+  sharedWith: {
+    id: 'Alice',
     displayName: 'alice'
   },
-  role: {
-    name: spaceRoleManager.name
-  }
-}
+  role: mock<ShareRole>({ id: GraphShareRoleIdMap.SpaceManager })
+} as CollaboratorShare
 
 const selectors = {
   spaceDefaultImage: '.space-default-image',
@@ -59,18 +57,19 @@ describe('Details SideBar Panel', () => {
 })
 
 function createWrapper({ spaceResource = spaceMock, props = {} } = {}) {
-  const storeOptions = defaultStoreMockOptions
-  storeOptions.getters.user.mockImplementation(() => ({ id: 'marie', uuid: '1' }))
-  storeOptions.modules.runtime.modules.spaces.getters.spaceMembers.mockImplementation(() => [
-    spaceShare
-  ])
-  storeOptions.modules.Files.getters.outgoingCollaborators.mockImplementation(() => [spaceShare])
-  const store = createStore(storeOptions)
   return {
     wrapper: shallowMount(SpaceDetails, {
       props: { ...props },
       global: {
-        plugins: [...defaultPlugins(), store],
+        plugins: [
+          ...defaultPlugins({
+            piniaOptions: {
+              userState: { user: { id: '1', onPremisesSamAccountName: 'marie' } },
+              spacesState: { spaceMembers: [spaceShare] },
+              sharesState: { collaboratorShares: [spaceShare] }
+            }
+          })
+        ],
         provide: { resource: spaceResource }
       }
     })

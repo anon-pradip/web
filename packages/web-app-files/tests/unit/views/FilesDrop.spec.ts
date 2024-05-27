@@ -1,16 +1,14 @@
 import FilesDrop from '../../../src/views/FilesDrop.vue'
 import {
-  createStore,
   defaultPlugins,
   mount,
-  defaultStoreMockOptions,
   defaultComponentMocks,
   defaultStubs,
   RouteLocation
 } from 'web-test-helpers'
-import { mock, mockDeep } from 'jest-mock-extended'
+import { mock, mockDeep } from 'vitest-mock-extended'
 import { ClientService } from '@ownclouders/web-pkg'
-import { createMockThemeStore } from 'web-test-helpers/src/mocks/pinia'
+import { ListFilesResult } from '@ownclouders/web-client/webdav'
 
 describe('FilesDrop view', () => {
   describe('different files view states', () => {
@@ -30,7 +28,7 @@ describe('FilesDrop view', () => {
 
 function getMountedWrapper() {
   const $clientService = mockDeep<ClientService>()
-  $clientService.webdav.listFiles.mockReturnValue(undefined)
+  $clientService.webdav.listFiles.mockResolvedValue(mock<ListFilesResult>())
   const defaultMocks = {
     ...defaultComponentMocks({
       currentRoute: mock<RouteLocation>({ name: 'files-common-favorites' })
@@ -38,14 +36,11 @@ function getMountedWrapper() {
     $clientService: $clientService
   }
 
-  const storeOptions = { ...defaultStoreMockOptions }
-  const store = createStore(storeOptions)
   return {
     mocks: defaultMocks,
-    storeOptions,
     wrapper: mount(FilesDrop, {
       global: {
-        plugins: [...defaultPlugins(), store, createMockThemeStore()],
+        plugins: [...defaultPlugins()],
         mocks: defaultMocks,
         provide: defaultMocks,
         stubs: defaultStubs

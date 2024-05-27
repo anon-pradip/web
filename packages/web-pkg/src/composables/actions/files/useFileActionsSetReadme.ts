@@ -1,18 +1,21 @@
 import { computed, unref } from 'vue'
 import { useGettext } from 'vue3-gettext'
-import { Store } from 'vuex'
 import { useClientService } from '../../clientService'
 import { useRouter } from '../../router'
-import { useStore } from '../../store'
 import { FileAction, FileActionOptions } from '../types'
-import { Drive } from '@ownclouders/web-client/src/generated'
-import { buildSpace } from '@ownclouders/web-client/src/helpers'
+import { Drive } from '@ownclouders/web-client/graph/generated'
+import { buildSpace } from '@ownclouders/web-client'
+import { useMessages, useSpacesStore, useUserStore } from '../../piniaStores'
+import { useCreateSpace } from '../../spaces'
 
-export const useFileActionsSetReadme = ({ store }: { store?: Store<any> } = {}) => {
-  store = store || useStore()
+export const useFileActionsSetReadme = () => {
+  const { showMessage, showErrorMessage } = useMessages()
+  const userStore = useUserStore()
   const router = useRouter()
   const { $gettext } = useGettext()
   const clientService = useClientService()
+  const spacesStore = useSpacesStore()
+  const { createDefaultMetaFolder } = useCreateSpace()
 
   const handler = async ({ space, resources }: FileActionOptions) => {
     try {
@@ -22,7 +25,7 @@ export const useFileActionsSetReadme = ({ store }: { store?: Store<any> } = {}) 
       try {
         await webdav.getFileInfo(space, { path: '.space' })
       } catch (_) {
-        await webdav.createFolder(space, { path: '.space' })
+        await createDefaultMetaFolder(space)
       }
 
       await webdav.putFileContents(space, {
@@ -30,7 +33,6 @@ export const useFileActionsSetReadme = ({ store }: { store?: Store<any> } = {}) 
         content: fileContent
       })
       const file = await webdav.getFileInfo(space, { path: '.space/readme.md' })
-
       const { data: updatedDriveData } = await graphAuthenticated.drives.updateDrive(
         space.id as string,
         {
@@ -45,19 +47,17 @@ export const useFileActionsSetReadme = ({ store }: { store?: Store<any> } = {}) 
         } as Drive,
         {}
       )
-      store.commit('runtime/spaces/UPDATE_SPACE_FIELD', {
+      spacesStore.updateSpaceField({
         id: space.id,
         field: 'spaceReadmeData',
         value: buildSpace(updatedDriveData).spaceReadmeData
       })
-      store.dispatch('showMessage', {
-        title: $gettext('Space description was set successfully')
-      })
+      showMessage({ title: $gettext('Space description was set successfully') })
     } catch (error) {
       console.error(error)
-      store.dispatch('showErrorMessage', {
+      showErrorMessage({
         title: $gettext('Failed to set space description'),
-        error
+        errors: [error]
       })
     }
   }
@@ -70,7 +70,7 @@ export const useFileActionsSetReadme = ({ store }: { store?: Store<any> } = {}) 
       label: () => {
         return $gettext('Set as space description')
       },
-      isEnabled: ({ space, resources }) => {
+      isVisible: ({ space, resources }) => {
         if (resources.length !== 1) {
           return false
         }
@@ -85,7 +85,7 @@ export const useFileActionsSetReadme = ({ store }: { store?: Store<any> } = {}) 
           return false
         }
 
-        return space.canEditReadme({ user: store.getters.user })
+        return space.canEditReadme({ user: userStore.user })
       },
       componentType: 'button',
       class: 'oc-files-actions-set-space-readme-trigger'

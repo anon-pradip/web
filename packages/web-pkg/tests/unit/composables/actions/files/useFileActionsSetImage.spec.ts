@@ -1,19 +1,18 @@
 import { useFileActionsSetImage } from '../../../../../src'
-import { buildSpace, Resource, SpaceResource } from '@ownclouders/web-client/src/helpers'
-import { mock, mockDeep } from 'jest-mock-extended'
+import { useMessages } from '../../../../../src/composables/piniaStores'
+import { buildSpace, Resource, SpaceResource } from '@ownclouders/web-client'
+import { mock } from 'vitest-mock-extended'
 import {
-  createStore,
-  defaultStoreMockOptions,
   defaultComponentMocks,
   RouteLocation,
   getComposableWrapper,
   mockAxiosResolve
 } from 'web-test-helpers'
 import { unref } from 'vue'
-import { Drive } from '@ownclouders/web-client/src/generated'
+import { Drive } from '@ownclouders/web-client/graph/generated'
 
 describe('setImage', () => {
-  describe('isEnabled property', () => {
+  describe('isVisible property', () => {
     it('should be false when no resource given', () => {
       const space = buildSpace(
         mock<Drive>({
@@ -27,7 +26,7 @@ describe('setImage', () => {
       )
       getWrapper({
         setup: ({ actions }) => {
-          expect(unref(actions)[0].isEnabled({ space, resources: [] as Resource[] })).toBe(false)
+          expect(unref(actions)[0].isVisible({ space, resources: [] as Resource[] })).toBe(false)
         }
       })
     })
@@ -45,7 +44,7 @@ describe('setImage', () => {
       getWrapper({
         setup: ({ actions }) => {
           expect(
-            unref(actions)[0].isEnabled({
+            unref(actions)[0].isVisible({
               space,
               resources: [{ id: '1', mimeType: 'text/plain' }] as Resource[]
             })
@@ -66,9 +65,9 @@ describe('setImage', () => {
         })
       )
       getWrapper({
-        setup: async ({ actions }) => {
+        setup: ({ actions }) => {
           expect(
-            unref(actions)[0].isEnabled({
+            unref(actions)[0].isVisible({
               space,
               resources: [{ id: '1', mimeType: 'image/png' }] as Resource[]
             })
@@ -90,7 +89,7 @@ describe('setImage', () => {
       getWrapper({
         setup: ({ actions }) => {
           expect(
-            unref(actions)[0].isEnabled({
+            unref(actions)[0].isVisible({
               space,
               resources: [{ id: '1', mimeType: 'image/png' }] as Resource[]
             })
@@ -106,7 +105,7 @@ describe('setImage', () => {
 
       const space = mock<SpaceResource>({ id: '1' })
       getWrapper({
-        setup: async ({ actions }, { storeOptions, clientService }) => {
+        setup: async ({ actions }, { clientService }) => {
           clientService.graphAuthenticated.drives.updateDrive.mockResolvedValue(
             mockAxiosResolve(driveMock)
           )
@@ -119,16 +118,17 @@ describe('setImage', () => {
               }
             ] as Resource[]
           })
-          expect(storeOptions.actions.showMessage).toHaveBeenCalledTimes(1)
+          const { showMessage } = useMessages()
+          expect(showMessage).toHaveBeenCalledTimes(1)
         }
       })
     })
 
     it('should show message on error', () => {
-      jest.spyOn(console, 'error').mockImplementation(() => undefined)
+      vi.spyOn(console, 'error').mockImplementation(() => undefined)
       const space = mock<SpaceResource>({ id: '1' })
       getWrapper({
-        setup: async ({ actions }, { storeOptions }) => {
+        setup: async ({ actions }) => {
           await unref(actions)[0].handler({
             space,
             resources: [
@@ -138,7 +138,8 @@ describe('setImage', () => {
               }
             ] as Resource[]
           })
-          expect(storeOptions.actions.showErrorMessage).toHaveBeenCalledTimes(1)
+          const { showErrorMessage } = useMessages()
+          expect(showErrorMessage).toHaveBeenCalledTimes(1)
         }
       })
     })
@@ -152,7 +153,6 @@ function getWrapper({
   setup: (
     instance: ReturnType<typeof useFileActionsSetImage>,
     options: {
-      storeOptions: typeof defaultStoreMockOptions
       clientService: ReturnType<typeof defaultComponentMocks>['$clientService']
     }
   ) => void
@@ -164,24 +164,20 @@ function getWrapper({
     })
   }
   mocks.$previewService.isMimetypeSupported.mockReturnValue(isMimetypeSupported)
-  mocks.$clientService.webdav.getFileInfo.mockResolvedValue(mockDeep<Resource>())
+  mocks.$clientService.webdav.getFileInfo.mockResolvedValue(mock<Resource>())
 
-  const storeOptions = {
-    ...defaultStoreMockOptions
-  }
-  storeOptions.getters.user.mockImplementation(() => ({ id: 'alice', uuid: 1 }))
-
-  const store = createStore(storeOptions)
   return {
     wrapper: getComposableWrapper(
       () => {
-        const instance = useFileActionsSetImage({ store })
-        setup(instance, { storeOptions, clientService: mocks.$clientService })
+        const instance = useFileActionsSetImage()
+        setup(instance, { clientService: mocks.$clientService })
       },
       {
-        store,
         mocks,
-        provide: mocks
+        provide: mocks,
+        pluginOptions: {
+          piniaOptions: { userState: { user: { id: '1', onPremisesSamAccountName: 'alice' } } }
+        }
       }
     )
   }

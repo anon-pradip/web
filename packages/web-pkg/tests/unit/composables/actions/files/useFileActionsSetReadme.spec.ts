@@ -1,25 +1,24 @@
 import { useFileActionsSetReadme } from '../../../../../src'
-import { buildSpace, FileResource, SpaceResource } from '@ownclouders/web-client/src/helpers'
-import { mock } from 'jest-mock-extended'
+import { useMessages } from '../../../../../src/composables/piniaStores'
+import { buildSpace, FileResource, SpaceResource } from '@ownclouders/web-client'
+import { mock } from 'vitest-mock-extended'
 
 import {
-  createStore,
-  defaultStoreMockOptions,
   defaultComponentMocks,
   RouteLocation,
   getComposableWrapper,
   mockAxiosResolve
 } from 'web-test-helpers'
-import { nextTick, unref } from 'vue'
-import { GetFileContentsResponse } from '@ownclouders/web-client/src/webdav/getFileContents'
-import { Drive } from '@ownclouders/web-client/src/generated'
+import { unref } from 'vue'
+import { GetFileContentsResponse } from '@ownclouders/web-client/webdav'
+import { Drive } from '@ownclouders/web-client/graph/generated'
 
 describe('setReadme', () => {
-  describe('isEnabled property', () => {
+  describe('isVisible property', () => {
     it('should be false when no resource given', () => {
-      const { wrapper } = getWrapper({
+      getWrapper({
         setup: ({ actions }) => {
-          expect(unref(actions)[0].isEnabled({ space: null, resources: [] })).toBe(false)
+          expect(unref(actions)[0].isVisible({ space: null, resources: [] })).toBe(false)
         }
       })
     })
@@ -33,12 +32,12 @@ describe('setReadme', () => {
           special: [{ specialFolder: { name: 'readme' } }]
         })
       )
-      const { wrapper } = getWrapper({
+      getWrapper({
         resolveGetFileContents: true,
         space,
         setup: ({ actions }) => {
           expect(
-            unref(actions)[0].isEnabled({
+            unref(actions)[0].isVisible({
               space,
               resources: [{ id: '1', mimeType: 'image/png' }] as SpaceResource[]
             })
@@ -56,12 +55,12 @@ describe('setReadme', () => {
           special: [{ specialFolder: { name: 'readme' } }]
         })
       )
-      const { wrapper } = getWrapper({
+      getWrapper({
         resolveGetFileContents: true,
         space,
         setup: ({ actions }) => {
           expect(
-            unref(actions)[0].isEnabled({
+            unref(actions)[0].isVisible({
               space,
               resources: [{ id: '1', mimeType: 'text/plain' }] as SpaceResource[]
             })
@@ -79,12 +78,12 @@ describe('setReadme', () => {
           special: [{ specialFolder: { name: 'readme' } }]
         })
       )
-      const { wrapper } = getWrapper({
+      getWrapper({
         resolveGetFileContents: true,
         space,
         setup: ({ actions }) => {
           expect(
-            unref(actions)[0].isEnabled({
+            unref(actions)[0].isVisible({
               space,
               resources: [{ id: '1', mimeType: 'text' }] as SpaceResource[]
             })
@@ -94,13 +93,13 @@ describe('setReadme', () => {
     })
   })
   describe('handler', () => {
-    it('should show message on success', async () => {
+    it('should show message on success', () => {
       const space = mock<SpaceResource>({ id: '1' })
-      const { wrapper } = getWrapper({
+      getWrapper({
         resolveGetFileContents: true,
         space,
-        setup: async ({ actions }, { storeOptions }) => {
-          unref(actions)[0].handler({
+        setup: async ({ actions }) => {
+          await unref(actions)[0].handler({
             space,
             resources: [
               {
@@ -110,28 +109,23 @@ describe('setReadme', () => {
             ] as SpaceResource[]
           })
 
-          await nextTick()
-          await nextTick()
-          await nextTick()
-          await nextTick()
-          await nextTick()
-          expect(storeOptions.actions.showMessage).toHaveBeenCalledWith(
-            expect.anything(),
+          const { showMessage } = useMessages()
+          expect(showMessage).toHaveBeenCalledWith(
             expect.not.objectContaining({ status: 'danger' })
           )
         }
       })
     })
 
-    it('should show message on error', async () => {
-      jest.spyOn(console, 'error').mockImplementation(() => undefined)
+    it('should show message on error', () => {
+      vi.spyOn(console, 'error').mockImplementation(() => undefined)
 
       const space = mock<SpaceResource>({ id: '1' })
-      const { wrapper } = getWrapper({
+      getWrapper({
         resolveGetFileContents: false,
         space,
-        setup: async ({ actions }, { storeOptions }) => {
-          unref(actions)[0].handler({
+        setup: async ({ actions }) => {
+          await unref(actions)[0].handler({
             space,
             resources: [
               {
@@ -141,8 +135,8 @@ describe('setReadme', () => {
             ] as SpaceResource[]
           })
 
-          await nextTick()
-          expect(storeOptions.actions.showErrorMessage).toHaveBeenCalled()
+          const { showErrorMessage } = useMessages()
+          expect(showErrorMessage).toHaveBeenCalled()
         }
       })
     })
@@ -156,10 +150,7 @@ function getWrapper({
 }: {
   resolveGetFileContents?: boolean
   space?: SpaceResource
-  setup: (
-    instance: ReturnType<typeof useFileActionsSetReadme>,
-    options: { storeOptions: typeof defaultStoreMockOptions }
-  ) => void
+  setup: (instance: ReturnType<typeof useFileActionsSetReadme>) => void
 }) {
   const mocks = {
     ...defaultComponentMocks({
@@ -181,7 +172,7 @@ function getWrapper({
     Promise.resolve({ id: '1', path: '/space.readme.md' })
   )
 
-  mocks.$clientService.graphAuthenticated.drives.updateDrive.mockImplementation(() =>
+  mocks.$clientService.graphAuthenticated.drives.updateDrive.mockResolvedValue(
     mockAxiosResolve({
       id: '1',
       name: 'space',
@@ -201,19 +192,13 @@ function getWrapper({
     })
   )
 
-  const storeOptions = {
-    ...defaultStoreMockOptions
-  }
-
-  const store = createStore(storeOptions)
   return {
     wrapper: getComposableWrapper(
       () => {
-        const instance = useFileActionsSetReadme({ store })
-        setup(instance, { storeOptions })
+        const instance = useFileActionsSetReadme()
+        setup(instance)
       },
       {
-        store,
         mocks,
         provide: mocks
       }

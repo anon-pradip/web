@@ -1,10 +1,11 @@
 import { computed, unref } from 'vue'
-import { Resource } from '@ownclouders/web-client/src'
+import { Resource } from '@ownclouders/web-client'
 import { queryItemAsString } from '../appDefaults/useAppNavigation'
-import { useStore } from '../store/useStore'
 import { eventBus } from '../../services'
 import { useRouteQuery } from '../router'
 import { SideBarEventTopics } from '../sideBar'
+import { useResourcesStore } from '../piniaStores'
+import { isIncomingShareResource } from '@ownclouders/web-client'
 
 export interface ScrollToResult {
   scrollToResource(
@@ -15,9 +16,10 @@ export interface ScrollToResult {
 }
 
 export const useScrollTo = (): ScrollToResult => {
-  const store = useStore()
   const scrollToQuery = useRouteQuery('scrollTo')
   const detailsQuery = useRouteQuery('details')
+  const resourcesStore = useResourcesStore()
+
   const scrollTo = computed(() => {
     return queryItemAsString(unref(scrollToQuery))
   })
@@ -27,7 +29,10 @@ export const useScrollTo = (): ScrollToResult => {
 
   const scrollToResource = (
     resourceId: Resource['id'],
-    options = { forceScroll: false, topbarElement: null }
+    options: { forceScroll?: boolean; topbarElement: string } = {
+      forceScroll: false,
+      topbarElement: null
+    }
   ) => {
     const resourceElement = document.querySelectorAll(
       `[data-item-id='${resourceId}']`
@@ -70,9 +75,15 @@ export const useScrollTo = (): ScrollToResult => {
       return
     }
 
-    const resource = unref(resources).find((r) => r.id === unref(scrollTo))
+    const resource = unref(resources).find((r) => {
+      if (isIncomingShareResource(r)) {
+        return r.remoteItemId === unref(scrollTo)
+      }
+      return r.id === unref(scrollTo)
+    })
+
     if (resource && resource.processing !== true) {
-      store.commit('Files/SET_FILE_SELECTION', [resource])
+      resourcesStore.setSelection([resource.id])
       scrollToResource(resource.id, { forceScroll: true, topbarElement })
 
       if (unref(details)) {

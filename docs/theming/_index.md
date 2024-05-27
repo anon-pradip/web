@@ -60,7 +60,8 @@ The structure of a valid `common` section is outlined below:
     "accessDeniedHelp": "",
     "imprint": "",
     "privacy": ""
-  }
+  }, 
+  "shareRoles": {}
 }
 ```
 
@@ -146,11 +147,10 @@ Here, you can specify the images to be used in the `"topbar"`, for the `"favicon
 
 ##### The "loginPage" options
 
-Using the `"autoRedirect"` boolean, you can specify whether the user is shown a login page before possible getting redirected to your LDAP/OIDC/OAuth provider. If it is set to true, you can set the background image for said login page by providing an image file in the `"backgroundImg"` option.
+You can set the background image for the login page by providing an image file in the `"backgroundImg"` option.
 
 ```json
 "loginPage": {
-  "autoRedirect": true,
   "backgroundImg": "themes/owncloud/assets/loginBackground.jpg"
 },
 ```
@@ -388,6 +388,40 @@ A full template for your custom theme is provided below, and you can use the ins
       "accessDeniedHelp": "",
       "imprint": "",
       "privacy": ""
+    },
+    "shareRoles": {
+      "b1e2218d-eef8-4d4c-b82d-0f1a1b48f3b5": {
+        "name": "UnifiedRoleViewer",
+        "iconName": "eye"
+      },
+      "a8d5fe5e-96e3-418d-825b-534dbdf22b99": {
+        "label": "UnifiedRoleSpaceViewer",
+        "iconName": "eye"
+      },
+      "2d00ce52-1fc2-4dbc-8b95-a73b73395f5a": {
+        "label": "UnifiedRoleFileEditor",
+        "iconName": "pencil"
+      },
+      "fb6c3e19-e378-47e5-b277-9732f9de6e21": {
+        "label": "UnifiedRoleEditor",
+        "iconName": "pencil"
+      },
+      "58c63c02-1d89-4572-916a-870abc5a1b7d": {
+        "label": "UnifiedRoleSpaceEditor",
+        "iconName": "pencil"
+      },
+      "312c0871-5ef7-4b3a-85b6-0e4074c64049": {
+        "label": "UnifiedRoleManager",
+        "iconName": "user-star"
+      },
+      "1c996275-f1c9-4e71-abdf-a42f6495e960": {
+        "label": "UnifiedRoleUploader",
+        "iconName": "pencil"
+      },
+      "aa97fe03-7980-45ac-9e50-b325749fd7e6": {
+        "label": "UnifiedRoleSecureView",
+        "iconName": "shield"
+      }
     }
   },
   "clients": {
@@ -402,7 +436,6 @@ A full template for your custom theme is provided below, and you can use the ins
           "login": "themes/owncloud/assets/logo.svg"
         },
         "loginPage": {
-          "autoRedirect": true,
           "backgroundImg": "themes/owncloud/assets/loginBackground.jpg"
         },
         "designTokens": {

@@ -5,12 +5,12 @@
   "description": "ownCloud web draw.io integration",
   "license": "AGPL-3.0",
   "devDependencies": {
+    "@types/luxon": "3.2.1",
     "web-test-helpers": "workspace:*"
   },
   "peerDependencies": {
     "@ownclouders/web-client": "workspace:*",
     "@ownclouders/web-pkg": "workspace:*",
-    "luxon": "3.2.1",
-    "vuex": "4.1.0"
+    "luxon": "3.2.1"
   }
 }

@@ -1,18 +1,26 @@
 import account from '../../../src/pages/account.vue'
 import {
-  createStore,
   defaultComponentMocks,
   defaultPlugins,
   mockAxiosResolve,
   shallowMount,
-  defaultStoreMockOptions,
   mockAxiosReject
 } from 'web-test-helpers'
-import { mock } from 'jest-mock-extended'
-import { SpaceResource } from '@ownclouders/web-client/src/helpers'
+import { mock } from 'vitest-mock-extended'
 import { AxiosResponse } from 'axios'
-import { ConfigurationManager } from '@ownclouders/web-pkg'
-import { SettingsBundle, SettingsValue } from 'web-runtime/src/helpers/settings'
+import {
+  Extension,
+  ExtensionPoint,
+  OptionsConfig,
+  useExtensionRegistry,
+  useMessages,
+  useResourcesStore
+} from '@ownclouders/web-pkg'
+import { LanguageOption, SettingsBundle, SettingsValue } from 'web-runtime/src/helpers/settings'
+import { User } from '@ownclouders/web-client/graph/generated'
+import { VueWrapper } from '@vue/test-utils'
+import { SpaceResource } from '@ownclouders/web-client'
+import { Capabilities } from '@ownclouders/web-client/ocs'
 
 const $route = {
   meta: {
@@ -29,68 +37,109 @@ const selectors = {
   accountPageInfo: '.account-page-info',
   groupNames: '[data-testid="group-names"]',
   groupNamesEmpty: '[data-testid="group-names-empty"]',
-  gdprExport: '[data-testid="gdpr-export"]'
+  gdprExport: '[data-testid="gdpr-export"]',
+  extensionsSection: '.account-page-extension-preferences'
 }
 
-jest.mock('@ownclouders/web-pkg', () => ({
-  ...jest.requireActual('@ownclouders/web-pkg'),
-  useConfigurationManager: () =>
-    mock<ConfigurationManager>({
-      logoutUrl: 'https://account-manager/logout',
-      options: {
-        logoutUrl: 'https://account-manager/logout'
-      }
-    })
-}))
-
 describe('account page', () => {
-  describe('header section', () => {
-    it('renders page title', async () => {
-      const { wrapper } = getWrapper()
+  describe('public link context', () => {
+    it('should render a limited view', async () => {
+      const { wrapper } = getWrapper({ isUserContext: false, isPublicLinkContext: true })
+      await blockLoadingState(wrapper)
 
-      await wrapper.vm.loadAccountBundleTask.last
-      await wrapper.vm.loadValuesListTask.last
-      await wrapper.vm.loadGraphUserTask.last
-
-      const pageTitle = wrapper.find(selectors.pageTitle)
-      expect(pageTitle.exists()).toBeTruthy()
-      expect(pageTitle.text()).toBe($route.meta.title)
+      expect(wrapper.html()).toMatchSnapshot()
     })
+  })
 
+  describe('header section', () => {
     describe('edit url button', () => {
       it('should be displayed if defined via config', async () => {
         const { wrapper } = getWrapper({
           accountEditLink: { href: '/' }
         })
-
-        await wrapper.vm.loadAccountBundleTask.last
-        await wrapper.vm.loadValuesListTask.last
-        await wrapper.vm.loadGraphUserTask.last
+        await blockLoadingState(wrapper)
 
         const editUrlButton = wrapper.find(selectors.editUrlButton)
         expect(editUrlButton.html()).toMatchSnapshot()
       })
       it('should not be displayed if not defined via config', async () => {
         const { wrapper } = getWrapper()
-
-        await wrapper.vm.loadAccountBundleTask.last
-        await wrapper.vm.loadValuesListTask.last
-        await wrapper.vm.loadGraphUserTask.last
+        await blockLoadingState(wrapper)
 
         const editUrlButton = wrapper.find(selectors.editUrlButton)
         expect(editUrlButton.exists()).toBeFalsy()
       })
     })
+  })
 
+  describe('account information section', () => {
+    it('displays basic user information', async () => {
+      const { wrapper } = getWrapper({
+        user: mock<User>({
+          onPremisesSamAccountName: 'some-username',
+          displayName: 'some-displayname',
+          mail: 'some-email',
+          memberOf: []
+        })
+      })
+      await blockLoadingState(wrapper)
+
+      const accountPageInfo = wrapper.find(selectors.accountPageInfo)
+      expect(accountPageInfo.html()).toMatchSnapshot()
+    })
+
+    describe('group membership', () => {
+      it('displays message if not member of any groups', async () => {
+        const { wrapper } = getWrapper()
+        await blockLoadingState(wrapper)
+
+        const groupNamesEmpty = wrapper.find(selectors.groupNamesEmpty)
+        expect(groupNamesEmpty.exists()).toBeTruthy()
+      })
+      it('displays group names', async () => {
+        const { wrapper } = getWrapper({
+          user: mock<User>({
+            memberOf: [{ displayName: 'one' }, { displayName: 'two' }, { displayName: 'three' }]
+          })
+        })
+        await blockLoadingState(wrapper)
+
+        const groupNames = wrapper.find(selectors.groupNames)
+        expect(groupNames.html()).toMatchSnapshot()
+      })
+    })
+
+    describe('Logout from all devices link', () => {
+      it('should render the logout from active devices if logoutUrl is provided', async () => {
+        const { wrapper } = getWrapper()
+        await blockLoadingState(wrapper)
+
+        expect(wrapper.find('[data-testid="logout"]').exists()).toBe(true)
+      })
+      it("shouldn't render the logout from active devices if logoutUrl isn't provided", async () => {
+        const { wrapper } = getWrapper()
+        await blockLoadingState(wrapper)
+
+        wrapper.vm.logoutUrl = undefined
+        expect(wrapper.find('[data-testid="logout"]').exists()).toBe(true)
+      })
+      it('should use url from configuration manager', async () => {
+        const { wrapper } = getWrapper()
+        await blockLoadingState(wrapper)
+
+        const logoutButton = wrapper.find(selectors.logoutButton)
+        expect(logoutButton.attributes('href')).toBe('https://account-manager/logout')
+      })
+    })
+  })
+
+  describe('Preferences section', () => {
     describe('change password button', () => {
       it('should be displayed if not disabled via capability', async () => {
         const { wrapper } = getWrapper({
           capabilities: { graph: { users: { change_password_self_disabled: false } } }
         })
-
-        await wrapper.vm.loadAccountBundleTask.last
-        await wrapper.vm.loadValuesListTask.last
-        await wrapper.vm.loadGraphUserTask.last
+        await blockLoadingState(wrapper)
 
         const editPasswordButton = wrapper.find(selectors.editPasswordButton)
         expect(editPasswordButton.exists()).toBeTruthy()
@@ -99,260 +148,180 @@ describe('account page', () => {
         const { wrapper } = getWrapper({
           capabilities: { graph: { users: { change_password_self_disabled: true } } }
         })
-
-        await wrapper.vm.loadAccountBundleTask.last
-        await wrapper.vm.loadValuesListTask.last
-        await wrapper.vm.loadGraphUserTask.last
+        await blockLoadingState(wrapper)
 
         const editPasswordButton = wrapper.find(selectors.editPasswordButton)
         expect(editPasswordButton.exists()).toBeFalsy()
       })
     })
   })
-  describe('account information', () => {
-    it('displays basic user information', async () => {
-      const { wrapper } = getWrapper({
-        user: {
-          user: {
-            username: 'some-username',
-            displayname: 'some-displayname',
-            email: 'some-email'
-          }
-        }
-      })
-
-      await wrapper.vm.loadAccountBundleTask.last
-      await wrapper.vm.loadValuesListTask.last
-      await wrapper.vm.loadGraphUserTask.last
-
-      const accountPageInfo = wrapper.find(selectors.accountPageInfo)
-      expect(accountPageInfo.html()).toMatchSnapshot()
-    })
-
-    describe('group membership', () => {
-      it('displays message if not member of any groups', async () => {
-        const { wrapper } = getWrapper({ user: { groups: [] } })
-
-        await wrapper.vm.loadAccountBundleTask.last
-        await wrapper.vm.loadValuesListTask.last
-        await wrapper.vm.loadGraphUserTask.last
-
-        const groupNamesEmpty = wrapper.find(selectors.groupNamesEmpty)
-        expect(groupNamesEmpty.exists()).toBeTruthy()
-      })
-      it('displays group names', async () => {
-        const { wrapper } = getWrapper({
-          user: {
-            groups: [{ displayName: 'one' }, { displayName: 'two' }, { displayName: 'three' }]
-          }
-        })
-
-        await wrapper.vm.loadAccountBundleTask.last
-        await wrapper.vm.loadValuesListTask.last
-        await wrapper.vm.loadGraphUserTask.last
-
-        const groupNames = wrapper.find(selectors.groupNames)
-        expect(groupNames.html()).toMatchSnapshot()
-      })
-    })
-  })
-
-  describe('gdpr export section', () => {
-    it('does show if announced via capabilities and user has a personal space', async () => {
-      const spaces = [mock<SpaceResource>({ driveType: 'personal', isOwner: () => true })]
-      const { wrapper } = getWrapper({
-        spaces,
-        capabilities: { graph: { 'personal-data-export': true } }
-      })
-
-      await wrapper.vm.loadAccountBundleTask.last
-      await wrapper.vm.loadValuesListTask.last
-      await wrapper.vm.loadGraphUserTask.last
-
-      expect(wrapper.find(selectors.gdprExport).exists()).toBeTruthy()
-    })
-    it('does not show if not announced via capabilities', async () => {
-      const spaces = [mock<SpaceResource>({ driveType: 'personal' })]
-      const { wrapper } = getWrapper({
-        spaces,
-        capabilities: { graph: { 'personal-data-export': false } }
-      })
-
-      await wrapper.vm.loadAccountBundleTask.last
-      await wrapper.vm.loadValuesListTask.last
-      await wrapper.vm.loadGraphUserTask.last
-
-      expect(wrapper.find(selectors.gdprExport).exists()).toBeFalsy()
-    })
-    it('does not show if user has no personal space', async () => {
-      const spaces = [mock<SpaceResource>({ driveType: 'project' })]
-      const { wrapper } = getWrapper({
-        spaces,
-        capabilities: { graph: { 'personal-data-export': true } }
-      })
-
-      await wrapper.vm.loadAccountBundleTask.last
-      await wrapper.vm.loadValuesListTask.last
-      await wrapper.vm.loadGraphUserTask.last
-
-      expect(wrapper.find(selectors.gdprExport).exists()).toBeFalsy()
-    })
-  })
-
-  describe('method "editPassword"', () => {
-    it('should show message on success', async () => {
-      const { wrapper, mocks } = getWrapper()
-
-      await wrapper.vm.loadAccountBundleTask.last
-      await wrapper.vm.loadValuesListTask.last
-      await wrapper.vm.loadGraphUserTask.last
-
-      mocks.$clientService.graphAuthenticated.users.changeOwnPassword.mockResolvedValue(
-        mockAxiosResolve()
-      )
-      const showMessageStub = jest.spyOn(wrapper.vm, 'showMessage')
-      await wrapper.vm.editPassword('password', 'newPassword')
-      expect(showMessageStub).toHaveBeenCalled()
-    })
-
-    it('should show message on error', async () => {
-      jest.spyOn(console, 'error').mockImplementation(() => undefined)
-      const { wrapper, mocks } = getWrapper()
-
-      await wrapper.vm.loadAccountBundleTask.last
-      await wrapper.vm.loadValuesListTask.last
-      await wrapper.vm.loadGraphUserTask.last
-
-      mocks.$clientService.graphAuthenticated.users.changeOwnPassword.mockRejectedValue(new Error())
-      const showErrorMessageStub = jest.spyOn(wrapper.vm, 'showErrorMessage')
-      await wrapper.vm.editPassword('password', 'newPassword')
-      expect(showErrorMessageStub).toHaveBeenCalled()
-    })
-  })
-
-  describe('Logout from all devices link', () => {
-    it('should render the logout from active devices if logoutUrl is provided', async () => {
-      const { wrapper } = getWrapper()
-
-      await wrapper.vm.loadAccountBundleTask.last
-      await wrapper.vm.loadValuesListTask.last
-      await wrapper.vm.loadGraphUserTask.last
-
-      expect(wrapper.find('[data-testid="logout"]').exists()).toBe(true)
-    })
-    it("shouldn't render the logout from active devices if logoutUrl isn't provided", async () => {
-      const { wrapper } = getWrapper()
-
-      await wrapper.vm.loadAccountBundleTask.last
-      await wrapper.vm.loadValuesListTask.last
-      await wrapper.vm.loadGraphUserTask.last
-
-      wrapper.vm.logoutUrl = undefined
-      expect(wrapper.find('[data-testid="logout"]').exists()).toBe(true)
-    })
-    it('should use url from configuration manager', async () => {
-      const { wrapper } = getWrapper()
-
-      await wrapper.vm.loadAccountBundleTask.last
-      await wrapper.vm.loadValuesListTask.last
-      await wrapper.vm.loadGraphUserTask.last
-
-      const logoutButton = wrapper.find(selectors.logoutButton)
-      expect(logoutButton.attributes('href')).toBe('https://account-manager/logout')
-    })
-  })
 
   describe('Method "updateDisableEmailNotifications', () => {
     it('should show a message on success', async () => {
-      const { wrapper, mocks, storeOptions } = getWrapper()
-
-      await wrapper.vm.loadAccountBundleTask.last
-      await wrapper.vm.loadValuesListTask.last
-      await wrapper.vm.loadGraphUserTask.last
+      const { wrapper, mocks } = getWrapper()
+      await blockLoadingState(wrapper)
 
       mocks.$clientService.httpAuthenticated.post.mockResolvedValueOnce(mockAxiosResolve({}))
       await wrapper.vm.updateDisableEmailNotifications(true)
-      expect(storeOptions.actions.showMessage).toHaveBeenCalled()
+      const { showMessage } = useMessages()
+      expect(showMessage).toHaveBeenCalled()
     })
     it('should show a message on error', async () => {
-      jest.spyOn(console, 'error').mockImplementation(() => undefined)
+      vi.spyOn(console, 'error').mockImplementation(() => undefined)
 
-      const { wrapper, mocks, storeOptions } = getWrapper()
-
-      await wrapper.vm.loadAccountBundleTask.last
-      await wrapper.vm.loadValuesListTask.last
-      await wrapper.vm.loadGraphUserTask.last
+      const { wrapper, mocks } = getWrapper()
+      await blockLoadingState(wrapper)
 
       mocks.$clientService.httpAuthenticated.post.mockImplementation(() => mockAxiosReject('err'))
       await wrapper.vm.updateDisableEmailNotifications(true)
-      expect(storeOptions.actions.showErrorMessage).toHaveBeenCalled()
+      const { showErrorMessage } = useMessages()
+      expect(showErrorMessage).toHaveBeenCalled()
     })
   })
 
   describe('Method "updateSelectedLanguage', () => {
     it('should show a message on success', async () => {
-      const { wrapper, mocks, storeOptions } = getWrapper({})
-
-      await wrapper.vm.loadAccountBundleTask.last
-      await wrapper.vm.loadValuesListTask.last
-      await wrapper.vm.loadGraphUserTask.last
+      const { wrapper, mocks } = getWrapper({})
+      await blockLoadingState(wrapper)
 
       mocks.$clientService.graphAuthenticated.users.editMe.mockResolvedValueOnce(
         mockAxiosResolve({})
       )
-      await wrapper.vm.updateSelectedLanguage('en')
-      expect(storeOptions.actions.showMessage).toHaveBeenCalled()
+      await wrapper.vm.updateSelectedLanguage({ value: 'en' } as LanguageOption)
+      const { showMessage } = useMessages()
+      expect(showMessage).toHaveBeenCalled()
     })
     it('should show a message on error', async () => {
-      jest.spyOn(console, 'error').mockImplementation(() => undefined)
+      vi.spyOn(console, 'error').mockImplementation(() => undefined)
 
-      const { wrapper, mocks, storeOptions } = getWrapper({})
-
-      await wrapper.vm.loadAccountBundleTask.last
-      await wrapper.vm.loadValuesListTask.last
-      await wrapper.vm.loadGraphUserTask.last
+      const { wrapper, mocks } = getWrapper({})
+      await blockLoadingState(wrapper)
 
       mocks.$clientService.graphAuthenticated.users.editMe.mockImplementation(() =>
         mockAxiosReject('err')
       )
-      await wrapper.vm.updateSelectedLanguage('en')
-      expect(storeOptions.actions.showErrorMessage).toHaveBeenCalled()
+      await wrapper.vm.updateSelectedLanguage({ value: 'en' } as LanguageOption)
+      const { showErrorMessage } = useMessages()
+      expect(showErrorMessage).toHaveBeenCalled()
     })
   })
 
   describe('Method "updateViewOptionsWebDavDetails', () => {
     it('should show a message on success', async () => {
-      const { wrapper, storeOptions } = getWrapper({})
-
-      await wrapper.vm.loadAccountBundleTask.last
-      await wrapper.vm.loadValuesListTask.last
-      await wrapper.vm.loadGraphUserTask.last
+      const { wrapper } = getWrapper({})
+      await blockLoadingState(wrapper)
 
       await wrapper.vm.updateViewOptionsWebDavDetails(true)
-      expect(storeOptions.actions.showMessage).toHaveBeenCalled()
-      expect(
-        storeOptions.modules.Files.mutations.SET_FILE_WEB_DAV_DETAILS_VISIBILITY
-      ).toHaveBeenCalled()
+      const { showMessage } = useMessages()
+      expect(showMessage).toHaveBeenCalled()
+
+      const { setAreWebDavDetailsShown } = useResourcesStore()
+      expect(setAreWebDavDetailsShown).toHaveBeenCalled()
+    })
+  })
+
+  describe('Extensions section', () => {
+    it('should be hidden if no extension points offer preferences', async () => {
+      const { wrapper } = getWrapper({})
+      await blockLoadingState(wrapper)
+
+      expect(wrapper.find(selectors.extensionsSection).exists()).toBeFalsy()
+    })
+
+    it('should be hidden if an extension point only has 1 or less extensions', async () => {
+      const extensionPointMock = mock<ExtensionPoint<Extension>>({
+        userPreference: {
+          label: 'example-extension-point'
+        }
+      })
+      const { wrapper } = getWrapper({
+        extensionPoints: [extensionPointMock]
+      })
+      await blockLoadingState(wrapper)
+
+      expect(wrapper.find(selectors.extensionsSection).exists()).toBeFalsy()
+    })
+
+    it('should be visible if an extension point has at least 2 extensions', async () => {
+      const extensionPoint = mock<ExtensionPoint<Extension>>({
+        id: 'test-extension-point',
+        multiple: false,
+        defaultExtensionId: 'foo-2',
+        userPreference: {
+          label: 'Foo container'
+        }
+      })
+      const extensions = [
+        mock<Extension>({
+          id: 'foo-1',
+          userPreference: {
+            optionLabel: 'Foo 1'
+          }
+        }),
+        mock<Extension>({
+          id: 'foo-2',
+          userPreference: {
+            optionLabel: 'Foo 2'
+          }
+        })
+      ]
+      const { wrapper } = getWrapper({
+        extensionPoints: [extensionPoint],
+        extensions
+      })
+      await blockLoadingState(wrapper)
+
+      expect(wrapper.find(selectors.extensionsSection).exists()).toBeTruthy()
     })
   })
 })
 
+const blockLoadingState = async (wrapper: VueWrapper<any, any>) => {
+  await wrapper.vm.loadAccountBundleTask.last
+  await wrapper.vm.loadValuesListTask.last
+  await wrapper.vm.loadGraphUserTask.last
+}
+
 function getWrapper({
-  user = {},
+  user = mock<User>({ memberOf: [] }),
   capabilities = {},
   accountEditLink = undefined,
-  spaces = []
+  spaces = [],
+  isPublicLinkContext = false,
+  isUserContext = true,
+  extensionPoints = [],
+  extensions = []
+}: {
+  user?: User
+  capabilities?: Partial<Capabilities['capabilities']>
+  accountEditLink?: OptionsConfig['accountEditLink']
+  spaces?: SpaceResource[]
+  isPublicLinkContext?: boolean
+  isUserContext?: boolean
+  extensionPoints?: ExtensionPoint<Extension>[]
+  extensions?: Extension[]
 } = {}) {
-  const storeOptions = { ...defaultStoreMockOptions }
-  storeOptions.modules.runtime.modules.spaces.getters.spaces.mockReturnValue(spaces)
-  storeOptions.getters.user.mockReturnValue({ groups: [], ...user })
-  storeOptions.getters.capabilities.mockReturnValue(capabilities)
-  storeOptions.getters.configuration.mockReturnValue({
-    server: 'http://server/address/',
-    options: { ...(accountEditLink && { accountEditLink }) }
+  const plugins = defaultPlugins({
+    piniaOptions: {
+      userState: { user },
+      authState: {
+        userContextReady: isUserContext,
+        publicLinkContextReady: isPublicLinkContext
+      },
+      spacesState: { spaces },
+      capabilityState: { capabilities },
+      configState: {
+        options: {
+          logoutUrl: 'https://account-manager/logout',
+          ...(accountEditLink && { accountEditLink })
+        }
+      }
+    }
   })
 
-  const store = createStore(storeOptions)
+  const { getExtensionPoints, requestExtensions } = useExtensionRegistry()
+  vi.mocked(getExtensionPoints).mockReturnValue(extensionPoints)
+  vi.mocked(requestExtensions).mockReturnValue(extensions)
 
   const mocks = {
     ...defaultComponentMocks(),
@@ -369,18 +338,17 @@ function getWrapper({
       response = { values: [mock<SettingsValue>()] }
     }
 
-    return mockAxiosResolve(response)
+    return Promise.resolve(mockAxiosResolve(response))
   })
   mocks.$clientService.graphAuthenticated.users.getMe.mockResolvedValue(
     mock<AxiosResponse>({ data: { id: '1' } })
   )
 
   return {
-    storeOptions,
     mocks,
     wrapper: shallowMount(account, {
       global: {
-        plugins: [...defaultPlugins(), store],
+        plugins,
         mocks,
         provide: mocks,
         stubs: {

@@ -67,7 +67,7 @@ import {
   FederatedConnection
 } from '@ownclouders/web-pkg'
 import { useGettext } from 'vue3-gettext'
-import { ShareTypes } from '@ownclouders/web-client/src/helpers'
+import { ShareTypes } from '@ownclouders/web-client'
 import { buildConnection } from '../functions'
 
 export default defineComponent({
@@ -87,9 +87,9 @@ export default defineComponent({
      * Highlighted connections
      */
     highlightedConnections: {
-      type: Array,
+      type: Array as PropType<string[]>,
       required: false,
-      default: () => []
+      default: (): string[] => []
     },
     /**
      * Loading
@@ -152,9 +152,9 @@ export default defineComponent({
       })
     }
 
-    const deleteConnection = async (user) => {
+    const deleteConnection = async (user: FederatedConnection) => {
       try {
-        await clientService.httpAuthenticated.delete('/sciencemesh/delete-accepted-user', {
+        await clientService.httpAuthenticated.delete('/sciencemesh/delete-accepted-user', null, {
           params: {
             user_id: user.user_id,
             idp: user.idp

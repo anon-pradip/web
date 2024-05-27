@@ -1,9 +1,7 @@
-import { mock } from 'jest-mock-extended'
+import { mock } from 'vitest-mock-extended'
 import { unref } from 'vue'
-import { useFileActionsAcceptShare } from '../../../../../src/composables/actions/files/useFileActionsAcceptShare'
-import { Resource } from '@ownclouders/web-client'
-import { ShareStatus } from '@ownclouders/web-client/src/helpers/share'
-import { useStore } from '../../../../../src/composables'
+import { useFileActionsEnableSync } from '../../../../../src/composables/actions/files/useFileActionsEnableSync'
+import { IncomingShareResource } from '@ownclouders/web-client'
 import { defaultComponentMocks, getComposableWrapper, RouteLocation } from 'web-test-helpers'
 
 const sharesWithMeLocation = 'files-shares-with-me'
@@ -11,21 +9,19 @@ const sharesWithOthersLocation = 'files-shares-with-others'
 
 describe('acceptShare', () => {
   describe('computed property "actions"', () => {
-    describe('isEnabled property of returned element', () => {
+    describe('isVisible property of returned element', () => {
       it.each([
-        { resources: [{ status: ShareStatus.pending }] as Resource[], expectedStatus: true },
-        { resources: [{ status: ShareStatus.declined }] as Resource[], expectedStatus: true },
-        { resources: [{ status: ShareStatus.accepted }] as Resource[], expectedStatus: false }
+        { resources: [{ syncEnabled: false }] as IncomingShareResource[], expectedStatus: true },
+        { resources: [{ syncEnabled: true }] as IncomingShareResource[], expectedStatus: false }
       ])(
-        `should be set according to the resource share status if the route name is "${sharesWithMeLocation}"`,
+        `should be set according to the resource syncEnabled state if the route name is "${sharesWithMeLocation}"`,
         (inputData) => {
-          const { wrapper } = getWrapper({
+          getWrapper({
             setup: () => {
-              const store = useStore()
-              const { actions } = useFileActionsAcceptShare({ store })
+              const { actions } = useFileActionsEnableSync()
 
               const resources = inputData.resources
-              expect(unref(actions)[0].isEnabled({ space: null, resources })).toBe(
+              expect(unref(actions)[0].isVisible({ space: null, resources })).toBe(
                 inputData.expectedStatus
               )
             }
@@ -33,20 +29,18 @@ describe('acceptShare', () => {
         }
       )
       it.each([
-        { status: ShareStatus.pending } as Resource,
-        { status: ShareStatus.declined } as Resource,
-        { status: ShareStatus.accepted } as Resource
+        { syncEnabled: false } as IncomingShareResource,
+        { syncEnabled: true } as IncomingShareResource
       ])(
         `should be set as false if the route name is other than "${sharesWithMeLocation}"`,
         (resource) => {
-          const { wrapper } = getWrapper({
+          getWrapper({
             routeName: sharesWithOthersLocation,
             setup: () => {
-              const store = useStore()
-              const { actions } = useFileActionsAcceptShare({ store })
+              const { actions } = useFileActionsEnableSync()
 
               expect(
-                unref(actions)[0].isEnabled({ space: null, resources: [resource] })
+                unref(actions)[0].isVisible({ space: null, resources: [resource] })
               ).toBeFalsy()
             }
           })
@@ -56,7 +50,13 @@ describe('acceptShare', () => {
   })
 })
 
-function getWrapper({ setup, routeName = sharesWithMeLocation }) {
+function getWrapper({
+  setup,
+  routeName = sharesWithMeLocation
+}: {
+  setup: (instance: ReturnType<typeof useFileActionsEnableSync>) => void
+  routeName?: string
+}) {
   const mocks = defaultComponentMocks({ currentRoute: mock<RouteLocation>({ name: routeName }) })
   return {
     wrapper: getComposableWrapper(setup, {

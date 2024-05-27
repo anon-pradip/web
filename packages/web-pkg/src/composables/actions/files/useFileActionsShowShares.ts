@@ -1,35 +1,34 @@
-import { isLocationSharesActive, isLocationTrashActive } from '../../../router'
-import { ShareStatus } from '@ownclouders/web-client/src/helpers/share'
+import { isLocationTrashActive } from '../../../router'
+import { ShareResource } from '@ownclouders/web-client'
 import { eventBus } from '../../../services'
 import { SideBarEventTopics } from '../../sideBar'
 import { computed, unref } from 'vue'
 import { useGettext } from 'vue3-gettext'
 import { useIsFilesAppActive } from '../helpers'
 import { useRouter } from '../../router'
-import { useStore } from '../../store'
-import { Store } from 'vuex'
 import { FileAction, FileActionOptions } from '../types'
 import { useCanShare } from '../../shares'
+import { useResourcesStore } from '../../piniaStores'
 
-export const useFileActionsShowShares = ({ store }: { store?: Store<any> } = {}) => {
-  store = store || useStore()
+export const useFileActionsShowShares = () => {
   const router = useRouter()
   const { $gettext } = useGettext()
   const isFilesAppActive = useIsFilesAppActive()
   const { canShare } = useCanShare()
+  const resourcesStore = useResourcesStore()
 
   const handler = ({ resources }: FileActionOptions) => {
-    store.commit('Files/SET_FILE_SELECTION', resources)
+    resourcesStore.setSelection(resources.map(({ id }) => id))
     eventBus.publish(SideBarEventTopics.openWithPanel, 'sharing#peopleShares')
   }
 
-  const actions = computed((): FileAction[] => [
+  const actions = computed((): FileAction<ShareResource>[] => [
     {
       name: 'show-shares',
       icon: 'user-add',
       label: () => $gettext('Share'),
       handler,
-      isEnabled: ({ resources }) => {
+      isVisible: ({ space, resources }) => {
         // sidebar is currently only available inside files app
         if (!unref(isFilesAppActive)) {
           return false
@@ -41,12 +40,7 @@ export const useFileActionsShowShares = ({ store }: { store?: Store<any> } = {})
         if (resources.length !== 1) {
           return false
         }
-        if (isLocationSharesActive(router, 'files-shares-with-me')) {
-          if (resources[0].status !== ShareStatus.accepted) {
-            return false
-          }
-        }
-        return canShare(resources[0])
+        return canShare({ space, resource: resources[0] })
       },
       componentType: 'button',
       class: 'oc-files-actions-show-shares-trigger'

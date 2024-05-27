@@ -1,28 +1,22 @@
-import {
-  createStore,
-  defaultComponentMocks,
-  defaultPlugins,
-  defaultStoreMockOptions,
-  mount,
-  RouteLocation
-} from 'web-test-helpers'
+import { defaultComponentMocks, defaultPlugins, mount, RouteLocation } from 'web-test-helpers'
 import ResourceDetails from '../../../../src/components/FilesList/ResourceDetails.vue'
-import { mock } from 'jest-mock-extended'
+import { mock } from 'vitest-mock-extended'
 import { useFileActions } from '@ownclouders/web-pkg'
-import { SpaceResource } from '@ownclouders/web-client'
+import { Resource, SpaceResource } from '@ownclouders/web-client'
 import { useRouteQuery } from '@ownclouders/web-pkg'
 import { ref } from 'vue'
 
-jest.mock('@ownclouders/web-pkg', () => ({
-  ...jest.requireActual('@ownclouders/web-pkg'),
-  useRouteQuery: jest.fn(),
-  useFileActions: jest.fn()
+vi.mock('@ownclouders/web-pkg', async (importOriginal) => ({
+  ...(await importOriginal<any>()),
+  getIndicators: vi.fn(() => []),
+  useRouteQuery: vi.fn(),
+  useFileActions: vi.fn()
 }))
 
 describe('ResourceDetails component', () => {
-  jest.mocked(useFileActions).mockImplementation(() =>
+  vi.mocked(useFileActions).mockImplementation(() =>
     mock<ReturnType<typeof useFileActions>>({
-      getDefaultEditorAction: () => ({ handler: jest.fn() }) as any
+      getDefaultEditorAction: () => ({ handler: vi.fn() }) as any
     })
   )
 
@@ -37,7 +31,7 @@ describe('ResourceDetails component', () => {
       expect(wrapper.vm.defaultEditorAction.handler).not.toHaveBeenCalled()
     })
     it("opens default action if query param 'openWithDefaultApp' is set true", () => {
-      jest.mocked(useRouteQuery).mockImplementationOnce(() => ref('true'))
+      vi.mocked(useRouteQuery).mockImplementationOnce(() => ref('true'))
       const { wrapper } = getWrapper()
       expect(wrapper.vm.defaultEditorAction.handler).toHaveBeenCalled()
     })
@@ -52,22 +46,20 @@ describe('ResourceDetails component', () => {
         })
       })
     }
-    const storeOptions = { ...defaultStoreMockOptions }
-    const store = createStore(storeOptions)
 
     const file = {
-      id: 0,
+      id: '0',
       name: 'image.jpg',
+      path: '/',
       size: 24064,
       mdate: 'Wed, 21 Oct 2015 07:28:00 GMT',
       mimeType: 'image/jpg',
       isFolder,
-      owner: [
-        {
-          username: 'admin'
-        }
-      ]
-    }
+      owner: {
+        id: '1',
+        displayName: 'admin'
+      }
+    } as Resource
     const space = mock<SpaceResource>()
 
     return {
@@ -79,10 +71,12 @@ describe('ResourceDetails component', () => {
         },
         global: {
           mocks,
-          plugins: [...defaultPlugins(), store],
+          plugins: [...defaultPlugins()],
           provide: {
+            ...mocks,
             space,
-            resource: file
+            resource: file,
+            versions: []
           }
         }
       })

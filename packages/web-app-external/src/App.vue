@@ -5,6 +5,7 @@
     class="oc-width-1-1 oc-height-1-1"
     :title="iFrameTitle"
     allowfullscreen
+    sandbox="allow-scripts allow-same-origin"
   />
   <div v-if="appUrl && method === 'POST' && formParameters" class="oc-height-1-1 oc-width-1-1">
     <form :action="appUrl" target="app-iframe" method="post">
@@ -18,6 +19,7 @@
       class="oc-width-1-1 oc-height-1-1"
       :title="iFrameTitle"
       allowfullscreen
+      sandbox="allow-scripts allow-same-origin"
     />
   </div>
 </template>
@@ -28,21 +30,22 @@ import { PropType, computed, defineComponent, unref, nextTick, ref, watch, VNode
 import { useTask } from 'vue-concurrency'
 import { useGettext } from 'vue3-gettext'
 
-import { Resource, SpaceResource } from '@ownclouders/web-client/src'
-import { urlJoin } from '@ownclouders/web-client/src/utils'
+import { Resource, SpaceResource } from '@ownclouders/web-client'
+import { urlJoin } from '@ownclouders/web-client'
 import {
   isSameResource,
   queryItemAsString,
-  useConfigurationManager,
+  useCapabilityStore,
+  useConfigStore,
+  useMessages,
   useRequest,
-  useRouteQuery,
-  useStore
+  useRouteQuery
 } from '@ownclouders/web-pkg'
 import {
   isProjectSpaceResource,
   isPublicSpaceResource,
   isShareSpaceResource
-} from '@ownclouders/web-client/src/helpers'
+} from '@ownclouders/web-client'
 
 export default defineComponent({
   name: 'ExternalApp',
@@ -54,8 +57,9 @@ export default defineComponent({
   emits: ['update:applicationName'],
   setup(props, { emit }) {
     const language = useGettext()
-    const store = useStore()
-    const configurationManager = useConfigurationManager()
+    const { showErrorMessage } = useMessages()
+    const capabilityStore = useCapabilityStore()
+    const configStore = useConfigStore()
 
     const { $gettext } = language
     const { makeRequest } = useRequest()
@@ -66,7 +70,6 @@ export default defineComponent({
     const method = ref()
     const subm: VNodeRef = ref()
 
-    const capabilities = computed(() => store.getters['capabilities'])
     const applicationName = computed(() => {
       const appName = queryItemAsString(unref(appNameQuery))
       emit('update:applicationName', appName)
@@ -79,27 +82,25 @@ export default defineComponent({
       })
     })
 
-    const errorPopup = (error) => {
-      store.dispatch('showErrorMessage', {
+    const errorPopup = (error: string) => {
+      showErrorMessage({
         title: $gettext('An error occurred'),
         desc: error,
-        error
+        errors: [new Error(error)]
       })
     }
 
     const loadAppUrl = useTask(function* (signal, viewMode: string) {
       try {
         if (props.isReadOnly && viewMode === 'write') {
-          store.dispatch('showErrorMessage', {
-            title: $gettext('Cannot open file in edit mode as it is read-only')
-          })
+          showErrorMessage({ title: $gettext('Cannot open file in edit mode as it is read-only') })
           return
         }
 
         const fileId = props.resource.fileId
         const baseUrl = urlJoin(
-          configurationManager.serverUrl,
-          unref(capabilities).files.app_providers[0].open_url
+          configStore.serverUrl,
+          capabilityStore.filesAppProviders[0].open_url
         )
 
         const query = stringify({
@@ -155,14 +156,14 @@ export default defineComponent({
     }).restartable()
 
     const determineOpenAsPreview = (appName: string) => {
-      const openAsPreview = configurationManager.options.editor.openAsPreview
+      const openAsPreview = configStore.options.editor.openAsPreview
       return (
         openAsPreview === true || (Array.isArray(openAsPreview) && openAsPreview.includes(appName))
       )
     }
 
     // switch to write mode when edit is clicked
-    const catchClickMicrosoftEdit = (event) => {
+    const catchClickMicrosoftEdit = (event: MessageEvent) => {
       try {
         if (JSON.parse(event.data)?.MessageId === 'UI_Edit') {
           loadAppUrl.perform('write')

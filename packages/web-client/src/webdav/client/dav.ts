@@ -1,4 +1,3 @@
-import { Ref, unref } from 'vue'
 import {
   Headers,
   ProgressEventCallback,
@@ -9,34 +8,32 @@ import {
 import { v4 as uuidV4 } from 'uuid'
 import { encodePath, urlJoin } from '../../utils'
 import { DavMethod, DavPropertyValue } from '../constants'
-import { buildPropFindBody } from './builders'
+import { buildPropFindBody, buildPropPatchBody } from './builders'
 import { parseError, parseMultiStatus, parseTusHeaders } from './parsers'
 import { WebDavResponseResource } from '../../helpers'
 import { HttpError } from '../../errors'
+import { AxiosInstance } from 'axios'
 
-interface DAVOptions {
-  accessToken: Ref<string>
+export interface DAVOptions {
+  axiosClient: AxiosInstance
   baseUrl: string
-  language: Ref<string>
 }
 
-interface DavResult {
+export interface DavResult {
   body: WebDavResponseResource[] | undefined
   status: number
   result: Response
 }
 
 export class DAV {
-  private accessToken: Ref<string>
   private client: WebDAVClient
+  private axiosClient: AxiosInstance
   private davPath: string
-  private language: Ref<string>
 
-  constructor({ accessToken, baseUrl, language }: DAVOptions) {
+  constructor({ axiosClient, baseUrl }: DAVOptions) {
     this.davPath = urlJoin(baseUrl, 'remote.php/dav')
-    this.accessToken = accessToken
     this.client = createClient(this.davPath, {})
-    this.language = language
+    this.axiosClient = axiosClient
   }
 
   public mkcol(path: string, { headers = {} }: { headers?: Headers } = {}) {
@@ -65,21 +62,24 @@ export class DAV {
     return body
   }
 
-  public async search(
-    pattern: string,
+  public async report(
     path: string,
     {
+      pattern = '',
+      filterRules = null,
       limit = 30,
       properties,
       headers = {}
     }: {
+      pattern?: string
+      filterRules?: Partial<Record<DavPropertyValue, unknown>>
       limit?: number
       properties?: DavPropertyValue[]
       headers?: Headers
     } = {}
   ) {
     const { body, result } = await this.request(DavMethod.report, path, {
-      body: buildPropFindBody(properties, { pattern, limit }),
+      body: buildPropFindBody(properties, { pattern, filterRules, limit }),
       headers
     })
 
@@ -113,7 +113,7 @@ export class DAV {
 
   public put(
     path: string,
-    content: string,
+    content: string | ArrayBuffer,
     {
       headers = {},
       onUploadProgress,
@@ -146,13 +146,28 @@ export class DAV {
     return this.request(DavMethod.delete, path, { headers })
   }
 
+  public propPatch(
+    path: string,
+    properties: Partial<Record<DavPropertyValue, unknown>>,
+    { headers = {} }: { headers?: Headers } = {}
+  ) {
+    const body = buildPropPatchBody(properties)
+    return this.request(DavMethod.proppatch, path, { body, headers })
+  }
+
   public getFileUrl(path: string) {
     return urlJoin(this.davPath, encodePath(path))
   }
 
   private buildHeaders(headers: Headers = {}): Headers {
+    const authHeader = this.axiosClient.defaults.headers.Authorization
+    const languageHeader = this.axiosClient.defaults.headers['Accept-Language']
+    const initiatorIdHeader = this.axiosClient.defaults.headers['Initiator-ID']
+
     return {
-      'Accept-Language': unref(this.language),
+      ...(authHeader && { Authorization: authHeader.toString() }),
+      ...(languageHeader && { 'Accept-Language': languageHeader.toString() }),
+      ...(initiatorIdHeader && { 'Initiator-ID': initiatorIdHeader.toString() }),
       'Content-Type': 'application/xml; charset=utf-8',
       'X-Requested-With': 'XMLHttpRequest',
       'X-Request-ID': uuidV4(),
@@ -168,7 +183,7 @@ export class DAV {
       headers,
       options
     }: {
-      body?: string
+      body?: string | ArrayBuffer
       headers?: Headers
       options?: Partial<RequestOptionsCustom>
     } = {}

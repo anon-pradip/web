@@ -2,18 +2,18 @@ import { FolderLoader, FolderLoaderTask, TaskContext } from '../folder'
 import { Router } from 'vue-router'
 import { useTask } from 'vue-concurrency'
 import { isLocationPublicActive, isLocationSpacesActive } from '@ownclouders/web-pkg'
-import { useCapabilityFilesSharingResharing } from '@ownclouders/web-pkg'
 import {
+  call,
   isPersonalSpaceResource,
   isPublicSpaceResource,
   isShareSpaceResource,
   SpaceResource
-} from '@ownclouders/web-client/src/helpers'
+} from '@ownclouders/web-client'
 import { unref } from 'vue'
 import { FolderLoaderOptions } from './types'
 import { authService } from 'web-runtime/src/services/auth'
 import { useFileRouteReplace } from '@ownclouders/web-pkg'
-import { aggregateResourceShares } from '@ownclouders/web-client/src/helpers/share'
+import { IncomingShareResource } from '@ownclouders/web-client'
 import { getIndicators } from '@ownclouders/web-pkg'
 
 export class FolderLoaderSpace implements FolderLoader {
@@ -33,10 +33,9 @@ export class FolderLoaderSpace implements FolderLoader {
   }
 
   public getTask(context: TaskContext): FolderLoaderTask {
-    const { store, router, clientService, configurationManager } = context
-    const { owncloudSdk: client, webdav } = clientService
+    const { router, clientService, resourcesStore, userStore } = context
+    const { webdav } = clientService
     const { replaceInvalidFileRoute } = useFileRouteReplace({ router })
-    const hasResharing = useCapabilityFilesSharingResharing(store)
 
     return useTask(function* (
       signal1,
@@ -47,12 +46,12 @@ export class FolderLoaderSpace implements FolderLoader {
       options: FolderLoaderOptions = {}
     ) {
       try {
-        store.commit('Files/CLEAR_CURRENT_FILES_LIST')
+        resourcesStore.clearResourceList()
 
-        let { resource: currentFolder, children: resources } = yield webdav.listFiles(space, {
-          path,
-          fileId
-        })
+        // eslint-disable-next-line prefer-const
+        let { resource: currentFolder, children: resources } = yield* call(
+          webdav.listFiles(space, { path, fileId })
+        )
         // if current folder has no id (= singe file public link) we must not correct the route
         if (currentFolder.id) {
           replaceInvalidFileRoute({ space, resource: currentFolder, path, fileId })
@@ -60,46 +59,41 @@ export class FolderLoaderSpace implements FolderLoader {
 
         if (path === '/') {
           if (isShareSpaceResource(space)) {
-            const parentShare = yield client.shares.getShare(space.shareId)
-            const aggregatedShares = aggregateResourceShares({
-              shares: [parentShare.shareInfo],
-              spaces: store.getters['runtime/spaces/spaces'],
-              allowSharePermission: unref(hasResharing),
-              hasShareJail: true,
-              incomingShares: true,
-              fullShareOwnerPaths: configurationManager.options.routing.fullShareOwnerPaths
-            })
-            currentFolder = aggregatedShares[0]
+            // FIXME: it would be cleaner to fetch the driveItem as soon as graph api is capable of it
+            currentFolder = {
+              ...currentFolder,
+              id: space.id,
+              syncEnabled: true,
+              canShare: () => false
+            } as IncomingShareResource
           } else if (!isPersonalSpaceResource(space) && !isPublicSpaceResource(space)) {
             // note: in the future we might want to show the space as root for personal spaces as well (to show quota and the like). Currently not needed.
             currentFolder = space
           }
         }
 
-        yield store.dispatch('runtime/ancestorMetaData/loadAncestorMetaData', {
-          folder: currentFolder,
-          space,
-          client: webdav
-        })
+        yield resourcesStore.loadAncestorMetaData({ folder: currentFolder, space, client: webdav })
 
         if (options.loadShares) {
-          const ancestorMetaData = store.getters['runtime/ancestorMetaData/ancestorMetaData']
+          const ancestorMetaData = resourcesStore.ancestorMetaData
           for (const file of resources) {
-            file.indicators = getIndicators({ resource: file, ancestorMetaData })
+            file.indicators = getIndicators({
+              space,
+              resource: file,
+              ancestorMetaData,
+              user: userStore.user
+            })
           }
         }
 
         // TODO: remove when server returns share id for federated shares in propfind response
-        if (space.shareId) {
-          resources.forEach((r) => (r.shareId = space.shareId))
+        if (isShareSpaceResource(space)) {
+          resources.forEach((r) => (r.remoteItemId = space.id))
         }
 
-        store.commit('Files/LOAD_FILES', {
-          currentFolder,
-          files: resources
-        })
+        resourcesStore.initResourceList({ currentFolder, resources })
       } catch (error) {
-        store.commit('Files/SET_CURRENT_FOLDER', null)
+        resourcesStore.setCurrentFolder(null)
         console.error(error)
 
         if (error.statusCode === 401) {

@@ -1,86 +1,69 @@
-import { useStore } from '../store'
-import { useAccessToken, usePublicLinkContext, usePublicLinkPassword } from '../authContext'
-import {
-  useCapabilityFilesTusExtension,
-  useCapabilityFilesTusSupportHttpMethodOverride,
-  useCapabilityFilesTusSupportMaxChunkSize
-} from '../capability'
 import { computed, unref, watch } from 'vue'
 import { UppyService } from '../../services/uppy/uppyService'
-import { v4 as uuidV4 } from 'uuid'
-import { useGettext } from 'vue3-gettext'
+import { useCapabilityStore, useConfigStore } from '../piniaStores'
+import { TusOptions } from '@uppy/tus'
+import { XHRUploadOptions } from '@uppy/xhr-upload'
+import { UppyFile } from '@uppy/core'
+import { useRequestHeaders } from '../requestHeaders'
 
 interface UploadOptions {
   uppyService: UppyService
 }
 
 export function useUpload(options: UploadOptions) {
-  const store = useStore()
-  const { current: currentLanguage } = useGettext()
-  const publicLinkPassword = usePublicLinkPassword({ store })
-  const isPublicLinkContext = usePublicLinkContext({ store })
-  const accessToken = useAccessToken({ store })
+  const configStore = useConfigStore()
+  const capabilityStore = useCapabilityStore()
+  const { headers } = useRequestHeaders()
 
-  const tusHttpMethodOverride = useCapabilityFilesTusSupportHttpMethodOverride()
-  const tusMaxChunkSize = useCapabilityFilesTusSupportMaxChunkSize()
-  const tusExtension = useCapabilityFilesTusExtension()
+  const isTusSupported = computed(() => capabilityStore.tusMaxChunkSize > 0)
 
-  const headers = computed((): { [key: string]: string } => {
-    const headers = { 'Accept-Language': currentLanguage }
-    if (unref(isPublicLinkContext)) {
-      const password = unref(publicLinkPassword)
-      if (password) {
-        return {
-          ...headers,
-          Authorization: 'Basic ' + Buffer.from('public:' + password).toString('base64')
-        }
+  const tusOptions = computed<TusOptions>(() => {
+    const options: TusOptions = {
+      onBeforeRequest: (req, file) =>
+        new Promise((resolve) => {
+          req.setHeader('Authorization', unref(headers).Authorization)
+          req.setHeader('X-Request-ID', unref(headers)['X-Request-ID'])
+          req.setHeader('Accept-Language', unref(headers)['Accept-Language'])
+          req.setHeader('Initiator-ID', unref(headers)['Initiator-ID'])
+          if (file?.isRemote) {
+            req.setHeader('x-oc-mtime', (file?.data?.lastModified / 1000).toString())
+          }
+          resolve()
+        }),
+      chunkSize: capabilityStore.tusMaxChunkSize || Infinity,
+      overridePatchMethod: capabilityStore.tusHttpMethodOverride,
+      uploadDataDuringCreation: capabilityStore.tusExtension.includes('creation-with-upload')
+    }
+
+    // FIXME: remove if cloud upload still works without this
+    ;(options as any)['headers'] = (file: UppyFile) => {
+      if (!!file.xhrUpload || file?.isRemote) {
+        return { 'x-oc-mtime': file?.data?.lastModified / 1000, ...unref(headers) }
       }
+    }
 
-      return headers
-    }
-    return {
-      ...headers,
-      Authorization: 'Bearer ' + unref(accessToken)
-    }
+    return options
   })
 
-  const uppyOptions = computed(() => {
-    const isTusSupported = unref(tusMaxChunkSize) > 0
-
+  const xhrOptions = computed<XHRUploadOptions>(() => {
     return {
-      isTusSupported,
-      onBeforeRequest: (req) => {
-        req.setHeader('Authorization', unref(headers).Authorization)
-        req.setHeader('X-Request-ID', uuidV4())
-        req.setHeader('Accept-Language', unref(headers)['Accept-Language'])
-      },
-      headers: (file) =>
-        !!file.xhrUpload || file?.isRemote
-          ? {
-              'x-oc-mtime': file?.data?.lastModified / 1000,
-              'X-Request-ID': uuidV4(),
-              ...unref(headers)
-            }
-          : {},
-      ...(isTusSupported && {
-        tusMaxChunkSize: unref(tusMaxChunkSize),
-        tusHttpMethodOverride: unref(tusHttpMethodOverride),
-        tusExtension: unref(tusExtension)
-      }),
-      ...(!isTusSupported && {
-        xhrTimeout: store.getters.configuration?.options?.upload?.xhr?.timeout || 60000
+      timeout: configStore.options.upload?.xhr?.timeout || 60000,
+      endpoint: '',
+      headers: (file) => ({
+        'x-oc-mtime': file?.data?.lastModified / 1000,
+        ...unref(headers)
       })
     }
   })
 
   watch(
-    uppyOptions,
+    [tusOptions, xhrOptions],
     () => {
-      if (unref(uppyOptions).isTusSupported) {
-        options.uppyService.useTus(unref(uppyOptions) as any)
+      if (unref(isTusSupported)) {
+        options.uppyService.useTus(unref(tusOptions))
         return
       }
-      options.uppyService.useXhr(unref(uppyOptions) as any)
+      options.uppyService.useXhr(unref(xhrOptions))
     },
     { immediate: true }
   )

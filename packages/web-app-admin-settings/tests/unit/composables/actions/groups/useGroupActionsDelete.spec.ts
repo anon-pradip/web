@@ -1,28 +1,23 @@
 import { useGroupActionsDelete } from '../../../../../src/composables/actions/groups/useGroupActionsDelete'
-import { mock } from 'jest-mock-extended'
+import { mock } from 'vitest-mock-extended'
 import { unref } from 'vue'
-import { Group } from '@ownclouders/web-client/src/generated'
-import { eventBus } from '@ownclouders/web-pkg'
-import {
-  createStore,
-  defaultComponentMocks,
-  defaultStoreMockOptions,
-  getComposableWrapper
-} from 'web-test-helpers'
+import { Group } from '@ownclouders/web-client/graph/generated'
+import { defaultComponentMocks, getComposableWrapper } from 'web-test-helpers'
+import { useGroupSettingsStore } from '../../../../../src/composables'
 
 describe('useGroupActionsDelete', () => {
-  describe('method "isEnabled"', () => {
+  describe('method "isVisible"', () => {
     it.each([
-      { resources: [], isEnabled: false },
-      { resources: [mock<Group>({ groupTypes: [] })], isEnabled: true },
+      { resources: [], isVisible: false },
+      { resources: [mock<Group>({ groupTypes: [] })], isVisible: true },
       {
         resources: [mock<Group>({ groupTypes: [] }), mock<Group>({ groupTypes: [] })],
-        isEnabled: true
+        isVisible: true
       }
-    ])('should only return true if 1 or more groups are selected', ({ resources, isEnabled }) => {
+    ])('should only return true if 1 or more groups are selected', ({ resources, isVisible }) => {
       getWrapper({
         setup: ({ actions }) => {
-          expect(unref(actions)[0].isEnabled({ resources })).toEqual(isEnabled)
+          expect(unref(actions)[0].isVisible({ resources })).toEqual(isVisible)
         }
       })
     })
@@ -30,35 +25,33 @@ describe('useGroupActionsDelete', () => {
       getWrapper({
         setup: ({ actions }) => {
           const resources = [mock<Group>({ groupTypes: ['ReadOnly'] })]
-          expect(unref(actions)[0].isEnabled({ resources })).toBeFalsy()
+          expect(unref(actions)[0].isVisible({ resources })).toBeFalsy()
         }
       })
     })
   })
   describe('method "deleteGroups"', () => {
     it('should successfully delete all given gropups and reload the groups list', () => {
-      const eventSpy = jest.spyOn(eventBus, 'publish')
       getWrapper({
-        setup: async ({ deleteGroups }, { storeOptions, clientService }) => {
+        setup: async ({ deleteGroups }, { clientService }) => {
           const group = mock<Group>({ id: '1' })
           await deleteGroups([group])
           expect(clientService.graphAuthenticated.groups.deleteGroup).toHaveBeenCalledWith(group.id)
-          expect(storeOptions.actions.hideModal).toHaveBeenCalled()
-          expect(eventSpy).toHaveBeenCalledWith('app.admin-settings.list.load')
+          const { removeGroups } = useGroupSettingsStore()
+          expect(removeGroups).toHaveBeenCalled()
         }
       })
     })
     it('should handle errors', () => {
-      jest.spyOn(console, 'error').mockImplementation(() => undefined)
-      const eventSpy = jest.spyOn(eventBus, 'publish')
+      vi.spyOn(console, 'error').mockImplementation(() => undefined)
       getWrapper({
-        setup: async ({ deleteGroups }, { storeOptions, clientService }) => {
+        setup: async ({ deleteGroups }, { clientService }) => {
           clientService.graphAuthenticated.groups.deleteGroup.mockRejectedValue({})
           const group = mock<Group>({ id: '1' })
           await deleteGroups([group])
           expect(clientService.graphAuthenticated.groups.deleteGroup).toHaveBeenCalledWith(group.id)
-          expect(storeOptions.actions.hideModal).toHaveBeenCalled()
-          expect(eventSpy).toHaveBeenCalledWith('app.admin-settings.list.load')
+          const { removeGroups } = useGroupSettingsStore()
+          expect(removeGroups).toHaveBeenCalled()
         }
       })
     })
@@ -71,24 +64,20 @@ function getWrapper({
   setup: (
     instance: ReturnType<typeof useGroupActionsDelete>,
     {
-      storeOptions,
       clientService
     }: {
-      storeOptions: typeof defaultStoreMockOptions
       clientService: ReturnType<typeof defaultComponentMocks>['$clientService']
     }
   ) => void
 }) {
-  const storeOptions = defaultStoreMockOptions
-  const store = createStore(storeOptions)
   const mocks = defaultComponentMocks()
   return {
     wrapper: getComposableWrapper(
       () => {
-        const instance = useGroupActionsDelete({ store })
-        setup(instance, { storeOptions, clientService: mocks.$clientService })
+        const instance = useGroupActionsDelete()
+        setup(instance, { clientService: mocks.$clientService })
       },
-      { store, mocks, provide: mocks }
+      { mocks, provide: mocks }
     )
   }
 }

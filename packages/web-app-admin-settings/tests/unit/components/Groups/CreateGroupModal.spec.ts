@@ -1,16 +1,15 @@
 import CreateGroupModal from '../../../../src/components/Groups/CreateGroupModal.vue'
 import {
-  createStore,
   defaultComponentMocks,
   defaultPlugins,
-  defaultStoreMockOptions,
   mockAxiosReject,
   mockAxiosResolve,
   shallowMount
 } from 'web-test-helpers'
-import { mock } from 'jest-mock-extended'
+import { mock } from 'vitest-mock-extended'
 import { AxiosResponse } from 'axios'
-import { eventBus } from '@ownclouders/web-pkg'
+import { Modal, eventBus, useMessages } from '@ownclouders/web-pkg'
+import { useGroupSettingsStore } from '../../../../src/composables'
 
 describe('CreateGroupModal', () => {
   describe('computed method "isFormInvalid"', () => {
@@ -59,16 +58,20 @@ describe('CreateGroupModal', () => {
   })
   describe('method "onConfirm"', () => {
     it('should not create group if form is invalid', async () => {
-      const { wrapper, storeOptions } = getWrapper()
+      vi.spyOn(console, 'error').mockImplementation(() => undefined)
+      const { wrapper } = getWrapper()
 
-      const eventSpy = jest.spyOn(eventBus, 'publish')
-      await wrapper.vm.onConfirm()
+      const eventSpy = vi.spyOn(eventBus, 'publish')
+      try {
+        await wrapper.vm.onConfirm()
+      } catch (error) {}
 
-      expect(storeOptions.actions.showMessage).not.toHaveBeenCalled()
+      const { showMessage } = useMessages()
+      expect(showMessage).not.toHaveBeenCalled()
       expect(eventSpy).not.toHaveBeenCalled()
     })
     it('should create group on success', async () => {
-      const { wrapper, mocks, storeOptions } = getWrapper()
+      const { wrapper, mocks } = getWrapper()
       mocks.$clientService.graphAuthenticated.groups.getGroup.mockRejectedValueOnce(new Error(''))
 
       wrapper.vm.group.displayName = 'foo bar'
@@ -78,17 +81,18 @@ describe('CreateGroupModal', () => {
         mockAxiosResolve({ id: 'e3515ffb-d264-4dfc-8506-6c239f6673b5' })
       )
 
-      const eventSpy = jest.spyOn(eventBus, 'publish')
       await wrapper.vm.onConfirm()
 
-      expect(storeOptions.actions.showMessage).toHaveBeenCalled()
-      expect(eventSpy).toHaveBeenCalled()
+      const { showMessage } = useMessages()
+      expect(showMessage).toHaveBeenCalled()
+      const { upsertGroup } = useGroupSettingsStore()
+      expect(upsertGroup).toHaveBeenCalled()
     })
 
     it('should show message on error', async () => {
-      jest.spyOn(console, 'error').mockImplementation(() => undefined)
+      vi.spyOn(console, 'error').mockImplementation(() => undefined)
 
-      const { wrapper, mocks, storeOptions } = getWrapper()
+      const { wrapper, mocks } = getWrapper()
       mocks.$clientService.graphAuthenticated.groups.getGroup.mockRejectedValue(new Error(''))
 
       wrapper.vm.group.displayName = 'foo bar'
@@ -97,39 +101,29 @@ describe('CreateGroupModal', () => {
       mocks.$clientService.graphAuthenticated.groups.createGroup.mockRejectedValue(
         mockAxiosResolve({ id: 'e3515ffb-d264-4dfc-8506-6c239f6673b5' })
       )
-      const eventSpy = jest.spyOn(eventBus, 'publish')
       await wrapper.vm.onConfirm()
 
-      expect(storeOptions.actions.showErrorMessage).toHaveBeenCalled()
-      expect(eventSpy).not.toHaveBeenCalled()
-    })
-  })
-  describe('method "onCancel"', () => {
-    it('hides the modal', async () => {
-      const { wrapper, storeOptions } = getWrapper()
-      await wrapper.vm.onCancel()
-      expect(storeOptions.actions.hideModal).toHaveBeenCalled()
+      const { showErrorMessage } = useMessages()
+      expect(showErrorMessage).toHaveBeenCalled()
+      const { upsertGroup } = useGroupSettingsStore()
+      expect(upsertGroup).not.toHaveBeenCalled()
     })
   })
 })
 
 function getWrapper() {
   const mocks = defaultComponentMocks()
-  const storeOptions = defaultStoreMockOptions
-  const store = createStore(storeOptions)
 
   return {
     mocks,
-    storeOptions,
     wrapper: shallowMount(CreateGroupModal, {
       props: {
-        cancel: jest.fn(),
-        confirm: jest.fn()
+        modal: mock<Modal>()
       },
       global: {
         mocks,
         provide: mocks,
-        plugins: [...defaultPlugins(), store]
+        plugins: [...defaultPlugins()]
       }
     })
   }

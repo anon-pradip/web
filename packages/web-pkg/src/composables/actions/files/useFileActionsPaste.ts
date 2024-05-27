@@ -3,24 +3,28 @@ import {
   isLocationPublicActive,
   isLocationSpacesActive
 } from '../../../router'
-import { Store } from 'vuex'
 import { computed, unref } from 'vue'
 import { useGettext } from 'vue3-gettext'
 import { useGetMatchingSpace } from '../../spaces'
 import { useClientService } from '../../clientService'
 import { useLoadingService } from '../../loadingService'
 import { useRouter } from '../../router'
-import { useStore } from '../../store'
 import { FileAction, FileActionOptions } from '../types'
-import { Resource, SpaceResource } from '@ownclouders/web-client'
+import { Resource, SpaceResource, isShareSpaceResource } from '@ownclouders/web-client'
+import { useClipboardStore, useResourcesStore } from '../../piniaStores'
+import { ClipboardActions, ResourceTransfer, TransferType } from '../../../helpers'
+import { storeToRefs } from 'pinia'
 
-export const useFileActionsPaste = ({ store }: { store?: Store<any> } = {}) => {
-  store = store || useStore()
+export const useFileActionsPaste = () => {
   const router = useRouter()
   const clientService = useClientService()
   const loadingService = useLoadingService()
   const { getMatchingSpace } = useGetMatchingSpace()
   const { $gettext, $ngettext } = useGettext()
+  const clipboardStore = useClipboardStore()
+
+  const resourcesStore = useResourcesStore()
+  const { currentFolder } = storeToRefs(resourcesStore)
 
   const isMacOs = computed(() => {
     return window.navigator.platform.match('Mac')
@@ -33,42 +37,85 @@ export const useFileActionsPaste = ({ store }: { store?: Store<any> } = {}) => {
     return $gettext('Ctrl + V')
   })
 
+  const pasteSelectedFiles = ({
+    targetSpace,
+    sourceSpace,
+    resources
+  }: {
+    targetSpace: SpaceResource
+    sourceSpace: SpaceResource
+    resources: Resource[]
+  }) => {
+    const copyMove = new ResourceTransfer(
+      sourceSpace,
+      resources,
+      targetSpace,
+      unref(currentFolder),
+      currentFolder,
+      clientService,
+      loadingService,
+      $gettext,
+      $ngettext
+    )
+    let movedResourcesPromise: Promise<Resource[]>
+    if (clipboardStore.action === ClipboardActions.Cut) {
+      movedResourcesPromise = copyMove.perform(TransferType.MOVE)
+    }
+    if (clipboardStore.action === ClipboardActions.Copy) {
+      movedResourcesPromise = copyMove.perform(TransferType.COPY)
+    }
+    return movedResourcesPromise.then((movedResources) => {
+      const loadingResources = []
+      const fetchedResources: Resource[] = []
+      for (const resource of movedResources) {
+        loadingResources.push(
+          (async () => {
+            const movedResource = await clientService.webdav.getFileInfo(targetSpace, resource)
+            fetchedResources.push(movedResource)
+          })()
+        )
+      }
+
+      return Promise.all(loadingResources).then(() => {
+        // FIXME: move to buildResource as soon as it has space context
+        if (isShareSpaceResource(targetSpace)) {
+          fetchedResources.forEach((r) => {
+            r.remoteItemId = targetSpace.id
+          })
+        }
+
+        resourcesStore.upsertResources(fetchedResources)
+        resourcesStore.loadIndicators(targetSpace, unref(currentFolder).path)
+      })
+    })
+  }
+
   const handler = async ({ space: targetSpace }: FileActionOptions) => {
-    const resourceSpaceMapping: Record<string, { space: SpaceResource; resources: Resource[] }> =
-      store.getters['Files/clipboardResources'].reduce((acc, resource) => {
-        if (resource.storageId in acc) {
-          acc[resource.storageId].resources.push(resource)
-          return acc
-        }
-
-        const matchingSpace = getMatchingSpace(resource)
-
-        if (!(matchingSpace.id in acc)) {
-          acc[matchingSpace.id] = { space: matchingSpace, resources: [] }
-        }
-
-        acc[matchingSpace.id].resources.push(resource)
+    const resourceSpaceMapping = clipboardStore.resources.reduce<
+      Record<string, { space: SpaceResource; resources: Resource[] }>
+    >((acc, resource) => {
+      if (resource.storageId in acc) {
+        acc[resource.storageId].resources.push(resource)
         return acc
-      }, {})
+      }
+
+      const matchingSpace = getMatchingSpace(resource)
+
+      if (!(matchingSpace.id in acc)) {
+        acc[matchingSpace.id] = { space: matchingSpace, resources: [] }
+      }
+
+      acc[matchingSpace.id].resources.push(resource)
+      return acc
+    }, {})
+
     const promises = Object.values(resourceSpaceMapping).map(
       ({ space: sourceSpace, resources: resourcesToCopy }) => {
-        return store.dispatch('Files/pasteSelectedFiles', {
-          targetSpace,
-          sourceSpace: sourceSpace,
-          resources: resourcesToCopy,
-          clientService,
-          loadingService,
-          createModal: (...args) => store.dispatch('createModal', ...args),
-          hideModal: (...args) => store.dispatch('hideModal', ...args),
-          showMessage: (...args) => store.dispatch('showMessage', ...args),
-          showErrorMessage: (...args) => store.dispatch('showErrorMessage', ...args),
-          $gettext,
-          $ngettext
-        })
+        return pasteSelectedFiles({ targetSpace, sourceSpace, resources: resourcesToCopy })
       }
     )
     await Promise.all(promises)
-    store.commit('Files/CLEAR_CLIPBOARD')
+    clipboardStore.clearClipboard()
   }
 
   const actions = computed((): FileAction[] => [
@@ -78,8 +125,8 @@ export const useFileActionsPaste = ({ store }: { store?: Store<any> } = {}) => {
       handler,
       label: () => $gettext('Paste'),
       shortcut: unref(pasteShortcutString),
-      isEnabled: ({ resources }) => {
-        if (store.getters['Files/clipboardResources'].length === 0) {
+      isVisible: ({ resources }) => {
+        if (clipboardStore.resources.length === 0) {
           return false
         }
         if (
@@ -93,9 +140,8 @@ export const useFileActionsPaste = ({ store }: { store?: Store<any> } = {}) => {
           return false
         }
 
-        const currentFolder = store.getters['Files/currentFolder']
-        if (isLocationPublicActive(router, 'files-public-link') && currentFolder) {
-          return currentFolder.canCreate()
+        if (isLocationPublicActive(router, 'files-public-link') && unref(currentFolder)) {
+          return unref(currentFolder).canCreate()
         }
 
         // copy can't be restricted in authenticated context, because

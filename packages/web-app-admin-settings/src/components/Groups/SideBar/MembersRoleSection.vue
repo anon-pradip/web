@@ -13,14 +13,15 @@
 </template>
 <script lang="ts">
 import { defineComponent, PropType } from 'vue'
-import { User } from '@ownclouders/web-client/src/helpers'
+import { User } from '@ownclouders/web-client/graph/generated'
 
 export default defineComponent({
   name: 'MembersRoleSection',
   props: {
     groupMembers: {
       type: Array as PropType<User[]>,
-      required: false
+      required: false,
+      default: (): User[] => []
     }
   }
 })

@@ -68,7 +68,7 @@
           />
         </li>
         <li
-          v-if="viewModes.includes(ViewModeConstants.tilesView)"
+          v-if="viewModes.find((v) => v.name === FolderViewModeConstants.name.tiles)"
           class="files-view-options-list-item oc-visible@s oc-flex oc-flex-between oc-flex-middle"
         >
           <label for="tiles-size-slider" v-text="$gettext('Tile size')" />
@@ -76,8 +76,8 @@
             id="tiles-size-slider"
             v-model="viewSizeCurrent"
             type="range"
-            min="1"
-            max="6"
+            :min="1"
+            :max="viewSizeMax"
             class="oc-range"
             data-testid="files-tiles-size-slider"
           />
@@ -89,7 +89,6 @@
 
 <script lang="ts">
 import { computed, defineComponent, PropType, ref, unref, watch } from 'vue'
-import { mapMutations, mapState } from 'vuex'
 import { useGettext } from 'vue3-gettext'
 import {
   queryItemAsString,
@@ -98,10 +97,13 @@ import {
   useRouteQueryPersisted,
   useRouter,
   PaginationConstants,
-  ViewModeConstants,
-  useRouteName
+  FolderViewModeConstants,
+  useRouteName,
+  useResourcesStore,
+  useViewSizeMax
 } from '../composables'
-import { ViewMode } from '../ui/types'
+import { FolderView } from '../ui/types'
+import { storeToRefs } from 'pinia'
 
 export default defineComponent({
   props: {
@@ -127,17 +129,21 @@ export default defineComponent({
     viewModeDefault: {
       type: String,
       required: false,
-      default: () => ViewModeConstants.defaultModeName
+      default: () => FolderViewModeConstants.defaultModeName
     },
     viewModes: {
-      type: Array as PropType<ViewMode[]>,
-      default: () => []
+      type: Array as PropType<FolderView[]>,
+      default: (): FolderView[] => []
     }
   },
   setup(props) {
     const router = useRouter()
     const currentRoute = useRoute()
     const { $gettext } = useGettext()
+
+    const resourcesStore = useResourcesStore()
+    const { setAreHiddenFilesShown, setAreFileExtensionsShown } = resourcesStore
+    const { areHiddenFilesShown, areFileExtensionsShown } = storeToRefs(resourcesStore)
 
     const queryParamsLoading = ref(false)
 
@@ -156,13 +162,13 @@ export default defineComponent({
 
     const routeName = useRouteName()
     const viewModeQuery = useRouteQueryPersisted({
-      name: `${unref(routeName)}-${ViewModeConstants.queryName}`,
+      name: `${unref(routeName)}-${FolderViewModeConstants.queryName}`,
       defaultValue: props.viewModeDefault
     })
 
     const viewSizeQuery = useRouteQueryPersisted({
-      name: ViewModeConstants.tilesSizeQueryName,
-      defaultValue: ViewModeConstants.tilesSizeDefault.toString()
+      name: FolderViewModeConstants.tilesSizeQueryName,
+      defaultValue: FolderViewModeConstants.tilesSizeDefault.toString()
     })
 
     const setItemsPerPage = (itemsPerPage: string) => {
@@ -175,7 +181,7 @@ export default defineComponent({
       })
     }
 
-    const setViewMode = (mode: ViewMode) => {
+    const setViewMode = (mode: FolderView) => {
       viewModeQuery.value = mode.name
     }
 
@@ -187,28 +193,33 @@ export default defineComponent({
       { immediate: true, deep: true }
     )
 
+    const viewSizeMax = useViewSizeMax()
+
     return {
-      ViewModeConstants,
+      FolderViewModeConstants,
       viewModeCurrent: viewModeQuery,
       viewSizeCurrent: viewSizeQuery,
+      viewSizeMax,
       itemsPerPageCurrent: itemsPerPageQuery,
       queryParamsLoading,
       queryItemAsString,
       setItemsPerPage,
       setViewMode,
+      areHiddenFilesShown,
+      areFileExtensionsShown,
+      setAreHiddenFilesShown,
+      setAreFileExtensionsShown,
       viewOptionsButtonLabel: $gettext('Display customization options of the files list')
     }
   },
   computed: {
-    ...mapState('Files', ['areHiddenFilesShown', 'areFileExtensionsShown']),
-
     hiddenFilesShownModel: {
       get() {
         return this.areHiddenFilesShown
       },
 
-      set(value) {
-        this.SET_HIDDEN_FILES_VISIBILITY(value)
+      set(value: boolean) {
+        this.setAreHiddenFilesShown(value)
       }
     },
     fileExtensionsShownModel: {
@@ -216,18 +227,16 @@ export default defineComponent({
         return this.areFileExtensionsShown
       },
 
-      set(value) {
-        this.SET_FILE_EXTENSIONS_VISIBILITY(value)
+      set(value: boolean) {
+        this.setAreFileExtensionsShown(value)
       }
     }
   },
   methods: {
-    ...mapMutations('Files', ['SET_HIDDEN_FILES_VISIBILITY', 'SET_FILE_EXTENSIONS_VISIBILITY']),
-
-    updateHiddenFilesShownModel(event) {
+    updateHiddenFilesShownModel(event: boolean) {
       this.hiddenFilesShownModel = event
     },
-    updateFileExtensionsShownModel(event) {
+    updateFileExtensionsShownModel(event: boolean) {
       this.fileExtensionsShownModel = event
     }
   }

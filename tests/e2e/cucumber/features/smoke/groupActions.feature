@@ -59,6 +59,6 @@ Feature: Group actions
 
     And "Brian" navigates to the shared with me page
 
-    And "Brian" accepts all pending shares using the batch actions
+    And "Brian" enables the sync for all shares using the batch actions
     And "Alice" logs out
     And "Brian" logs out

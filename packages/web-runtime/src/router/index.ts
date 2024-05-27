@@ -1,4 +1,3 @@
-import qs from 'qs'
 import AccessDeniedPage from '../pages/accessDenied.vue'
 import Account from '../pages/account.vue'
 import LoginPage from '../pages/login.vue'
@@ -15,11 +14,15 @@ import {
   RouteLocationNormalizedLoaded
 } from 'vue-router'
 
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore
+import qs from 'qs'
+
 export * from './helpers'
 export { createRouter } from 'vue-router'
 
 // just a dummy function to trick gettext tools
-function $gettext(msg) {
+function $gettext(msg: string) {
   return msg
 }
 
@@ -77,7 +80,7 @@ const routes = [
     path: '/account',
     name: 'account',
     component: Account,
-    meta: { title: $gettext('Account'), authContext: 'user' }
+    meta: { title: $gettext('Account'), authContext: 'hybrid' }
   }
 ]
 export const router = patchRouter(

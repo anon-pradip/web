@@ -1,35 +1,43 @@
 import { storeToRefs } from 'pinia'
-import { useStore, usePublicLinkContext, useThemeStore } from '@ownclouders/web-pkg'
+import {
+  useThemeStore,
+  useModals,
+  useUserStore,
+  useAuthStore,
+  useResourcesStore
+} from '@ownclouders/web-pkg'
 import { useGettext } from 'vue3-gettext'
 import { useService } from '@ownclouders/web-pkg'
-import { computed, unref } from 'vue'
-import { Resource } from '@ownclouders/web-client/src'
+import { computed, nextTick, unref } from 'vue'
 import type { UppyService } from '@ownclouders/web-pkg'
 import '@uppy/dashboard/dist/style.min.css'
 import Dashboard from '@uppy/dashboard'
 import OneDrive from '@uppy/onedrive'
-import { WebdavPublicLink } from '@uppy/webdav'
 import GoogleDrive from '@uppy/google-drive'
 import { Extension } from '@ownclouders/web-pkg'
 import { ApplicationSetupOptions } from '@ownclouders/web-pkg'
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore
+import { WebdavPublicLink } from '@uppy/webdav'
 
 export const extensions = ({ applicationConfig }: ApplicationSetupOptions) => {
-  const store = useStore()
+  const userStore = useUserStore()
   const { $gettext } = useGettext()
   const uppyService = useService<UppyService>('$uppyService')
-  const publicLinkContext = usePublicLinkContext({ store })
+  const authStore = useAuthStore()
   const themeStore = useThemeStore()
   const { currentTheme } = storeToRefs(themeStore)
+  const { dispatchModal, removeModal, activeModal } = useModals()
+
+  const resourcesStore = useResourcesStore()
+  const { currentFolder } = storeToRefs(resourcesStore)
 
   const { companionUrl, webdavCloudType } = applicationConfig
   let { supportedClouds } = applicationConfig
   supportedClouds = supportedClouds || ['OneDrive', 'GoogleDrive', 'WebdavPublicLink']
 
-  const currentFolder = computed<Resource>(() => {
-    return store.getters['Files/currentFolder']
-  })
   const canUpload = computed(() => {
-    return unref(currentFolder)?.canUpload({ user: store.getters.user })
+    return unref(currentFolder)?.canUpload({ user: userStore.user })
   })
 
   const removeUppyPlugins = () => {
@@ -46,7 +54,9 @@ export const extensions = ({ applicationConfig }: ApplicationSetupOptions) => {
   }
 
   uppyService.subscribe('addedForUpload', () => {
-    store.dispatch('hideModal')
+    if (unref(activeModal)) {
+      removeModal(unref(activeModal).id)
+    }
   })
 
   uppyService.subscribe('uploadCompleted', () => {
@@ -56,17 +66,16 @@ export const extensions = ({ applicationConfig }: ApplicationSetupOptions) => {
   const handler = async () => {
     const renderDarkTheme = currentTheme.value.isDark
 
-    const modal = {
-      variation: 'passive',
+    dispatchModal({
       title: $gettext('Import files'),
-      cancelText: $gettext('Cancel'),
-      withoutButtonConfirm: true,
+      hideConfirmButton: true,
       onCancel: () => {
         removeUppyPlugins()
-        return store.dispatch('hideModal')
       }
-    }
-    await store.dispatch('createModal', modal)
+    })
+
+    await nextTick()
+
     uppyService.addPlugin(Dashboard, {
       uppyService,
       inline: true,
@@ -108,35 +117,32 @@ export const extensions = ({ applicationConfig }: ApplicationSetupOptions) => {
     }
   }
 
-  return computed(
-    () =>
-      [
-        {
-          id: 'com.github.owncloud.web.import-file',
-          type: 'action',
-          scopes: ['resource', 'upload-menu'],
-          action: {
-            name: 'import-files',
-            icon: 'cloud',
-            handler,
-            label: () => $gettext('Import'),
-            isEnabled: () => {
-              if (!companionUrl) {
-                return false
-              }
-
-              if (unref(publicLinkContext)) {
-                return false
-              }
-
-              return unref(canUpload) && supportedClouds.length
-            },
-            isDisabled: () => !!Object.keys(uppyService.getCurrentUploads()).length,
-            disabledTooltip: () => $gettext('Please wait until all imports have finished'),
-            componentType: 'button',
-            class: 'oc-files-actions-import'
+  return computed<Extension[]>(() => [
+    {
+      id: 'com.github.owncloud.web.import-file',
+      type: 'action',
+      extensionPointIds: ['app.files.upload-menu'],
+      action: {
+        name: 'import-files',
+        icon: 'cloud',
+        handler,
+        label: () => $gettext('Import'),
+        isVisible: () => {
+          if (!companionUrl) {
+            return false
           }
-        }
-      ] satisfies Extension[]
-  )
+
+          if (authStore.publicLinkContextReady) {
+            return false
+          }
+
+          return unref(canUpload) && supportedClouds.length
+        },
+        isDisabled: () => !!Object.keys(uppyService.getCurrentUploads()).length,
+        disabledTooltip: () => $gettext('Please wait until all imports have finished'),
+        componentType: 'button',
+        class: 'oc-files-actions-import'
+      }
+    }
+  ])
 }

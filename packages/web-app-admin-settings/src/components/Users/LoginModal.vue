@@ -1,38 +1,24 @@
 <template>
-  <oc-select
-    :model-value="selectedOption"
-    :label="$gettext('Login')"
-    :options="options"
-    :placeholder="$gettext('Select...')"
-    :warning-message="
-      currentUserSelected ? $gettext('Your own login status will remain unchanged.') : ''
-    "
-    @update:model-value="changeSelectedOption"
-  />
-  <div class="oc-flex oc-flex-right oc-flex-middle oc-mt-m">
-    <oc-button
-      class="oc-modal-body-actions-cancel oc-ml-s"
-      appearance="outline"
-      variation="passive"
-      @click="onCancel"
-      >{{ $gettext('Cancel') }}
-    </oc-button>
-    <oc-button
-      class="oc-modal-body-actions-confirm oc-ml-s"
-      appearance="filled"
-      variation="primary"
-      :disabled="!selectedOption"
-      @click="onConfirm"
-      >{{ $gettext('Confirm') }}
-    </oc-button>
+  <div>
+    <oc-select
+      :model-value="selectedOption"
+      :label="$gettext('Login')"
+      :options="options"
+      :placeholder="$gettext('Select...')"
+      :warning-message="
+        currentUserSelected ? $gettext('Your own login status will remain unchanged.') : ''
+      "
+      @update:model-value="changeSelectedOption"
+    />
   </div>
 </template>
 
 <script lang="ts">
-import { computed, defineComponent, onMounted, PropType, ref, unref } from 'vue'
+import { computed, defineComponent, onMounted, PropType, ref, unref, watch } from 'vue'
 import { useGettext } from 'vue3-gettext'
-import { User } from '@ownclouders/web-client/src/generated'
-import { useClientService, useLoadingService, useStore, useEventBus } from '@ownclouders/web-pkg'
+import { User } from '@ownclouders/web-client/graph/generated'
+import { useClientService, useUserStore, Modal, useMessages } from '@ownclouders/web-pkg'
+import { useUserSettingsStore } from '../../composables/stores/userSettings'
 
 type LoginOption = {
   label: string
@@ -42,30 +28,40 @@ type LoginOption = {
 export default defineComponent({
   name: 'LoginModal',
   props: {
+    modal: { type: Object as PropType<Modal>, required: true },
     users: {
       type: Array as PropType<User[]>,
       required: true
     }
   },
-  setup(props, { expose }) {
-    const store = useStore()
+  emits: ['update:confirmDisabled'],
+  setup(props, { emit, expose }) {
+    const { showMessage, showErrorMessage } = useMessages()
     const clientService = useClientService()
-    const loadingService = useLoadingService()
-    const eventBus = useEventBus()
     const { $gettext, $ngettext } = useGettext()
+    const userStore = useUserStore()
+    const userSettingsStore = useUserSettingsStore()
 
-    const selectedOption = ref()
+    const selectedOption = ref<LoginOption>()
     const options = ref([
       { label: $gettext('Allowed'), value: true },
       { label: $gettext('Forbidden'), value: false }
     ])
+
+    watch(
+      selectedOption,
+      () => {
+        emit('update:confirmDisabled', !unref(selectedOption))
+      },
+      { immediate: true }
+    )
 
     const changeSelectedOption = (option: LoginOption) => {
       selectedOption.value = option
     }
 
     const currentUserSelected = computed(() => {
-      return props.users.some((u) => u.id === store.getters.user.uuid)
+      return props.users.some((u) => u.id === userStore.user.id)
     })
 
     onMounted(() => {
@@ -77,14 +73,20 @@ export default defineComponent({
     })
 
     const onConfirm = async () => {
-      const affectedUsers = props.users.filter(({ id }) => store.getters.user.uuid !== id)
+      const affectedUsers = props.users.filter(({ id }) => userStore.user.id !== id)
       const client = clientService.graphAuthenticated
       const promises = affectedUsers.map(({ id }) =>
         client.users.editUser(id, { accountEnabled: unref(selectedOption).value })
       )
-      const results = await loadingService.addTask(() => Promise.allSettled(promises))
+      const results = await Promise.allSettled(promises)
 
-      const succeeded = results.filter((r) => r.status === 'fulfilled') as any
+      function isFulfilled<T>(
+        result: PromiseSettledResult<T>
+      ): result is PromiseFulfilledResult<T> {
+        return result.status === 'fulfilled'
+      }
+
+      const succeeded = results.filter(isFulfilled)
       if (succeeded.length) {
         const title =
           succeeded.length === 1 && affectedUsers.length === 1
@@ -98,10 +100,14 @@ export default defineComponent({
                 { userCount: succeeded.length.toString() },
                 true
               )
-        store.dispatch('showMessage', { title })
+        showMessage({ title })
       }
 
-      const failed = results.filter((r) => r.status === 'rejected')
+      function isRejected<T>(result: PromiseSettledResult<T>): result is PromiseRejectedResult {
+        return result.status === 'rejected'
+      }
+
+      const failed = results.filter(isRejected)
       if (failed.length) {
         failed.forEach(console.error)
 
@@ -117,41 +123,37 @@ export default defineComponent({
                 { userCount: failed.length.toString() },
                 true
               )
-        store.dispatch('showErrorMessage', {
+        showErrorMessage({
           title,
           errors: (failed as PromiseRejectedResult[]).map((f) => f.reason)
         })
       }
 
       try {
-        const usersResponse = await loadingService.addTask(() =>
-          Promise.all(succeeded.map(({ value }) => client.users.getUser(value.data.id)))
+        const usersResponse = await Promise.all(
+          succeeded.map(({ value }) => {
+            return client.users.getUser(value.data.id)
+          })
         )
 
-        eventBus.publish(
-          'app.admin-settings.users.update',
-          usersResponse.map(({ data }) => data)
-        )
+        usersResponse.forEach(({ data }) => {
+          userSettingsStore.upsertUser(data)
+        })
       } catch (e) {
         console.error(e)
-      } finally {
-        store.dispatch('hideModal')
       }
     }
 
-    const onCancel = () => {
-      store.dispatch('hideModal')
-    }
-
-    expose({ onConfirm, onCancel })
+    expose({ onConfirm })
 
     return {
       selectedOption,
       options,
       changeSelectedOption,
       currentUserSelected,
-      onConfirm,
-      onCancel
+
+      // unit tests
+      onConfirm
     }
   }
 })

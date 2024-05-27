@@ -1,6 +1,6 @@
 <template>
   <div class="oc-mt-xl">
-    <div v-if="noUsers" class="oc-flex user-info">
+    <div v-if="noUsers" class="oc-flex user-info oc-text-center">
       <oc-icon name="user" size="xxlarge" />
       <p v-translate>Select a user to view details</p>
     </div>
@@ -32,6 +32,16 @@
           <th scope="col" class="oc-pr-s" v-text="$gettext('Role')" />
           <td>
             <span v-if="_user.appRoleAssignments" v-text="roleDisplayName" />
+            <span v-else>
+              <span class="oc-mr-xs">-</span>
+              <oc-contextual-helper
+                :text="
+                  $gettext(
+                    'User roles become available once the user has logged in for the first time.'
+                  )
+                "
+              />
+            </span>
           </td>
         </tr>
         <tr>
@@ -48,7 +58,9 @@
               <span class="oc-mr-xs">-</span>
               <oc-contextual-helper
                 :text="
-                  $gettext('To see an individual quota, the user needs to have logged in once.')
+                  $gettext(
+                    'User quota becomes available once the user has logged in for the first time.'
+                  )
                 "
               />
             </span>
@@ -72,7 +84,7 @@
 import { computed, defineComponent } from 'vue'
 import UserInfoBox from './UserInfoBox.vue'
 import { PropType } from 'vue'
-import { AppRole, User } from '@ownclouders/web-client/src/generated'
+import { AppRole, User } from '@ownclouders/web-client/graph/generated'
 import { formatFileSize } from '@ownclouders/web-pkg'
 import { useGettext } from 'vue3-gettext'
 
@@ -88,7 +100,7 @@ export default defineComponent({
       default: null
     },
     users: {
-      type: Array,
+      type: Array as PropType<User[]>,
       required: true
     },
     roles: {
@@ -128,7 +140,7 @@ export default defineComponent({
       )
     },
     groupsDisplayValue() {
-      return this.user.memberOf
+      return this._user.memberOf
         .map((group) => group.displayName)
         .sort()
         .join(', ')

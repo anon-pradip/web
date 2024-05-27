@@ -1,10 +1,14 @@
 import { EventBus } from '../../../../src/services/eventBus'
 import { SideBarEventTopics, useSideBar } from '../../../../src/composables/sideBar'
-import { unref } from 'vue'
+import { unref, ref } from 'vue'
 import { getComposableWrapper } from 'web-test-helpers'
 
+vi.mock('../../../../src/composables/localStorage', () => ({
+  useLocalStorage: () => ref(false)
+}))
+
 describe('useSideBar', () => {
-  let eventBus
+  let eventBus: EventBus
   beforeEach(() => {
     eventBus = new EventBus()
   })
@@ -97,7 +101,6 @@ describe('useSideBar', () => {
     it('should not influence "isSideBarOpen"', () => {
       getComposableWrapper(() => {
         const { isSideBarOpen } = useSideBar({ bus: eventBus })
-        eventBus.publish(SideBarEventTopics.setActivePanel)
         expect(unref(isSideBarOpen)).toBe(false)
       })
     })

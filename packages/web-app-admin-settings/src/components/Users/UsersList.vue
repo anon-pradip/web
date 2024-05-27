@@ -3,183 +3,214 @@
     <div class="user-filters oc-flex oc-flex-between oc-flex-wrap oc-flex-bottom oc-mx-m oc-mb-m">
       <slot name="filter" />
     </div>
-    <slot v-if="!users.length" name="noResults" />
-    <oc-table
-      v-else
-      class="users-table"
-      :sort-by="sortBy"
-      :sort-dir="sortDir"
-      :fields="fields"
-      :data="paginatedItems"
-      :highlighted="highlighted"
-      :sticky="true"
-      :header-position="fileListHeaderY"
-      :hover="true"
-      @sort="handleSort"
-      @contextmenu-clicked="showContextMenuOnRightClick"
-      @highlight="rowClicked"
-    >
-      <template #selectHeader>
-        <oc-checkbox
-          size="large"
-          class="oc-ml-s"
-          :label="$gettext('Select all users')"
-          :model-value="allUsersSelected"
-          hide-label
-          @update:model-value="
-            allUsersSelected ? $emit('unSelectAllUsers') : $emit('selectUsers', paginatedItems)
-          "
-        />
-      </template>
-      <template #select="{ item }">
-        <oc-checkbox
-          class="oc-ml-s"
-          size="large"
-          :model-value="isUserSelected(item)"
-          :option="item"
-          :label="getSelectUserLabel(item)"
-          hide-label
-          @update:model-value="toggleUser(item)"
-          @click.stop="rowClicked([item, $event])"
-        />
-      </template>
-      <template #avatar="{ item }">
-        <avatar-image :width="32" :userid="item.id" :user-name="item.displayName" />
-      </template>
-      <template #role="{ item }">
-        <template v-if="item.appRoleAssignments">{{ getRoleDisplayNameByUser(item) }}</template>
-      </template>
-      <template #accountEnabled="{ item }">
-        <span v-if="item.accountEnabled === false" class="oc-flex oc-flex-middle">
-          <oc-icon name="stop-circle" fill-type="line" class="oc-mr-s" /><span
-            v-text="$gettext('Forbidden')"
+    <app-loading-spinner v-if="isLoading" />
+    <div v-else>
+      <slot v-if="!users.length" name="noResults" />
+      <oc-table
+        v-else
+        class="users-table"
+        :sort-by="sortBy"
+        :sort-dir="sortDir"
+        :fields="fields"
+        :data="paginatedItems"
+        :highlighted="highlighted"
+        :sticky="true"
+        :header-position="fileListHeaderY"
+        :hover="true"
+        @sort="handleSort"
+        @contextmenu-clicked="showContextMenuOnRightClick"
+        @highlight="rowClicked"
+      >
+        <template #selectHeader>
+          <oc-checkbox
+            size="large"
+            class="oc-ml-s"
+            :label="$gettext('Select all users')"
+            :model-value="allUsersSelected"
+            hide-label
+            @update:model-value="
+              allUsersSelected ? unselectAllUsers() : selectUsers(paginatedItems)
+            "
           />
-        </span>
-        <span v-else class="oc-flex oc-flex-middle">
-          <oc-icon name="play-circle" fill-type="line" class="oc-mr-s" /><span
-            v-text="$gettext('Allowed')"
+        </template>
+        <template #select="{ item }">
+          <oc-checkbox
+            class="oc-ml-s"
+            size="large"
+            :model-value="isUserSelected(item)"
+            :option="item"
+            :label="getSelectUserLabel(item)"
+            hide-label
+            @update:model-value="selectUser(item)"
+            @click.stop="rowClicked([item, $event])"
           />
-        </span>
-      </template>
-      <template #actions="{ item }">
-        <oc-button
-          v-oc-tooltip="$gettext('Details')"
-          appearance="raw"
-          class="oc-mr-xs quick-action-button oc-p-xs users-table-btn-details"
-          @click="showDetails(item)"
-        >
-          <oc-icon name="information" fill-type="line" />
-        </oc-button>
-        <oc-button
-          v-oc-tooltip="$gettext('Edit')"
-          appearance="raw"
-          class="oc-mr-xs quick-action-button oc-p-xs users-table-btn-edit"
-          @click="showEditPanel(item)"
-        >
-          <oc-icon name="pencil" fill-type="line" />
-        </oc-button>
-        <context-menu-quick-action
-          ref="contextMenuButtonRef"
-          :item="item"
-          class="users-table-btn-action-dropdown"
-          @quick-action-clicked="showContextMenuOnBtnClick($event, item)"
-        >
-          <template #contextMenu>
-            <slot name="contextMenu" :user="item" />
-          </template>
-        </context-menu-quick-action>
-      </template>
-      <template #footer>
-        <pagination :pages="totalPages" :current-page="currentPage" />
-        <div class="oc-text-nowrap oc-text-center oc-width-1-1 oc-my-s">
-          <p class="oc-text-muted">{{ footerTextTotal }}</p>
-        </div>
-      </template>
-    </oc-table>
+        </template>
+        <template #avatar="{ item }">
+          <avatar-image :width="32" :userid="item.id" :user-name="item.displayName" />
+        </template>
+        <template #role="{ item }">
+          <template v-if="item.appRoleAssignments">{{ getRoleDisplayNameByUser(item) }}</template>
+        </template>
+        <template #accountEnabled="{ item }">
+          <span v-if="item.accountEnabled === false" class="oc-flex oc-flex-middle">
+            <oc-icon name="stop-circle" fill-type="line" class="oc-mr-s" /><span
+              v-text="$gettext('Forbidden')"
+            />
+          </span>
+          <span v-else class="oc-flex oc-flex-middle">
+            <oc-icon name="play-circle" fill-type="line" class="oc-mr-s" /><span
+              v-text="$gettext('Allowed')"
+            />
+          </span>
+        </template>
+        <template #actions="{ item }">
+          <oc-button
+            v-oc-tooltip="$gettext('Show details')"
+            :aria-label="$gettext('Show details')"
+            appearance="raw"
+            class="oc-mr-xs quick-action-button oc-p-xs users-table-btn-details"
+            @click="showDetails(item)"
+          >
+            <oc-icon name="information" fill-type="line" />
+          </oc-button>
+          <oc-button
+            v-oc-tooltip="$gettext('Edit')"
+            :aria-label="$gettext('Edit')"
+            appearance="raw"
+            class="oc-mr-xs quick-action-button oc-p-xs users-table-btn-edit"
+            @click="showEditPanel(item)"
+          >
+            <oc-icon name="pencil" fill-type="line" />
+          </oc-button>
+          <context-menu-quick-action
+            ref="contextMenuButtonRef"
+            :item="item"
+            class="users-table-btn-action-dropdown"
+            @quick-action-clicked="showContextMenuOnBtnClick($event, item)"
+          >
+            <template #contextMenu>
+              <slot name="contextMenu" :user="item" />
+            </template>
+          </context-menu-quick-action>
+        </template>
+        <template #footer>
+          <pagination :pages="totalPages" :current-page="currentPage" />
+          <div class="oc-text-nowrap oc-text-center oc-width-1-1 oc-my-s">
+            <p class="oc-text-muted">{{ footerTextTotal }}</p>
+          </div>
+        </template>
+      </oc-table>
+    </div>
   </div>
 </template>
 
 <script lang="ts">
 import { useGettext } from 'vue3-gettext'
-import { defineComponent, PropType, ref, unref, computed } from 'vue'
-import { displayPositionedDropdown, eventBus, SortDir } from '@ownclouders/web-pkg'
+import { ComponentPublicInstance, defineComponent, PropType, ref, unref, computed } from 'vue'
+import {
+  AppLoadingSpinner,
+  ContextMenuBtnClickEventData,
+  displayPositionedDropdown,
+  eventBus,
+  SortDir,
+  useKeyboardActions
+} from '@ownclouders/web-pkg'
 import { SideBarEventTopics } from '@ownclouders/web-pkg'
-import { AppRole, User } from '@ownclouders/web-client/src/generated'
+import { AppRole, User } from '@ownclouders/web-client/graph/generated'
 import { ContextMenuQuickAction } from '@ownclouders/web-pkg'
 import { useFileListHeaderPosition, usePagination } from '@ownclouders/web-pkg'
 import { Pagination } from '@ownclouders/web-pkg'
 import { perPageDefault, perPageStoragePrefix } from 'web-app-admin-settings/src/defaults'
+import { storeToRefs } from 'pinia'
+import { useUserSettingsStore } from '../../composables/stores/userSettings'
 import {
-  useKeyboardTableNavigation,
-  useKeyboardTableMouseActions
-} from 'web-app-admin-settings/src/composables/keyboardActions'
-import { useKeyboardActions } from '@ownclouders/web-pkg'
+  useKeyboardTableMouseActions,
+  useKeyboardTableNavigation
+} from '../../composables/keyboardActions'
 import { findIndex } from 'lodash-es'
 
 export default defineComponent({
   name: 'UsersList',
-  components: { ContextMenuQuickAction, Pagination },
+  components: { AppLoadingSpinner, ContextMenuQuickAction, Pagination },
   props: {
-    users: {
-      type: Array as PropType<User[]>,
-      required: true
-    },
     roles: {
       type: Array as PropType<AppRole[]>,
       required: true
     },
-    selectedUsers: {
-      type: Array as PropType<User[]>,
-      required: true
+    isLoading: {
+      type: Boolean,
+      default: false
     }
   },
-  emits: ['unSelectAllUsers', 'selectUsers', 'toggleSelectUser'],
-  setup(props, { emit }) {
+  setup(props) {
     const { $gettext } = useGettext()
 
     const contextMenuButtonRef = ref(undefined)
-    const sortBy = ref<string>('onPremisesSamAccountName')
-    const sortDir = ref<string>(SortDir.Asc)
+    const sortBy = ref('onPremisesSamAccountName')
+    const sortDir = ref<SortDir>(SortDir.Asc)
     const { y: fileListHeaderY } = useFileListHeaderPosition('#admin-settings-app-bar')
 
     const lastSelectedUserIndex = ref(0)
     const lastSelectedUserId = ref(null)
 
-    const isUserSelected = (user) => {
-      return props.selectedUsers.some((s) => s.id === user.id)
+    const userSettingsStore = useUserSettingsStore()
+    const { users, selectedUsers } = storeToRefs(userSettingsStore)
+
+    const isUserSelected = (user: User) => {
+      return unref(selectedUsers).some((s) => s.id === user.id)
     }
-    const selectUser = (user) => {
-      emit('unSelectAllUsers')
-      emit('toggleSelectUser', user)
+    const selectUser = (selectedUser: User) => {
+      lastSelectedUserIndex.value = findIndex(unref(users), (u) => u.id === selectedUser.id)
+      lastSelectedUserId.value = selectedUser.id
+      keyActions.resetSelectionCursor()
+
+      const isUserSelected = unref(selectedUsers).find((user) => user.id === selectedUser.id)
+      if (!isUserSelected) {
+        return userSettingsStore.addSelectedUser(selectedUser)
+      }
+
+      userSettingsStore.setSelectedUsers(
+        unref(selectedUsers).filter((user) => user.id !== selectedUser.id)
+      )
     }
 
-    const showDetails = (user) => {
+    const unselectAllUsers = () => {
+      userSettingsStore.setSelectedUsers([])
+    }
+
+    const selectUsers = (users: User[]) => {
+      userSettingsStore.setSelectedUsers(users)
+    }
+
+    const showDetails = (user: User) => {
       if (!isUserSelected(user)) {
         selectUser(user)
       }
       eventBus.publish(SideBarEventTopics.open)
     }
 
-    const showEditPanel = (user) => {
+    const showEditPanel = (user: User) => {
       if (!isUserSelected(user)) {
         selectUser(user)
       }
       eventBus.publish(SideBarEventTopics.openWithPanel, 'EditPanel')
     }
 
-    const showGroupAssigmentPanel = (user) => {
+    const showUserAssigmentPanel = (user: User) => {
       if (!isUserSelected(user)) {
         selectUser(user)
       }
-      eventBus.publish(SideBarEventTopics.openWithPanel, 'GroupAssignmentsPanel')
+      eventBus.publish(SideBarEventTopics.openWithPanel, 'UserAssignmentsPanel')
     }
 
-    const rowClicked = (data) => {
+    const rowClicked = (data: [User, MouseEvent]) => {
       const resource = data[0]
       const eventData = data[1]
-      const isCheckboxClicked = eventData?.target.getAttribute('type') === 'checkbox'
+      const isCheckboxClicked =
+        (eventData?.target as HTMLElement).getAttribute('type') === 'checkbox'
 
-      const contextActionClicked = eventData?.target?.closest('div')?.id === 'oc-files-context-menu'
+      const contextActionClicked =
+        (eventData?.target as HTMLElement)?.closest('div')?.id === 'oc-files-context-menu'
       if (contextActionClicked) {
         return
       }
@@ -196,9 +227,10 @@ export default defineComponent({
       if (isCheckboxClicked) {
         return
       }
-      toggleUser(resource, true)
+      unselectAllUsers()
+      selectUser(resource)
     }
-    const showContextMenuOnBtnClick = (data, user) => {
+    const showContextMenuOnBtnClick = (data: ContextMenuBtnClickEventData, user: User) => {
       const { dropdown, event } = data
       if (dropdown?.tippy === undefined) {
         return
@@ -208,7 +240,11 @@ export default defineComponent({
       }
       displayPositionedDropdown(dropdown.tippy, event, unref(contextMenuButtonRef))
     }
-    const showContextMenuOnRightClick = (row, event, user) => {
+    const showContextMenuOnRightClick = (
+      row: ComponentPublicInstance<unknown>,
+      event: MouseEvent,
+      user: User
+    ) => {
       event.preventDefault()
       const dropdown = row.$el.getElementsByClassName('users-table-btn-action-dropdown')[0]
       if (dropdown === undefined) {
@@ -230,9 +266,9 @@ export default defineComponent({
       )
     }
 
-    const orderBy = (list, prop, desc) => {
+    const orderBy = (list: User[], prop: string, desc: boolean) => {
       return [...list].sort((user1, user2) => {
-        let a, b
+        let a: string, b: string
 
         switch (prop) {
           case 'role':
@@ -244,8 +280,8 @@ export default defineComponent({
             b = ('accountEnabled' in user2 ? user2.accountEnabled : true).toString()
             break
           default:
-            a = user1[prop] || ''
-            b = user2[prop] || ''
+            a = user1[prop as keyof User].toString() || ''
+            b = user2[prop as keyof User].toString() || ''
         }
 
         return desc ? b.localeCompare(a) : a.localeCompare(b)
@@ -253,7 +289,7 @@ export default defineComponent({
     }
 
     const items = computed(() => {
-      return orderBy(props.users, unref(sortBy), unref(sortDir) === SortDir.Desc)
+      return orderBy(unref(users), unref(sortBy), unref(sortDir) === SortDir.Desc)
     })
 
     const {
@@ -266,32 +302,24 @@ export default defineComponent({
     useKeyboardTableNavigation(
       keyActions,
       paginatedItems,
-      props.selectedUsers,
+      selectedUsers,
       lastSelectedUserIndex,
       lastSelectedUserId
     )
     useKeyboardTableMouseActions(
       keyActions,
       paginatedItems,
-      props.selectedUsers,
+      selectedUsers,
       lastSelectedUserIndex,
       lastSelectedUserId
     )
 
-    const toggleUser = (user, deselect = false) => {
-      lastSelectedUserIndex.value = findIndex(props.users, (u) => u.id === user.id)
-      lastSelectedUserId.value = user.id
-      keyActions.resetSelectionCursor()
-      emit('toggleSelectUser', user, deselect)
-    }
-
     return {
       showDetails,
       showEditPanel,
-      showGroupAssigmentPanel,
+      showUserAssigmentPanel,
       isUserSelected,
       rowClicked,
-      toggleUser,
       contextMenuButtonRef,
       showContextMenuOnBtnClick,
       showContextMenuOnRightClick,
@@ -303,7 +331,12 @@ export default defineComponent({
       paginatedItems,
       currentPage,
       totalPages,
-      orderBy
+      orderBy,
+      selectedUsers,
+      selectUser,
+      selectUsers,
+      unselectAllUsers,
+      users
     }
   },
   data() {
@@ -377,11 +410,11 @@ export default defineComponent({
     }
   },
   methods: {
-    handleSort(event) {
+    handleSort(event: { sortBy: string; sortDir: SortDir }) {
       this.sortBy = event.sortBy
       this.sortDir = event.sortDir
     },
-    getSelectUserLabel(user) {
+    getSelectUserLabel(user: User) {
       return this.$gettext('Select %{ user }', { user: user.displayName }, true)
     }
   }

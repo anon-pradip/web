@@ -1,7 +1,8 @@
 import MembersPanel from '../../../../../src/components/Groups/SideBar/MembersPanel.vue'
 import { defaultPlugins, shallowMount } from 'web-test-helpers'
-import { mock } from 'jest-mock-extended'
-import { Group } from '@ownclouders/web-client/src/generated'
+import { mock } from 'vitest-mock-extended'
+import { Group } from '@ownclouders/web-client/graph/generated'
+import MembersRoleSection from '../../../../../src/components/Groups/SideBar/MembersRoleSection.vue'
 
 const groupMock = mock<Group>({
   id: '1',
@@ -23,7 +24,8 @@ describe('MembersPanel', () => {
     await wrapper.vm.$nextTick
     expect(wrapper.findAll(selectors.membersRolePanelStub).length).toBe(1)
     expect(
-      wrapper.findComponent<any>(selectors.membersRolePanelStub).props().groupMembers[0].displayName
+      wrapper.findComponent<typeof MembersRoleSection>(selectors.membersRolePanelStub).props()
+        .groupMembers[0].displayName
     ).toEqual('Albert Einstein')
   })
   it('should display an empty result if no matching members found', async () => {

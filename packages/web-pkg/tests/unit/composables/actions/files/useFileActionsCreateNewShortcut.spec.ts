@@ -1,18 +1,12 @@
-import { mock } from 'jest-mock-extended'
-import { unref } from 'vue'
-import {
-  createStore,
-  defaultComponentMocks,
-  defaultStoreMockOptions,
-  RouteLocation,
-  getComposableWrapper
-} from 'web-test-helpers'
-import { useFileActionsCreateNewShortcut } from '../../../../../src'
+import { mock } from 'vitest-mock-extended'
+import { ref, unref } from 'vue'
+import { defaultComponentMocks, RouteLocation, getComposableWrapper } from 'web-test-helpers'
+import { useFileActionsCreateNewShortcut, useModals } from '../../../../../src/composables'
 import { Resource, SpaceResource } from '@ownclouders/web-client'
 
 describe('createNewShortcut', () => {
   describe('computed property "actions"', () => {
-    describe('method "isEnabled"', () => {
+    describe('method "isVisible"', () => {
       it.each([
         {
           currentFolderCanCreate: true,
@@ -26,7 +20,7 @@ describe('createNewShortcut', () => {
         getWrapper({
           currentFolder: mock<Resource>({ canCreate: () => currentFolderCanCreate }),
           setup: ({ actions }) => {
-            expect(unref(actions)[0].isEnabled()).toBe(expectedStatus)
+            expect(unref(actions)[0].isVisible()).toBe(expectedStatus)
           }
         })
       })
@@ -34,9 +28,10 @@ describe('createNewShortcut', () => {
     describe('method "handler"', () => {
       it('creates a modal', () => {
         getWrapper({
-          setup: async ({ actions }, { storeOptions }) => {
+          setup: async ({ actions }) => {
+            const { dispatchModal } = useModals()
             await unref(actions)[0].handler()
-            expect(storeOptions.actions.createModal).toHaveBeenCalled()
+            expect(dispatchModal).toHaveBeenCalled()
           }
         })
       })
@@ -48,12 +43,7 @@ function getWrapper({
   setup,
   currentFolder = mock<Resource>()
 }: {
-  setup: (
-    instance: ReturnType<typeof useFileActionsCreateNewShortcut>,
-    options: {
-      storeOptions: typeof defaultStoreMockOptions
-    }
-  ) => void
+  setup: (instance: ReturnType<typeof useFileActionsCreateNewShortcut>) => void
   currentFolder?: Resource
 }) {
   const mocks = {
@@ -62,23 +52,16 @@ function getWrapper({
     })
   }
 
-  const storeOptions = {
-    ...defaultStoreMockOptions
-  }
-  storeOptions.modules.Files.getters.currentFolder.mockReturnValue(currentFolder)
-
-  const store = createStore(storeOptions)
-
   return {
     wrapper: getComposableWrapper(
       () => {
-        const instance = useFileActionsCreateNewShortcut({ space: mock<SpaceResource>() })
-        setup(instance, { storeOptions })
+        const instance = useFileActionsCreateNewShortcut({ space: ref(mock<SpaceResource>()) })
+        setup(instance)
       },
       {
-        store,
         mocks,
-        provide: mocks
+        provide: mocks,
+        pluginOptions: { piniaOptions: { resourcesStore: { currentFolder } } }
       }
     )
   }

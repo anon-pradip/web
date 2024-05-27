@@ -47,8 +47,9 @@
                 class="oc-display-block"
                 appearance="raw"
                 v-bind="getSpaceAttributes(item)"
-                v-text="getSpaceName(item)"
-              />
+              >
+                {{ getSpaceName(item) }}
+              </oc-button>
             </template>
             <template #footer>
               <div class="oc-text-nowrap oc-text-center oc-width-1-1 oc-my-s">
@@ -60,6 +61,7 @@
         </template>
       </template>
     </files-view-wrapper>
+    <file-side-bar :is-open="isSideBarOpen" :active-panel="sideBarActivePanel" />
   </div>
 </template>
 
@@ -69,7 +71,17 @@ import Mark from 'mark.js'
 import Fuse from 'fuse.js'
 import { useGettext } from 'vue3-gettext'
 import { useTask } from 'vue-concurrency'
-import { defaultFuseOptions, useClientService, useRouter, useStore } from '@ownclouders/web-pkg'
+import {
+  defaultFuseOptions,
+  FileSideBar,
+  SortDir,
+  useClientService,
+  useResourcesStore,
+  useRouter,
+  useSideBar,
+  useSpacesStore,
+  useUserStore
+} from '@ownclouders/web-pkg'
 import { createLocationTrash } from '@ownclouders/web-pkg'
 import { createFileRouteOptions } from '@ownclouders/web-pkg'
 import { AppBar } from '@ownclouders/web-pkg'
@@ -78,7 +90,7 @@ import {
   isPersonalSpaceResource,
   isProjectSpaceResource,
   SpaceResource
-} from '@ownclouders/web-client/src/helpers'
+} from '@ownclouders/web-client'
 import { AppLoadingSpinner } from '@ownclouders/web-pkg'
 import { NoContentMessage } from '@ownclouders/web-pkg'
 import { FieldType } from 'design-system/src/components/OcTable/OcTable.vue'
@@ -86,33 +98,33 @@ import { useFileListHeaderPosition } from '@ownclouders/web-pkg'
 
 export default defineComponent({
   name: 'TrashOverview',
-  components: { FilesViewWrapper, AppBar, AppLoadingSpinner, NoContentMessage },
+  components: { FileSideBar, FilesViewWrapper, AppBar, AppLoadingSpinner, NoContentMessage },
   setup() {
-    const store = useStore()
+    const userStore = useUserStore()
+    const spacesStore = useSpacesStore()
     const router = useRouter()
     const { $gettext } = useGettext()
     const clientService = useClientService()
     const { y: fileListHeaderY } = useFileListHeaderPosition()
-    const sortBy = ref('name')
-    const sortDir = ref('asc')
+    const resourcesStore = useResourcesStore()
+
+    const sortBy = ref<keyof SpaceResource>('name')
+    const sortDir = ref<SortDir>(SortDir.Asc)
     const filterTerm = ref('')
     const markInstance = ref(undefined)
     const tableRef = ref(undefined)
 
-    const spaces = computed<SpaceResource[]>(() =>
-      store.getters['runtime/spaces/spaces'].filter(
+    const spaces = computed(() =>
+      spacesStore.spaces.filter(
         (s: SpaceResource) =>
-          (isPersonalSpaceResource(s) && s.isOwner(store.getters.user)) || isProjectSpaceResource(s)
+          (isPersonalSpaceResource(s) && s.isOwner(userStore.user)) || isProjectSpaceResource(s)
       )
     )
 
     const loadResourcesTask = useTask(function* () {
-      store.commit('Files/CLEAR_FILES_SEARCHED')
-      store.commit('Files/CLEAR_CURRENT_FILES_LIST')
-      yield store.dispatch('runtime/spaces/reloadProjectSpaces', {
-        graphClient: clientService.graphAuthenticated
-      })
-      store.commit('Files/LOAD_FILES', { currentFolder: null, files: unref(spaces) })
+      resourcesStore.clearResourceList()
+      yield spacesStore.reloadProjectSpaces({ graphClient: clientService.graphAuthenticated })
+      resourcesStore.initResourceList({ currentFolder: null, resources: unref(spaces) })
     })
 
     const areResourcesLoading = computed(() => {
@@ -134,7 +146,7 @@ export default defineComponent({
       { text: $gettext('Deleted files'), onClick: () => loadResourcesTask.perform() }
     ])
 
-    const sort = (list: SpaceResource[], propName: string, desc: boolean) => {
+    const sort = (list: SpaceResource[], propName: keyof SpaceResource, desc: boolean) => {
       return [...list].sort((s1, s2) => {
         if (isPersonalSpaceResource(s1)) {
           return -1
@@ -143,8 +155,8 @@ export default defineComponent({
           return +1
         }
 
-        const a = s1[propName]
-        const b = s2[propName]
+        const a = s1[propName].toString()
+        const b = s2[propName].toString()
 
         return desc ? b.localeCompare(a) : a.localeCompare(b)
       })
@@ -152,7 +164,7 @@ export default defineComponent({
     const displaySpaces = computed(() =>
       sort(filter(unref(spaces), unref(filterTerm)), unref(sortBy), unref(sortDir) === 'desc')
     )
-    const handleSort = (event) => {
+    const handleSort = (event: { sortBy: keyof SpaceResource; sortDir: SortDir }) => {
       sortBy.value = event.sortBy
       sortDir.value = event.sortDir
     }
@@ -251,7 +263,8 @@ export default defineComponent({
       loadResourcesTask,
       areResourcesLoading,
       isPersonalSpaceResource,
-      fileListHeaderY
+      fileListHeaderY,
+      ...useSideBar()
     }
   }
 })

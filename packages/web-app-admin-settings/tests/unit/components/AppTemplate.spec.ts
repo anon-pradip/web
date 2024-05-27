@@ -1,16 +1,15 @@
 import { ref } from 'vue'
 import AppTemplate from '../../../src/components/AppTemplate.vue'
 import {
-  createStore,
   defaultComponentMocks,
   defaultPlugins,
-  defaultStoreMockOptions,
   RouteLocation,
   shallowMount
 } from 'web-test-helpers'
-import { eventBus } from '@ownclouders/web-pkg'
+import { eventBus, SideBar } from '@ownclouders/web-pkg'
 import { SideBarEventTopics } from '@ownclouders/web-pkg'
-import { mock } from 'jest-mock-extended'
+import { mock } from 'vitest-mock-extended'
+import { OcBreadcrumb } from 'design-system/src/components'
 
 const stubSelectors = {
   ocBreadcrumb: 'oc-breadcrumb-stub',
@@ -23,9 +22,7 @@ const elSelectors = {
   adminSettingsWrapper: '#admin-settings-wrapper'
 }
 
-jest.mock('@ownclouders/web-pkg')
-
-afterEach(() => jest.clearAllMocks())
+vi.mock('@ownclouders/web-pkg')
 
 describe('AppTemplate', () => {
   describe('loading is true', () => {
@@ -65,17 +62,17 @@ describe('AppTemplate', () => {
       const { wrapper } = getWrapper({ props: { isSideBarOpen: false } })
       expect(wrapper.find(stubSelectors.sideBar).exists()).toBeFalsy()
     })
-    it('can be closed', async () => {
-      const eventSpy = jest.spyOn(eventBus, 'publish')
+    it('can be closed', () => {
+      const eventSpy = vi.spyOn(eventBus, 'publish')
       const { wrapper } = getWrapper()
-      ;(wrapper.findComponent<any>(stubSelectors.sideBar).vm as any).$emit('close')
+      wrapper.findComponent<any>(stubSelectors.sideBar).vm.$emit('close')
       expect(eventSpy).toHaveBeenCalledWith(SideBarEventTopics.close)
     })
-    it('panel can be selected', async () => {
-      const eventSpy = jest.spyOn(eventBus, 'publish')
+    it('panel can be selected', () => {
+      const eventSpy = vi.spyOn(eventBus, 'publish')
       const panelName = 'SomePanel'
       const { wrapper } = getWrapper()
-      ;(wrapper.findComponent<any>(stubSelectors.sideBar).vm as any).$emit('selectPanel', panelName)
+      wrapper.findComponent<any>(stubSelectors.sideBar).vm.$emit('selectPanel', panelName)
       expect(eventSpy).toHaveBeenCalledWith(SideBarEventTopics.setActivePanel, panelName)
     })
   })
@@ -85,10 +82,9 @@ describe('AppTemplate', () => {
         const { wrapper } = getWrapper({
           props: { breadcrumbs: [{ text: 'Administration Settings' }, { text: 'Users' }] }
         })
-        expect(wrapper.findComponent<any>(stubSelectors.ocBreadcrumb).props().items).toEqual([
-          { text: 'Administration Settings' },
-          { text: 'Users' }
-        ])
+        expect(
+          wrapper.findComponent<typeof OcBreadcrumb>(stubSelectors.ocBreadcrumb).props().items
+        ).toEqual([{ text: 'Administration Settings' }, { text: 'Users' }])
       })
       it('does not show in mobile view', () => {
         const { wrapper } = getWrapper({ isMobileWidth: true })
@@ -103,19 +99,16 @@ describe('AppTemplate', () => {
             sideBarAvailablePanels: [{ app: 'DetailsPanel' }]
           }
         })
-        expect(wrapper.findComponent<any>(stubSelectors.sideBar).props().activePanel).toEqual(
-          'DetailsPanel'
-        )
-        expect(wrapper.findComponent<any>(stubSelectors.sideBar).props().availablePanels).toEqual([
-          { app: 'DetailsPanel' }
-        ])
+        expect(
+          wrapper.findComponent<typeof SideBar>(stubSelectors.sideBar).props().activePanel
+        ).toEqual('DetailsPanel')
+        expect(
+          wrapper.findComponent<typeof SideBar>(stubSelectors.sideBar).props().availablePanels
+        ).toEqual([{ app: 'DetailsPanel' }])
       })
     })
   })
 })
-
-const storeOptions = { ...defaultStoreMockOptions }
-const store = createStore(storeOptions)
 
 function getWrapper({ props = {}, isMobileWidth = false } = {}) {
   return {
@@ -129,7 +122,7 @@ function getWrapper({ props = {}, isMobileWidth = false } = {}) {
         ...props
       },
       global: {
-        plugins: [...defaultPlugins(), store],
+        plugins: [...defaultPlugins()],
         provide: { isMobileWidth: ref(isMobileWidth) },
         stubs: {
           OcButton: false

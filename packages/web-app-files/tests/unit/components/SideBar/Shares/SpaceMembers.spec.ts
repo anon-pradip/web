@@ -1,144 +1,112 @@
 import SpaceMembers from 'web-app-files/src/components/SideBar/Shares/SpaceMembers.vue'
 import {
-  spaceRoleManager,
-  spaceRoleViewer,
   ShareTypes,
-  spaceRoleEditor,
-  Share
-} from '@ownclouders/web-client/src/helpers/share'
-import { mock } from 'jest-mock-extended'
-import { ProjectSpaceResource, SpaceResource, User } from '@ownclouders/web-client/src/helpers'
+  ShareRole,
+  CollaboratorShare,
+  GraphShareRoleIdMap
+} from '@ownclouders/web-client'
+import { mock } from 'vitest-mock-extended'
+import { ProjectSpaceResource, SpaceResource } from '@ownclouders/web-client'
 import {
-  createStore,
   defaultPlugins,
   mount,
   shallowMount,
-  defaultStoreMockOptions,
   defaultComponentMocks,
   RouteLocation
 } from 'web-test-helpers'
+import { User } from '@ownclouders/web-client/graph/generated'
+import { useCanShare, useModals } from '@ownclouders/web-pkg'
+import ListItem from 'web-app-files/src/components/SideBar/Shares/Collaborators/ListItem.vue'
 
-const memberMocks = {
-  [spaceRoleManager.name]: {
+vi.mock('@ownclouders/web-pkg', async (importOriginal) => ({
+  ...(await importOriginal<any>()),
+  useCanShare: vi.fn()
+}))
+
+const memberMocks = [
+  {
     id: '1',
-    shareType: ShareTypes.spaceUser.value,
-    collaborator: {
-      name: 'alice',
+    shareType: ShareTypes.user.value,
+    sharedWith: {
+      id: 'alice',
       displayName: 'alice'
     },
-    role: {
-      name: spaceRoleManager.name
-    }
+    role: mock<ShareRole>({ id: GraphShareRoleIdMap.SpaceManager }),
+    permissions: [],
+    resourceId: '1',
+    indirect: false,
+    sharedBy: { id: 'admin', displayName: 'admin' }
   },
-  [spaceRoleEditor.name]: {
+  {
     id: '2',
-    shareType: ShareTypes.spaceUser.value,
-    collaborator: {
+    shareType: ShareTypes.user.value,
+    sharedWith: {
       onPremisesSamAccountName: 'Einstein',
       displayName: 'einstein'
     },
-    role: {
-      name: spaceRoleEditor.name
-    }
+    role: mock<ShareRole>({ id: GraphShareRoleIdMap.SpaceEditor }),
+    permissions: [],
+    resourceId: '1',
+    indirect: false,
+    sharedBy: { id: 'admin', displayName: 'admin' }
   },
-  [spaceRoleViewer.name]: {
+  {
     id: '3',
-    shareType: ShareTypes.spaceUser.value,
-    collaborator: {
+    shareType: ShareTypes.user.value,
+    sharedWith: {
       onPremisesSamAccountName: 'Marie',
       displayName: 'marie'
     },
-    role: {
-      name: spaceRoleViewer.name
-    }
+    role: mock<ShareRole>({ id: GraphShareRoleIdMap.SpaceViewer }),
+    permissions: [],
+    resourceId: '1',
+    indirect: false,
+    sharedBy: { id: 'admin', displayName: 'admin' }
   }
-}
+] as CollaboratorShare[]
 
 describe('SpaceMembers', () => {
   describe('invite collaborator form', () => {
-    it('renders the form when the current user is a manager of an enabled space', () => {
-      const space = mock<ProjectSpaceResource>({ isManager: () => true, disabled: false })
-      const wrapper = getWrapper({ space })
+    it('renders the form when the current user can share', () => {
+      const wrapper = getWrapper({ canShare: true })
       expect(wrapper.find('invite-collaborator-form-stub').exists()).toBeTruthy()
     })
-    it('does not render the form when the current user is no manager of an enabled space', () => {
-      const space = mock<ProjectSpaceResource>({ isManager: () => false, disabled: false })
-      const wrapper = getWrapper({ space })
-      expect(wrapper.find('invite-collaborator-form-stub').exists()).toBeFalsy()
-    })
-    it('does not render the form when the current user is a manager of a disabled space', () => {
-      const space = mock<ProjectSpaceResource>({ isManager: () => true, disabled: true })
-      const wrapper = getWrapper({ space })
+    it('does not render the form when the current user can not share', () => {
+      const wrapper = getWrapper({ canShare: false })
       expect(wrapper.find('invite-collaborator-form-stub').exists()).toBeFalsy()
     })
   })
 
   describe('existing members', () => {
-    it('can edit when current user is manager of an enabled space', () => {
-      const space = mock<ProjectSpaceResource>({ isManager: () => true, disabled: false })
-      const wrapper = getWrapper({ space })
+    it('can edit when current user can share', () => {
+      const wrapper = getWrapper({ canShare: true })
       expect(
         wrapper.findAllComponents<any>('collaborator-list-item-stub').at(1).props().modifiable
       ).toEqual(true)
     })
-    it('can not edit when current user is not a manager of an enabled space', () => {
-      const space = mock<ProjectSpaceResource>({ isManager: () => false, disabled: false })
-      const wrapper = getWrapper({ space })
+    it('can not edit when current user can not share', () => {
+      const wrapper = getWrapper({ canShare: false })
       expect(
         wrapper.findAllComponents<any>('collaborator-list-item-stub').at(1).props().modifiable
       ).toEqual(false)
     })
-    it('can not edit when current user is manager of a disabled space', () => {
-      const space = mock<ProjectSpaceResource>({ isManager: () => true, disabled: true })
-      const wrapper = getWrapper({ space })
+    it('can not edit current user when they are the only space manager', () => {
+      const wrapper = getWrapper({ spaceMembers: [memberMocks[0]], canShare: true })
       expect(
-        wrapper.findAllComponents<any>('collaborator-list-item-stub').at(1).props().modifiable
+        wrapper.findAllComponents<any>('collaborator-list-item-stub').at(0).props().modifiable
       ).toEqual(false)
     })
   })
 
   describe('deleting members', () => {
     it('reacts on delete events by collaborator list items', async () => {
-      const spyOnCollaboratorDeleteTrigger = jest.spyOn(
-        (SpaceMembers as any).methods,
-        '$_ocCollaborators_deleteShare_trigger'
-      )
-
-      const user = mock<User>({ id: memberMocks.manager.collaborator.name })
+      const user = mock<User>({ id: 'admin' })
       const wrapper = getWrapper({ user })
-      ;(wrapper.findComponent<any>('collaborator-list-item-stub').vm as any).$emit('onDelete')
+      wrapper.findComponent<typeof ListItem>('collaborator-list-item-stub').vm.$emit('onDelete')
       await wrapper.vm.$nextTick()
-      expect(spyOnCollaboratorDeleteTrigger).toHaveBeenCalledTimes(1)
-    })
-    it('calls "deleteSpaceMember" when successful', async () => {
-      const wrapper = getWrapper()
-      const deleteSpaceMemberSpy = jest.spyOn(wrapper.vm, 'deleteSpaceMember')
-      const share = mock<Share>()
-      await wrapper.vm.$_ocCollaborators_deleteShare(share)
-      expect(deleteSpaceMemberSpy).toHaveBeenCalled()
-    })
-    it('shows a message when an error occurs', async () => {
-      jest.spyOn(console, 'error').mockImplementation(() => undefined)
-      const wrapper = getWrapper()
-      jest.spyOn(wrapper.vm, 'deleteSpaceMember').mockRejectedValue(new Error())
-      const showErrorMessageSpy = jest.spyOn(wrapper.vm, 'showErrorMessage')
-      const share = mock<Share>()
-      await wrapper.vm.$_ocCollaborators_deleteShare(share)
-      expect(showErrorMessageSpy).toHaveBeenCalled()
-    })
-    it('redirects to the "files-spaces-projects"-page when the current user has been removed', async () => {
-      const user = mock<User>({ id: memberMocks.manager.collaborator.name })
-      const wrapper = getWrapper({ user })
-      jest.spyOn(wrapper.vm, 'deleteSpaceMember')
-      await wrapper.vm.$_ocCollaborators_deleteShare(memberMocks.manager)
-      expect(wrapper.vm.$router.push).toHaveBeenCalled()
-    })
-    it('refreshes the page when the current user has been removed on the "files-spaces-projects"-page', async () => {
-      const user = mock<User>({ id: memberMocks.manager.collaborator.name })
-      const wrapper = getWrapper({ user, currentRouteName: 'files-spaces-projects' })
-      jest.spyOn(wrapper.vm, 'deleteSpaceMember')
-      await wrapper.vm.$_ocCollaborators_deleteShare(memberMocks.manager)
-      expect(wrapper.vm.$router.go).toHaveBeenCalled()
+
+      const { dispatchModal } = useModals()
+      expect(dispatchModal).toHaveBeenCalledTimes(1)
     })
   })
 
@@ -149,7 +117,6 @@ describe('SpaceMembers', () => {
       expect(wrapper.vm.isFilterOpen).toBeFalsy()
       await wrapper.find('.open-filter-btn').trigger('click')
       expect(wrapper.vm.isFilterOpen).toBeTruthy()
-      expect(wrapper.html()).toMatchSnapshot()
     })
   })
 })
@@ -157,31 +124,29 @@ describe('SpaceMembers', () => {
 function getWrapper({
   mountType = shallowMount,
   space = mock<SpaceResource>(),
-  spaceMembers = [memberMocks.manager, memberMocks.editor, memberMocks.viewer],
+  spaceMembers = memberMocks,
   user = mock<User>(),
-  currentRouteName = 'files-spaces-generic'
+  currentRouteName = 'files-spaces-generic',
+  canShare = true
 } = {}) {
-  const storeOptions = {
-    ...defaultStoreMockOptions,
-    state: { user },
-    getters: {
-      ...defaultStoreMockOptions.getters,
-      user: () => user,
-      configuration: jest.fn(() => ({
-        options: { contextHelpers: true, sidebar: { shares: { showAllOnLoad: true } } }
-      }))
-    }
-  }
-  storeOptions.modules.runtime.modules.spaces.getters.spaceMembers.mockImplementation(
-    () => spaceMembers
-  )
-  const store = createStore(storeOptions)
+  vi.mocked(useCanShare).mockReturnValue({ canShare: () => canShare })
+
   const mocks = defaultComponentMocks({
     currentRoute: mock<RouteLocation>({ name: currentRouteName })
   })
   return mountType(SpaceMembers, {
     global: {
-      plugins: [...defaultPlugins(), store],
+      plugins: [
+        ...defaultPlugins({
+          piniaOptions: {
+            userState: { user },
+            spacesState: { spaceMembers },
+            configState: {
+              options: { contextHelpers: true, sidebar: { shares: { showAllOnLoad: true } } }
+            }
+          }
+        })
+      ],
       mocks,
       provide: {
         ...mocks,

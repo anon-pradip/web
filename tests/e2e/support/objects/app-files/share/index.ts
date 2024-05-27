@@ -17,16 +17,16 @@ export class Share {
     await this.#page.goto(startUrl)
   }
 
-  async accept(args: Omit<po.ShareStatusArgs, 'page'>): Promise<void> {
-    await po.acceptShare({ ...args, page: this.#page })
+  async enableSync(args: Omit<po.ShareStatusArgs, 'page'>): Promise<void> {
+    await po.enableSync({ ...args, page: this.#page })
   }
 
-  async declineShare(args: Omit<po.ShareStatusArgs, 'page'>): Promise<void> {
-    await po.declineShare({ ...args, page: this.#page })
+  async disableSync(args: Omit<po.ShareStatusArgs, 'page'>): Promise<void> {
+    await po.disableSync({ ...args, page: this.#page })
   }
 
-  async acceptAll(): Promise<void> {
-    await po.acceptAllShare({ page: this.#page })
+  async syncAll(): Promise<void> {
+    await po.syncAllShares({ page: this.#page })
   }
 
   async changeShareeRole(args: Omit<po.ShareArgs, 'page'>): Promise<void> {
@@ -60,11 +60,11 @@ export class Share {
     await po.createQuickLink({ ...args, page: this.#page })
   }
 
-  async resourceIsNotOpenable(resource): Promise<boolean> {
+  async resourceIsNotOpenable(resource: string): Promise<boolean> {
     return await resourceIsNotOpenable({ page: this.#page, resource })
   }
 
-  async resourceIsSynced(resource): Promise<boolean> {
+  async resourceIsSynced(resource: string): Promise<boolean> {
     return await resourceIsSynced({ page: this.#page, resource })
   }
 
@@ -111,5 +111,9 @@ export class Share {
 
   changeShareLocator(recipient: User): Locator {
     return po.changeRoleLocator({ page: this.#page, recipient })
+  }
+
+  async openSharingPanel(resource: string): Promise<void> {
+    await po.openSharingPanel(this.#page, resource)
   }
 }

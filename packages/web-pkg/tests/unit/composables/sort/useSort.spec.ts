@@ -1,6 +1,6 @@
 import { ref, unref } from 'vue'
-import { SortDir, SortOptions, useSort } from '../../../../src/composables/sort'
-import { Resource } from '@ownclouders/web-client/src/helpers/resource'
+import { SortDir, SortOptions, useSort } from '../../../../src/composables'
+import { Resource } from '@ownclouders/web-client'
 import { getComposableWrapper } from 'web-test-helpers'
 
 describe('useSort', () => {
@@ -33,15 +33,15 @@ describe('useSort', () => {
 
   describe('sorting resources', () => {
     const resources: Resource[] = [
-      { id: '1', name: 'c.png', path: '', webDavPath: '', sdate: '2' },
-      { id: '2', name: 'Dir4', path: '', webDavPath: '', sdate: '4', type: 'folder' },
-      { id: '3', name: 'a.png', path: '', webDavPath: '', sdate: '3' },
-      { id: '4', name: 'A.png', path: '', webDavPath: '', sdate: '6' },
-      { id: '5', name: 'dir2', path: '', webDavPath: '', sdate: '7', type: 'folder' },
-      { id: '6', name: 'b.png', path: '', webDavPath: '', sdate: '1' },
-      { id: '7', name: 'Dir1', path: '', webDavPath: '', sdate: '5', type: 'folder' },
-      { id: '8', name: 'dir11', path: '', webDavPath: '', sdate: '8', type: 'folder' },
-      { id: '9', name: 'dir3', path: '', webDavPath: '', sdate: '9', type: 'folder' }
+      { id: '1', name: 'c.png', path: '', webDavPath: '', mdate: '2' },
+      { id: '2', name: 'Dir4', path: '', webDavPath: '', mdate: '4', type: 'folder' },
+      { id: '3', name: 'a.png', path: '', webDavPath: '', mdate: '3' },
+      { id: '4', name: 'A.png', path: '', webDavPath: '', mdate: '6' },
+      { id: '5', name: 'dir2', path: '', webDavPath: '', mdate: '7', type: 'folder' },
+      { id: '6', name: 'b.png', path: '', webDavPath: '', mdate: '1' },
+      { id: '7', name: 'Dir1', path: '', webDavPath: '', mdate: '5', type: 'folder' },
+      { id: '8', name: 'dir11', path: '', webDavPath: '', mdate: '8', type: 'folder' },
+      { id: '9', name: 'dir3', path: '', webDavPath: '', mdate: '9', type: 'folder' }
     ]
 
     it('sorts resources by name', () => {
@@ -55,7 +55,7 @@ describe('useSort', () => {
               sortable: true
             },
             {
-              name: 'sdate',
+              name: 'mdate',
               sortable: true
             }
           ],

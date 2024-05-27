@@ -2,8 +2,7 @@
   <span v-if="selectedRole" class="oc-flex oc-flex-middle">
     <span v-if="availableRoles.length === 1">
       <oc-icon v-if="showIcon" :name="selectedRole.icon" class="oc-mr-s" />
-      <span v-if="!existingRole" v-text="inviteLabel" />
-      <span v-else>{{ $gettext(selectedRole.label) }}</span>
+      <span v-text="inviteLabel" />
     </span>
     <div v-else v-oc-tooltip="dropButtonTooltip">
       <oc-button
@@ -17,8 +16,7 @@
         "
       >
         <oc-icon v-if="showIcon" :name="selectedRole.icon" class="oc-mr-s" />
-        <span v-if="!existingRole" class="oc-text-truncate" v-text="inviteLabel" />
-        <span v-else class="oc-text-truncate" v-text="$gettext(selectedRole.label)" />
+        <span class="oc-text-truncate" v-text="inviteLabel" />
         <oc-icon name="arrow-down-s" />
       </oc-button>
     </div>
@@ -32,10 +30,13 @@
       offset="0"
       close-on-click
     >
-      <oc-list class="files-recipient-role-drop-list" :aria-label="rolesListAriaLabel">
-        <li v-for="role in availableRoles" :key="role.key">
+      <oc-list
+        class="files-recipient-role-drop-list"
+        :aria-label="$gettext('Select role for the invitation')"
+      >
+        <li v-for="role in availableRoles" :key="role.id">
           <oc-button
-            :id="`files-recipient-role-drop-btn-${role.name}`"
+            :id="`files-recipient-role-drop-btn-${role.id}`"
             ref="roleSelect"
             justify-content="space-between"
             class="files-recipient-role-drop-btn oc-p-s"
@@ -49,10 +50,7 @@
           >
             <span class="oc-flex oc-flex-middle">
               <oc-icon :name="role.icon" class="oc-pl-s oc-pr-m" variation="inherit" />
-              <role-item
-                :role="role"
-                :allow-share-permission="allowSharePermission && resharingDefault"
-              />
+              <role-item :role="role" />
             </span>
             <span class="oc-flex">
               <oc-icon v-if="isSelectedRole(role)" name="check" variation="inherit" />
@@ -61,80 +59,29 @@
         </li>
       </oc-list>
     </oc-drop>
-    <oc-drop
-      v-if="availableRoles.length > 1"
-      ref="customPermissionsDrop"
-      class="files-recipient-custom-permissions-drop"
-      mode="manual"
-      :target="'#' + roleButtonId"
-      padding-size="remove"
-    >
-      <h4
-        class="oc-text-bold oc-m-rm oc-px-m oc-pt-m oc-pb-s"
-        v-text="$gettext(customPermissionsRole.label)"
-      />
-      <oc-list>
-        <li
-          v-for="permission in availablePermissions"
-          :key="`files-collaborators-permission-${permission.key}`"
-          class="oc-my-s oc-px-m"
-        >
-          <oc-checkbox
-            :id="`files-collaborators-permission-${permission.key}`"
-            :key="`files-collaborators-permission-checkbox-${permission.key}`"
-            v-model="customPermissions"
-            size="large"
-            :data-testid="`files-collaborators-permission-${permission.key}`"
-            :label="$gettext(permission.label)"
-            :option="permission"
-            :disabled="isPermissionDisabled(permission)"
-            class="oc-mr-xs files-collaborators-permission-checkbox"
-          />
-        </li>
-      </oc-list>
-      <div
-        class="files-recipient-custom-permissions-drop-cancel-confirm-btns oc-px-m oc-py-s oc-mt-m oc-rounded-bottom"
-      >
-        <oc-button
-          size="small"
-          class="files-recipient-custom-permissions-drop-cancel"
-          @click="cancelCustomPermissions"
-          v-text="$gettext('Cancel')"
-        /><oc-button
-          size="small"
-          variation="primary"
-          appearance="filled"
-          class="files-recipient-custom-permissions-drop-confirm oc-ml-s"
-          @click="confirmCustomPermissions"
-          v-text="$gettext('Apply')"
-        />
-      </div>
-    </oc-drop>
   </span>
 </template>
 
 <script lang="ts">
 import get from 'lodash-es/get'
+import { storeToRefs } from 'pinia'
 import RoleItem from '../Shared/RoleItem.vue'
-import {
-  PeopleShareRoles,
-  Share,
-  SharePermissions,
-  ShareRole,
-  SpacePeopleShareRoles
-} from '@ownclouders/web-client/src/helpers/share'
 import * as uuid from 'uuid'
-import { defineComponent, inject, PropType, ComponentPublicInstance, computed } from 'vue'
 import {
-  useAbility,
-  useCapabilityFilesSharingAllowCustomPermissions,
-  useCapabilityFilesSharingResharingDefault,
-  useStore
-} from '@ownclouders/web-pkg'
+  defineComponent,
+  inject,
+  PropType,
+  ComponentPublicInstance,
+  computed,
+  ref,
+  unref,
+  Ref
+} from 'vue'
+import { useAbility, useUserStore } from '@ownclouders/web-pkg'
 import { Resource } from '@ownclouders/web-client'
-import { OcDrop } from 'design-system/src/components'
-import { mapGetters } from 'vuex'
 import { useGettext } from 'vue3-gettext'
+import { useSharesStore } from '@ownclouders/web-pkg'
+import { ShareRole } from '@ownclouders/web-client'
 
 export default defineComponent({
   name: 'RoleDropdown',
@@ -145,19 +92,10 @@ export default defineComponent({
       required: false,
       default: undefined
     },
-    existingPermissions: {
-      type: Array,
-      required: false,
-      default: () => []
-    },
     domSelector: {
       type: String,
       required: false,
       default: undefined
-    },
-    allowSharePermission: {
-      type: Boolean,
-      required: true
     },
     mode: {
       type: String,
@@ -174,9 +112,12 @@ export default defineComponent({
     }
   },
   emits: ['optionChange'],
-  setup(props) {
-    const store = useStore()
+  setup(props, { emit }) {
     const ability = useAbility()
+    const userStore = useUserStore()
+    const { user } = storeToRefs(userStore)
+    const sharesStore = useSharesStore()
+    const { graphRoles } = storeToRefs(sharesStore)
     const { $gettext } = useGettext()
 
     const dropButtonTooltip = computed(() => {
@@ -187,19 +128,30 @@ export default defineComponent({
       return ''
     })
 
+    const availableRoles = inject<Ref<ShareRole[]>>('availableShareRoles')
+
+    const initialSelectedRole = props.existingRole ? props.existingRole : unref(availableRoles)[0]
+    const selectedRole = ref<ShareRole>(initialSelectedRole)
+
+    const isSelectedRole = (role: ShareRole) => {
+      return unref(selectedRole).id === role.id
+    }
+
+    const selectRole = (role: ShareRole) => {
+      selectedRole.value = role
+      emit('optionChange', unref(selectedRole))
+    }
+
     return {
       ability,
+      user,
       dropButtonTooltip,
       resource: inject<Resource>('resource'),
-      incomingParentShare: inject<Share>('incomingParentShare'),
-      hasRoleCustomPermissions: useCapabilityFilesSharingAllowCustomPermissions(store),
-      resharingDefault: useCapabilityFilesSharingResharingDefault(store)
-    }
-  },
-  data() {
-    return {
-      selectedRole: null,
-      customPermissions: []
+      graphRoles,
+      selectedRole,
+      availableRoles,
+      isSelectedRole,
+      selectRole
     }
   },
   computed: {
@@ -209,61 +161,9 @@ export default defineComponent({
       }
       return 'files-collaborators-role-button-new'
     },
-    rolesListAriaLabel() {
-      return this.$gettext('Select role for the invitation')
-    },
     inviteLabel() {
-      if (this.selectedRole.hasCustomPermissions) {
-        return this.$gettext('Custom permissions')
-      } else if (this.selectedRole.permissions().includes(SharePermissions.denied)) {
-        return this.$gettext('Deny access')
-      } else {
-        return this.$gettext(this.selectedRole.label) || ''
-      }
-    },
-    customPermissionsRole() {
-      return PeopleShareRoles.custom(this.resource.isFolder)
-    },
-    resourceIsSharable() {
-      return this.allowSharePermission && this.resource.canShare({ ability: this.ability })
-    },
-    availableRoles() {
-      if (this.resourceIsSpace) {
-        return SpacePeopleShareRoles.list()
-      }
-
-      if (
-        this.incomingParentShare &&
-        this.incomingParentShare?.fileOwner?.name !== this.user.id &&
-        this.resourceIsSharable
-      ) {
-        return PeopleShareRoles.filterByBitmask(
-          this.incomingParentShare.permissions,
-          this.resource.isFolder,
-          this.allowSharePermission,
-          this.hasRoleCustomPermissions
-        )
-      }
-
-      return PeopleShareRoles.list(this.resource.isFolder, this.hasRoleCustomPermissions)
-    },
-    availablePermissions() {
-      if (this.incomingParentShare && this.resourceIsSharable) {
-        return SharePermissions.bitmaskToPermissions(this.incomingParentShare.permissions)
-      }
-      return this.customPermissionsRole.permissions(this.allowSharePermission)
-    },
-    resourceIsSpace() {
-      return this.resource.type === 'space'
-    },
-    defaultCustomPermissions() {
-      return [...this.selectedRole.permissions(this.allowSharePermission && this.resharingDefault)]
-    },
-    ...mapGetters(['user'])
-  },
-
-  created() {
-    this.applyRoleAndPermissions()
+      return this.$gettext(this.selectedRole?.displayName || '')
+    }
   },
 
   beforeUnmount() {
@@ -275,68 +175,7 @@ export default defineComponent({
   },
 
   methods: {
-    applyRoleAndPermissions() {
-      if (this.existingRole) {
-        this.selectedRole = this.existingRole
-      } else if (this.resourceIsSpace) {
-        this.selectedRole = SpacePeopleShareRoles.list()[0]
-      } else {
-        this.selectedRole = PeopleShareRoles.list(
-          this.resource.isFolder,
-          this.hasRoleCustomPermissions
-        )[0]
-      }
-
-      this.customPermissions = this.selectedRole.hasCustomPermissions
-        ? this.existingPermissions
-        : this.defaultCustomPermissions
-    },
-
-    publishChange() {
-      this.$emit('optionChange', {
-        role: this.selectedRole,
-        permissions: this.customPermissions
-      })
-    },
-
-    selectRole(role) {
-      if (role.hasCustomPermissions) {
-        ;(this.$refs.customPermissionsDrop as InstanceType<typeof OcDrop>).show()
-        return
-      }
-      this.selectedRole = role
-      this.customPermissions = role.permissions(this.allowSharePermission && this.resharingDefault)
-      this.publishChange()
-    },
-
-    isSelectedRole(role: ShareRole) {
-      return this.selectedRole.name === role.name
-    },
-
-    isPermissionDisabled(permission) {
-      return permission.bit === SharePermissions.read.bit
-    },
-
-    confirmCustomPermissions() {
-      ;(this.$refs.customPermissionsDrop as InstanceType<typeof OcDrop>).hide()
-      const bitmask = SharePermissions.permissionsToBitmask(this.customPermissions)
-      this.selectedRole = PeopleShareRoles.getByBitmask(
-        bitmask,
-        this.resource.isFolder,
-        this.allowSharePermission && this.resharingDefault
-      )
-      this.publishChange()
-    },
-
-    cancelCustomPermissions() {
-      this.customPermissions = this.existingPermissions.length
-        ? this.existingPermissions
-        : this.defaultCustomPermissions
-      ;(this.$refs.customPermissionsDrop as InstanceType<typeof OcDrop>).hide()
-      ;(this.$refs.rolesDrop as InstanceType<typeof OcDrop>).show()
-    },
-
-    cycleRoles(event) {
+    cycleRoles(event: KeyboardEvent) {
       // events only need to be captured if the roleSelect element is visible
       if (!get(this.$refs.rolesDrop, 'tippy.state.isShown', false)) {
         return
@@ -369,7 +208,7 @@ export default defineComponent({
         roleSelect.find((rs) => rs.$el.classList.contains('selected')) ||
         roleSelect[0]
       const activeRoleSelectIndex = roleSelect.indexOf(activeRoleSelect)
-      const activateRoleSelect = (idx) => roleSelect[idx].$el.focus()
+      const activateRoleSelect = (idx: number) => roleSelect[idx].$el.focus()
 
       // if the event key is arrow up
       // and the next active role select index would be less than 0

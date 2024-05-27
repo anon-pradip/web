@@ -1,15 +1,16 @@
 import { RouteRecordRaw, Router } from 'vue-router'
 import clone from 'lodash-es/clone'
 import { RuntimeApi } from './types'
-import { ApiError } from '@ownclouders/web-pkg'
-import { get, isEqual, isObject, isArray, merge } from 'lodash-es'
-import { Module, Store } from 'vuex'
-import { App, Component, h } from 'vue'
 import {
-  ApplicationQuickActions,
-  ApplicationTranslations,
-  AppNavigationItem
+  ApiError,
+  Extension,
+  ExtensionPoint,
+  ExtensionRegistry,
+  SidebarNavExtension
 } from '@ownclouders/web-pkg'
+import { isEqual, isObject, isArray, merge } from 'lodash-es'
+import { App, Component, computed, h } from 'vue'
+import { ApplicationTranslations, AppNavigationItem } from '@ownclouders/web-pkg'
 import type { Language } from 'vue3-gettext'
 
 /**
@@ -65,37 +66,34 @@ const announceRoutes = (applicationId: string, router: Router, routes: RouteReco
  * inject application specific navigation items into runtime
  *
  * @param applicationId
- * @param store
+ * @param extensionRegistry
  * @param navigationItems
  */
 const announceNavigationItems = (
   applicationId: string,
-  store: Store<unknown>,
+  extensionRegistry: ExtensionRegistry,
   navigationItems: AppNavigationItem[]
 ): void => {
   if (!isObject(navigationItems)) {
     throw new ApiError("navigationItems can't be blank")
   }
 
-  store.commit('SET_NAV_ITEMS_FROM_CONFIG', {
-    extension: applicationId,
-    navItems: navigationItems
-  })
-}
+  const navExtensionPoint = {
+    id: `app.${applicationId}.navItems`,
+    extensionType: 'sidebarNav',
+    multiple: true
+  }
+  const extensionPoints = computed<ExtensionPoint<Extension>[]>(() => [navExtensionPoint])
+  extensionRegistry.registerExtensionPoints(extensionPoints)
 
-/**
- * inject application specific extension into runtime
- *
- * @param applicationId
- * @param store
- * @param extension
- */
-const announceExtension = (
-  applicationId: string,
-  store: Store<unknown>,
-  extension: { [key: string]: unknown }
-): void => {
-  store.commit('REGISTER_EXTENSION', { app: applicationId, extension })
+  const navExtensions = navigationItems.map((navItem) => ({
+    id: `app.${applicationId}.${navItem.name}`,
+    type: 'sidebarNav',
+    navItem,
+    extensionPointIds: [navExtensionPoint.id]
+  })) as SidebarNavExtension[]
+
+  extensionRegistry.registerExtensions(computed(() => navExtensions))
 }
 
 /**
@@ -122,44 +120,6 @@ const announceTranslations = (
 }
 
 /**
- * inject application specific quickActions into runtime
- *
- * @param store
- * @param quickActions
- */
-const announceQuickActions = (
-  store: Store<unknown>,
-  quickActions: ApplicationQuickActions
-): void => {
-  if (!isObject(quickActions)) {
-    throw new ApiError("quickActions can't be blank")
-  }
-
-  store.commit('ADD_QUICK_ACTIONS', quickActions)
-}
-
-/**
- * inject application specific store into runtime
- *
- * @param applicationName
- * @param store
- * @param applicationStore
- */
-const announceStore = (
-  applicationName: string,
-  store: Store<unknown>,
-  applicationStore: Module<unknown, unknown>
-): void => {
-  const obtainedStore: Module<unknown, unknown> = get(applicationStore, 'default', applicationStore)
-
-  if (!isObject(obtainedStore)) {
-    throw new ApiError("store can't be blank")
-  }
-
-  store.registerModule(applicationName, obtainedStore)
-}
-
-/**
  * open a wormhole portal, this wraps vue-portal
  *
  * @param instance
@@ -183,21 +143,6 @@ const openPortal = (
     order: order,
     content: () => components.map((c) => h(c))
   })
-}
-
-/**
- * expose store to the application
- *
- * @deprecated use with caution
- *
- * @param store
- */
-const requestStore = (store: Store<unknown>): Store<unknown> => {
-  if (isEqual(process.env.NODE_ENV, 'development')) {
-    console.warn('requestStore // store api is deprecated, use with caution')
-  }
-
-  return store
 }
 
 /**
@@ -231,17 +176,17 @@ const requestRouter = (router: Router): Router => {
 export const buildRuntimeApi = ({
   applicationName,
   applicationId,
-  store,
   router,
   gettext,
-  supportedLanguages
+  supportedLanguages,
+  extensionRegistry
 }: {
   applicationName: string
   applicationId: string
-  store: Store<unknown>
   gettext: Language
   router: Router
   supportedLanguages: { [key: string]: string }
+  extensionRegistry: ExtensionRegistry
 }): RuntimeApi => {
   if (!applicationName) {
     throw new ApiError("applicationName can't be blank")
@@ -255,16 +200,9 @@ export const buildRuntimeApi = ({
     announceRoutes: (routes: RouteRecordRaw[]): void =>
       announceRoutes(applicationId, router, routes),
     announceNavigationItems: (navigationItems: AppNavigationItem[]): void =>
-      announceNavigationItems(applicationId, store, navigationItems),
+      announceNavigationItems(applicationId, extensionRegistry, navigationItems),
     announceTranslations: (appTranslations: ApplicationTranslations): void =>
       announceTranslations(supportedLanguages, gettext, appTranslations),
-    announceQuickActions: (quickActions: ApplicationQuickActions): void =>
-      announceQuickActions(store, quickActions),
-    announceStore: (applicationStore: Module<unknown, unknown>): void =>
-      announceStore(applicationName, store, applicationStore),
-    announceExtension: (extension: { [key: string]: unknown }): void =>
-      announceExtension(applicationId, store, extension),
-    requestStore: (): Store<unknown> => requestStore(store),
     requestRouter: (): Router => requestRouter(router),
     openPortal: (
       instance: App,

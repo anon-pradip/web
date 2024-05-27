@@ -4,42 +4,21 @@
     :group-options="groups"
     @selected-option-change="changeSelectedGroupOption"
   />
-  <div class="oc-flex oc-flex-right oc-flex-middle oc-mt-m">
-    <oc-button
-      class="oc-modal-body-actions-cancel oc-ml-s"
-      appearance="outline"
-      variation="passive"
-      @click="onCancel"
-      >{{ $gettext('Cancel') }}
-    </oc-button>
-    <oc-button
-      class="oc-modal-body-actions-confirm oc-ml-s"
-      appearance="filled"
-      variation="primary"
-      :disabled="!selectedOptions.length"
-      @click="onConfirm"
-      >{{ $gettext('Confirm') }}
-    </oc-button>
-  </div>
 </template>
 
 <script lang="ts">
-import { defineComponent, PropType, ref, unref } from 'vue'
+import { defineComponent, PropType, ref, unref, watch } from 'vue'
 import { useGettext } from 'vue3-gettext'
-import { Group, User } from '@ownclouders/web-client/src/generated'
+import { Group, User } from '@ownclouders/web-client/graph/generated'
 import GroupSelect from './GroupSelect.vue'
-import {
-  useStore,
-  useEventBus,
-  useClientService,
-  useConfigurationManager,
-  useLoadingService
-} from '@ownclouders/web-pkg'
+import { useClientService, Modal, useMessages, useConfigStore } from '@ownclouders/web-pkg'
+import { useUserSettingsStore } from '../../composables/stores/userSettings'
 
 export default defineComponent({
   name: 'AddToGroupsModal',
   components: { GroupSelect },
   props: {
+    modal: { type: Object as PropType<Modal>, required: true },
     groups: {
       type: Array as PropType<Group[]>,
       required: true
@@ -49,26 +28,34 @@ export default defineComponent({
       required: true
     }
   },
-  setup(props, { expose }) {
-    const store = useStore()
+  emits: ['update:confirmDisabled'],
+  setup(props, { emit, expose }) {
+    const { showMessage, showErrorMessage } = useMessages()
     const clientService = useClientService()
-    const configurationManager = useConfigurationManager()
-    const loadingService = useLoadingService()
-    const eventBus = useEventBus()
+    const configStore = useConfigStore()
     const { $gettext, $ngettext } = useGettext()
+    const userSettingsStore = useUserSettingsStore()
 
     const selectedOptions = ref<Group[]>([])
     const changeSelectedGroupOption = (options: Group[]) => {
       selectedOptions.value = options
     }
 
+    watch(
+      selectedOptions,
+      () => {
+        emit('update:confirmDisabled', !unref(selectedOptions).length)
+      },
+      { immediate: true }
+    )
+
     const onConfirm = async () => {
       const client = clientService.graphAuthenticated
-      const usersToFetch = []
+      const usersToFetch: string[] = []
       const promises = unref(selectedOptions).reduce((acc, group) => {
         for (const user of props.users) {
           if (!user.memberOf.find((userGroup) => userGroup.id === group.id)) {
-            acc.push(client.groups.addMember(group.id, user.id, configurationManager.serverUrl))
+            acc.push(client.groups.addMember(group.id, user.id, configStore.serverUrl))
             if (!usersToFetch.includes(user.id)) {
               usersToFetch.push(user.id)
             }
@@ -83,13 +70,11 @@ export default defineComponent({
           'Group assignments already added',
           props.users.length * unref(selectedOptions).length
         )
-        store.dispatch('showMessage', { title })
+        showMessage({ title })
         return
       }
 
-      const results = await loadingService.addTask(() => {
-        return Promise.allSettled(promises)
-      })
+      const results = await Promise.allSettled(promises)
 
       const succeeded = results.filter((r) => r.status === 'fulfilled')
       if (succeeded.length) {
@@ -105,7 +90,7 @@ export default defineComponent({
                 { groupAssignmentCount: succeeded.length.toString() },
                 true
               )
-        store.dispatch('showMessage', { title })
+        showMessage({ title })
       }
 
       const failed = results.filter((r) => r.status === 'rejected')
@@ -124,7 +109,7 @@ export default defineComponent({
                 { groupAssignmentCount: failed.length.toString() },
                 true
               )
-        store.dispatch('showErrorMessage', {
+        showErrorMessage({
           title,
           errors: (failed as PromiseRejectedResult[]).map((f) => f.reason)
         })
@@ -134,28 +119,23 @@ export default defineComponent({
         const usersResponse = await Promise.all(
           usersToFetch.map((userId) => client.users.getUser(userId))
         )
-        eventBus.publish(
-          'app.admin-settings.users.update',
-          usersResponse.map(({ data }) => data)
-        )
+
+        usersResponse.forEach(({ data }) => {
+          userSettingsStore.upsertUser(data)
+        })
       } catch (e) {
         console.error(e)
-      } finally {
-        store.dispatch('hideModal')
       }
     }
 
-    const onCancel = () => {
-      store.dispatch('hideModal')
-    }
-
-    expose({ onConfirm, onCancel })
+    expose({ onConfirm })
 
     return {
       selectedOptions,
       changeSelectedGroupOption,
-      onConfirm,
-      onCancel
+
+      // unit tests
+      onConfirm
     }
   }
 })

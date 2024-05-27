@@ -1,12 +1,20 @@
-import { useSpaceActionsEditReadmeContent } from '../../../../../src/composables/actions'
-import { SpaceResource, buildSpace } from '@ownclouders/web-client/src/helpers'
-import { createStore, defaultStoreMockOptions, getComposableWrapper } from 'web-test-helpers'
+import {
+  useOpenWithDefaultApp,
+  useSpaceActionsEditReadmeContent
+} from '../../../../../src/composables/actions'
+import { SpaceResource, buildSpace } from '@ownclouders/web-client'
+import { getComposableWrapper } from 'web-test-helpers'
 import { unref } from 'vue'
-import { mock } from 'jest-mock-extended'
-import { Drive } from '@ownclouders/web-client/src/generated'
+import { mock, mockDeep } from 'vitest-mock-extended'
+import { Drive } from '@ownclouders/web-client/graph/generated'
+import { ClientService } from '../../../../../src'
+
+vi.mock('../../../../../src/composables/actions/useOpenWithDefaultApp', () => ({
+  useOpenWithDefaultApp: vi.fn()
+}))
 
 describe('editReadmeContent', () => {
-  describe('isEnabled property', () => {
+  describe('isVisible property', () => {
     it('should be true for space managers', () => {
       const spaceMock = mock<Drive>({
         id: '1',
@@ -19,7 +27,7 @@ describe('editReadmeContent', () => {
       getWrapper({
         setup: ({ actions }) => {
           expect(
-            unref(actions)[0].isEnabled({
+            unref(actions)[0].isVisible({
               resources: [buildSpace(spaceMock)]
             })
           ).toBe(true)
@@ -29,26 +37,7 @@ describe('editReadmeContent', () => {
     it('should be false when not resource given', () => {
       getWrapper({
         setup: ({ actions }) => {
-          expect(unref(actions)[0].isEnabled({ resources: [] })).toBe(false)
-        }
-      })
-    })
-    it('should be false when spaceReadmeData does not exist', () => {
-      const spaceMock = mock<Drive>({
-        id: '1',
-        root: {
-          permissions: [{ roles: ['manager'], grantedToIdentities: [{ user: { id: '1' } }] }]
-        },
-        special: null
-      })
-
-      getWrapper({
-        setup: ({ actions }) => {
-          expect(
-            unref(actions)[0].isEnabled({
-              resources: [buildSpace(spaceMock)]
-            })
-          ).toBe(false)
+          expect(unref(actions)[0].isVisible({ resources: [] })).toBe(false)
         }
       })
     })
@@ -64,7 +53,7 @@ describe('editReadmeContent', () => {
       getWrapper({
         setup: ({ actions }) => {
           expect(
-            unref(actions)[0].isEnabled({
+            unref(actions)[0].isVisible({
               resources: [buildSpace(spaceMock)]
             })
           ).toBe(false)
@@ -73,11 +62,11 @@ describe('editReadmeContent', () => {
     })
   })
   describe('method "handler"', () => {
-    it('creates a modal', () => {
+    it('calls method "openWithDefaultApp"', () => {
       getWrapper({
-        setup: async ({ actions }, { storeOptions }) => {
+        setup: async ({ actions }, { openWithDefaultApp }) => {
           await unref(actions)[0].handler({ resources: [mock<SpaceResource>()] })
-          expect(storeOptions.actions.createModal).toHaveBeenCalled()
+          expect(openWithDefaultApp).toHaveBeenCalled()
         }
       })
     })
@@ -85,31 +74,34 @@ describe('editReadmeContent', () => {
 })
 
 function getWrapper({
-  setup
+  setup,
+  openWithDefaultApp = vi.fn()
 }: {
   setup: (
     instance: ReturnType<typeof useSpaceActionsEditReadmeContent>,
-    {
-      storeOptions
-    }: {
-      storeOptions: typeof defaultStoreMockOptions
-    }
+    mocks: { openWithDefaultApp: () => void }
   ) => void
+  openWithDefaultApp?: () => void
 }) {
-  const storeOptions = {
-    ...defaultStoreMockOptions
-  }
-  storeOptions.getters.user.mockReturnValue({ id: 'alice', uuid: 1 })
+  vi.mocked(useOpenWithDefaultApp).mockReturnValue(
+    mock<ReturnType<typeof useOpenWithDefaultApp>>({
+      openWithDefaultApp
+    })
+  )
 
-  const store = createStore(storeOptions)
+  const mocks = { openWithDefaultApp }
+
   return {
     wrapper: getComposableWrapper(
       () => {
-        const instance = useSpaceActionsEditReadmeContent({ store })
-        setup(instance, { storeOptions })
+        const instance = useSpaceActionsEditReadmeContent()
+        setup(instance, mocks)
       },
       {
-        store
+        provide: { $clientService: mockDeep<ClientService>() },
+        pluginOptions: {
+          piniaOptions: { userState: { user: { id: '1', onPremisesSamAccountName: 'alice' } } }
+        }
       }
     )
   }

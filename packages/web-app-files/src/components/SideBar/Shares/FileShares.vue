@@ -8,12 +8,16 @@
         v-bind="inviteCollaboratorHelp"
       />
     </div>
-    <invite-collaborator-form v-if="currentUserCanShare" key="new-collaborator" class="oc-my-s" />
+    <invite-collaborator-form
+      v-if="canShare({ resource, space })"
+      key="new-collaborator"
+      class="oc-my-s"
+    />
     <p
       v-else
-      key="no-reshare-permissions-message"
-      data-testid="files-collaborators-no-reshare-permissions-message"
-      v-text="noResharePermsMessage"
+      key="no-share-permissions-message"
+      data-testid="files-collaborators-no-share-permissions-message"
+      v-text="noSharePermsMessage"
     />
     <div v-if="hasSharees" class="avatars-wrapper oc-flex oc-flex-middle oc-flex-between">
       <h4 class="oc-text-bold oc-my-rm" v-text="sharedWithLabel" />
@@ -30,7 +34,7 @@
         :class="{ 'oc-mb-l': showSpaceMembers, 'oc-m-rm': !showSpaceMembers }"
         :aria-label="$gettext('Share receivers')"
       >
-        <li v-for="collaborator in displayCollaborators" :key="collaborator.key">
+        <li v-for="collaborator in displayCollaborators" :key="collaborator.id">
           <collaborator-list-item
             :share="collaborator"
             :resource-name="resource.name"
@@ -39,7 +43,7 @@
             :is-share-denied="isShareDenied(collaborator)"
             :shared-parent-route="getSharedParentRoute(collaborator)"
             :is-locked="resource.locked"
-            @on-delete="$_ocCollaborators_deleteShare_trigger"
+            @on-delete="deleteShareConfirmation"
             @on-set-deny="setDenyShare"
           />
         </li>
@@ -54,8 +58,9 @@
           appearance="raw"
           class="toggle-shares-list-btn"
           @click="toggleShareListCollapsed"
-          v-text="collapseButtonTitle"
-        />
+        >
+          {{ collapseButtonTitle }}
+        </oc-button>
       </div>
     </template>
     <template v-if="showSpaceMembers">
@@ -65,42 +70,44 @@
         class="oc-list oc-list-divider oc-overflow-hidden oc-m-rm"
         :aria-label="spaceMemberLabel"
       >
-        <li v-for="collaborator in displaySpaceMembers" :key="collaborator.key">
+        <li v-for="(collaborator, i) in displaySpaceMembers" :key="i">
           <collaborator-list-item
             :share="collaborator"
             :resource-name="resource.name"
             :deniable="isSpaceMemberDeniable(collaborator)"
             :modifiable="false"
             :is-share-denied="isSpaceMemberDenied(collaborator)"
+            :is-space-share="true"
             @on-set-deny="setDenyShare"
           />
         </li>
       </ul>
       <div v-if="showMemberToggle" class="oc-flex oc-flex-center">
-        <oc-button
-          appearance="raw"
-          @click="toggleMemberListCollapsed"
-          v-text="collapseButtonTitle"
-        />
+        <oc-button appearance="raw" @click="toggleMemberListCollapsed">
+          {{ collapseButtonTitle }}
+        </oc-button>
       </div>
     </template>
   </div>
 </template>
 
 <script lang="ts">
-import { mapGetters, mapActions, mapState, mapMutations } from 'vuex'
+import { storeToRefs } from 'pinia'
 import {
-  useAbility,
-  useStore,
-  useCapabilityProjectSpacesEnabled,
-  useCapabilityShareJailEnabled,
-  useCapabilityFilesSharingResharing,
-  useCapabilityFilesSharingCanDenyAccess,
-  useGetMatchingSpace
+  useGetMatchingSpace,
+  useModals,
+  useUserStore,
+  useMessages,
+  useSpacesStore,
+  useCapabilityStore,
+  useConfigStore,
+  useSharesStore,
+  useResourcesStore,
+  useCanShare
 } from '@ownclouders/web-pkg'
 import { isLocationSharesActive } from '@ownclouders/web-pkg'
 import { textUtils } from '../../../helpers/textUtils'
-import { peopleRoleDenyFolder, Share, ShareTypes } from '@ownclouders/web-client/src/helpers/share'
+import { ShareTypes } from '@ownclouders/web-client'
 import InviteCollaboratorForm from './Collaborators/InviteCollaborator/InviteCollaboratorForm.vue'
 import CollaboratorListItem from './Collaborators/ListItem.vue'
 import {
@@ -112,12 +119,10 @@ import {
   isProjectSpaceResource,
   Resource,
   SpaceResource,
-  User
-} from '@ownclouders/web-client/src/helpers'
+  CollaboratorShare,
+  isSpaceResource
+} from '@ownclouders/web-client'
 import { getSharedAncestorRoute } from '@ownclouders/web-pkg'
-import { AncestorMetaData } from '@ownclouders/web-pkg'
-import { useShares } from 'web-app-files/src/composables'
-import { configurationManager } from '@ownclouders/web-pkg'
 
 export default defineComponent({
   name: 'FileShares',
@@ -126,38 +131,45 @@ export default defineComponent({
     CollaboratorListItem
   },
   setup() {
-    const store = useStore()
-    const ability = useAbility()
+    const userStore = useUserStore()
+    const capabilityStore = useCapabilityStore()
+    const capabilityRefs = storeToRefs(capabilityStore)
     const { getMatchingSpace } = useGetMatchingSpace()
+    const { dispatchModal } = useModals()
+    const { canShare } = useCanShare()
+
+    const resourcesStore = useResourcesStore()
+    const { removeResources } = resourcesStore
+    const { ancestorMetaData } = storeToRefs(resourcesStore)
+
+    const spacesStore = useSpacesStore()
+    const { spaceMembers } = storeToRefs(spacesStore)
+
+    const configStore = useConfigStore()
+    const { options: configOptions } = storeToRefs(configStore)
+
+    const sharesStore = useSharesStore()
+    const { addShare, deleteShare } = sharesStore
+    const { collaboratorShares } = storeToRefs(sharesStore)
+
+    const { user } = storeToRefs(userStore)
 
     const resource = inject<Ref<Resource>>('resource')
+    const space = inject<Ref<SpaceResource>>('space')
 
-    const sharesListCollapsed = ref(
-      !store.getters.configuration.options.sidebar.shares.showAllOnLoad
-    )
+    const sharesListCollapsed = ref(!configStore.options.sidebar.shares.showAllOnLoad)
     const toggleShareListCollapsed = () => {
       sharesListCollapsed.value = !unref(sharesListCollapsed)
     }
-    const memberListCollapsed = ref(
-      !store.getters.configuration.options.sidebar.shares.showAllOnLoad
-    )
+    const memberListCollapsed = ref(!configStore.options.sidebar.shares.showAllOnLoad)
     const toggleMemberListCollapsed = () => {
       memberListCollapsed.value = !unref(memberListCollapsed)
     }
     const currentUserIsMemberOfSpace = computed(() => {
-      const userId = store.getters.user?.id
-      if (!userId) {
-        return false
-      }
-      return store.getters['runtime/spaces/spaceMembers'].some(
-        (member) => member.collaborator?.name === userId
-      )
+      return unref(spaceMembers).some((member) => member.sharedWith?.id === unref(user)?.id)
     })
 
-    const ancestorMetaData: Ref<AncestorMetaData> = computed(
-      () => store.getters['runtime/ancestorMetaData/ancestorMetaData']
-    )
-    const getSharedAncestor = (fileId) => {
+    const getSharedAncestor = (fileId: string) => {
       return Object.values(unref(ancestorMetaData)).find((a) => a.id === fileId)
     }
 
@@ -165,36 +177,62 @@ export default defineComponent({
       return getMatchingSpace(unref(resource))
     })
 
+    const collaborators = computed(() => {
+      const collaboratorsComparator = (c1: CollaboratorShare, c2: CollaboratorShare) => {
+        // Sorted by: type, direct, display name, creation date
+        const name1 = c1.sharedWith.displayName.toLowerCase().trim()
+        const name2 = c2.sharedWith.displayName.toLowerCase().trim()
+        const c1UserShare = ShareTypes.containsAnyValue(ShareTypes.individuals, [c1.shareType])
+        const c2UserShare = ShareTypes.containsAnyValue(ShareTypes.individuals, [c2.shareType])
+        const c1DirectShare = !c1.indirect
+        const c2DirectShare = !c2.indirect
+
+        if (c1UserShare === c2UserShare) {
+          if (c1DirectShare === c2DirectShare) {
+            return textUtils.naturalSortCompare(name1, name2)
+          }
+
+          return c1DirectShare ? -1 : 1
+        }
+
+        return c1UserShare ? -1 : 1
+      }
+
+      return unref(collaboratorShares).sort(collaboratorsComparator)
+    })
+
     return {
-      ...useShares(),
-      ability,
+      addShare,
+      deleteShare,
+      user,
       resource,
-      space: inject<Ref<SpaceResource>>('space'),
+      space,
       matchingSpace,
       sharesListCollapsed,
       toggleShareListCollapsed,
       memberListCollapsed,
       toggleMemberListCollapsed,
       currentUserIsMemberOfSpace,
-      hasProjectSpaces: useCapabilityProjectSpacesEnabled(),
-      hasShareJail: useCapabilityShareJailEnabled(),
-      hasResharing: useCapabilityFilesSharingResharing(),
-      hasShareCanDenyAccess: useCapabilityFilesSharingCanDenyAccess(),
+      hasShareCanDenyAccess: capabilityRefs.sharingDenyAccess,
       getSharedAncestor,
-      configurationManager
+      configStore,
+      configOptions,
+      dispatchModal,
+      spaceMembers,
+      removeResources,
+      collaborators,
+      ancestorMetaData,
+      canShare,
+      ...useMessages()
     }
   },
   computed: {
-    ...mapGetters(['configuration']),
-    ...mapGetters('runtime/spaces', ['spaceMembers', 'spaces']),
-    ...mapState(['user']),
-
     inviteCollaboratorHelp() {
-      const cernFeatures = !!this.configuration?.options?.cernFeatures
+      const cernFeatures = this.configOptions.cernFeatures
 
       if (cernFeatures) {
         const options = {
-          configurationManager: this.configurationManager
+          configStore: this.configStore
         }
         const mergedHelp = shareInviteCollaboratorHelp(options)
         mergedHelp.list = [...shareInviteCollaboratorHelpCern(options).list, ...mergedHelp.list]
@@ -202,12 +240,12 @@ export default defineComponent({
       }
 
       return shareInviteCollaboratorHelp({
-        configurationManager: this.configurationManager
+        configStore: this.configStore
       })
     },
 
     helpersEnabled() {
-      return this.configuration?.options?.contextHelpers
+      return this.configOptions.contextHelpers
     },
 
     sharedWithLabel() {
@@ -226,29 +264,12 @@ export default defineComponent({
       return this.displayCollaborators.length > 0
     },
 
-    collaborators() {
-      return [...this.outgoingCollaborators].sort(this.collaboratorsComparator).map((c) => {
-        const collaborator: typeof c & { key?: string; resharers?: User[] } = { ...c }
-        collaborator.key = 'collaborator-' + collaborator.id
-        if (
-          collaborator.owner.name !== collaborator.fileOwner.name &&
-          collaborator.owner.name !== this.user.id
-        ) {
-          collaborator.resharers = [collaborator.owner]
-        }
-        return collaborator
-      })
-    },
-
     displayCollaborators() {
-      const collaborators = this.collaborators.filter(
-        (c) => c.permissions !== peopleRoleDenyFolder.bitmask(false)
-      )
-
-      if (collaborators.length > 3 && this.sharesListCollapsed) {
-        return collaborators.slice(0, 3)
+      if (this.collaborators.length > 3 && this.sharesListCollapsed) {
+        return this.collaborators.slice(0, 3)
       }
-      return collaborators
+
+      return this.collaborators
     },
 
     displaySpaceMembers() {
@@ -266,18 +287,7 @@ export default defineComponent({
       return this.spaceMembers.length > 3
     },
 
-    currentUserCanShare() {
-      if (this.resource.isReceivedShare() && !this.hasResharing) {
-        return false
-      }
-      const isShareJail = this.space?.driveType === 'share'
-      if (isShareJail && !this.hasResharing) {
-        return false
-      }
-      return this.resource.canShare({ user: this.user, ability: this.ability })
-    },
-
-    noResharePermsMessage() {
+    noSharePermsMessage() {
       const translatedFile = this.$gettext("You don't have permission to share this file.")
       const translatedFolder = this.$gettext("You don't have permission to share this folder.")
       return this.resource.type === 'file' ? translatedFile : translatedFolder
@@ -289,112 +299,47 @@ export default defineComponent({
         this.resource.type !== 'space' &&
         this.currentUserIsMemberOfSpace
       )
-    },
-
-    resourceIsSpace() {
-      return this.resource.type === 'space'
     }
   },
   methods: {
-    ...mapActions('Files', ['deleteShare', 'addShare']),
-    ...mapActions(['createModal', 'hideModal', 'showMessage', 'showErrorMessage']),
-    ...mapMutations('Files', ['REMOVE_FILES']),
-
-    getDeniedShare(collaborator: Share): Share {
-      return this.collaborators.find(
-        (c) =>
-          c.permissions === peopleRoleDenyFolder.bitmask(false) &&
-          c.file.source === this.resource.id &&
-          c.collaborator.name === collaborator.collaborator.name &&
-          c.shareType === collaborator.shareType
-      )
+    getDeniedShare(collaborator: CollaboratorShare) {
+      // FIXME: currently not supported by sharing NG
+      return undefined
     },
 
-    isShareDenied(collaborator: Share): boolean {
-      return this.collaborators.some(
-        (c) =>
-          c.permissions === peopleRoleDenyFolder.bitmask(false) &&
-          c.collaborator.name === collaborator.collaborator.name &&
-          c.shareType === collaborator.shareType
-      )
+    isShareDenied(collaborator: CollaboratorShare) {
+      // FIXME: currently not supported by sharing NG
+      return false
     },
 
-    getDeniedSpaceMember(collaborator: Share): Share {
-      let shareType = null
-
-      if (collaborator.shareType === ShareTypes.spaceUser.value) {
-        shareType = ShareTypes.user.value
-      }
-
-      if (collaborator.shareType === ShareTypes.spaceGroup.value) {
-        shareType = ShareTypes.group.value
-      }
-
-      return this.collaborators.find(
-        (c) =>
-          c.permissions === peopleRoleDenyFolder.bitmask(false) &&
-          c.file.source === this.resource.id &&
-          c.collaborator.name === collaborator.collaborator.name &&
-          c.shareType === shareType
-      )
+    getDeniedSpaceMember(collaborator: CollaboratorShare) {
+      // FIXME: currently not supported by sharing NG
+      return undefined
     },
 
-    isSpaceMemberDenied(collaborator: Share): boolean {
-      let shareType = null
-
-      if (collaborator.shareType === ShareTypes.spaceUser.value) {
-        shareType = ShareTypes.user.value
-      }
-
-      if (collaborator.shareType === ShareTypes.spaceGroup.value) {
-        shareType = ShareTypes.group.value
-      }
-      return this.collaborators.some(
-        (c) =>
-          c.permissions === peopleRoleDenyFolder.bitmask(false) &&
-          c.collaborator.name === collaborator.collaborator.name &&
-          c.shareType === shareType
-      )
+    isSpaceMemberDenied(collaborator: CollaboratorShare) {
+      // FIXME: currently not supported by sharing NG
+      return false
     },
 
-    collaboratorsComparator(c1, c2) {
-      // Sorted by: type, direct, display name, creation date
-      const c1DisplayName = c1.collaborator ? c1.collaborator.displayName : c1.displayName
-      const c2DisplayName = c2.collaborator ? c2.collaborator.displayName : c2.displayName
-      const name1 = c1DisplayName.toLowerCase().trim()
-      const name2 = c2DisplayName.toLowerCase().trim()
-      const c1UserShare = ShareTypes.containsAnyValue(ShareTypes.individuals, [c1.shareType])
-      const c2UserShare = ShareTypes.containsAnyValue(ShareTypes.individuals, [c2.shareType])
-      const c1DirectShare = !c1.indirect
-      const c2DirectShare = !c2.indirect
-
-      if (c1UserShare === c2UserShare) {
-        if (c1DirectShare === c2DirectShare) {
-          if (name1 === name2) {
-            return textUtils.naturalSortCompare(c1.stime + '', c2.stime + '')
-          }
-
-          return textUtils.naturalSortCompare(name1, name2)
-        }
-
-        return c1DirectShare ? -1 : 1
-      }
-
-      return c1UserShare ? -1 : 1
+    isSpaceMemberDeniable(collaborator: CollaboratorShare) {
+      // FIXME: currently not supported by sharing NG
+      return false
     },
 
-    async setDenyShare({ value, share }) {
+    isShareDeniable(collaborator: CollaboratorShare) {
+      // FIXME: currently not supported by sharing NG
+      return false
+    },
+
+    async setDenyShare({ value, share }: { value: boolean; share: CollaboratorShare }) {
       if (value === true) {
         try {
           await this.addShare({
-            client: this.$client,
-            shareWith: share.collaborator.name,
-            displayName: share.collaborator.displayName,
-            shareType: share.shareType,
-            role: peopleRoleDenyFolder,
-            path: this.resource.path,
-            permissions: peopleRoleDenyFolder.bitmask(false),
-            storageId: this.resource.id
+            clientService: this.$clientService,
+            space: this.space,
+            resource: this.resource,
+            options: {}
           })
           this.showMessage({
             title: this.$gettext('Access was denied successfully')
@@ -403,19 +348,18 @@ export default defineComponent({
           console.error(e)
           this.showErrorMessage({
             title: this.$gettext('Failed to deny access'),
-            error: e
+            errors: [e]
           })
         }
       } else {
         try {
           await this.deleteShare({
-            client: this.$client,
-            share:
-              share.shareType === ShareTypes.spaceUser.value ||
-              share.shareType === ShareTypes.spaceGroup.value
-                ? this.getDeniedSpaceMember(share)
-                : this.getDeniedShare(share),
-            path: this.resource.path,
+            clientService: this.$clientService,
+            space: this.space,
+            resource: this.resource,
+            collaboratorShare: isSpaceResource(this.resource)
+              ? this.getDeniedSpaceMember(share)
+              : this.getDeniedShare(share),
             loadIndicators: false
           })
           this.showMessage({
@@ -425,67 +369,54 @@ export default defineComponent({
           console.error(e)
           this.showErrorMessage({
             title: this.$gettext('Failed to grant access'),
-            error: e
+            errors: [e]
           })
         }
       }
     },
 
-    $_ocCollaborators_deleteShare_trigger(share) {
-      const modal = {
+    deleteShareConfirmation(collaboratorShare: CollaboratorShare) {
+      this.dispatchModal({
         variation: 'danger',
         title: this.$gettext('Remove share'),
-        cancelText: this.$gettext('Cancel'),
         confirmText: this.$gettext('Remove'),
         message: this.$gettext('Are you sure you want to remove this share?'),
         hasInput: false,
-        onCancel: this.hideModal,
-        onConfirm: () => this.$_ocCollaborators_deleteShare(share)
-      }
+        onConfirm: async () => {
+          const lastShareId = this.collaborators.length === 1 ? this.collaborators[0].id : undefined
+          const loadIndicators = this.collaborators.filter((c) => !c.indirect).length === 1
 
-      this.createModal(modal)
-    },
+          try {
+            await this.deleteShare({
+              clientService: this.$clientService,
+              space: this.space,
+              resource: this.resource,
+              collaboratorShare,
+              loadIndicators
+            })
 
-    async $_ocCollaborators_deleteShare(share) {
-      let path = this.resource.path
-      // sharing a share root from the share jail -> use resource name as path
-      if (this.hasShareJail && path === '/') {
-        path = `/${this.resource.name}`
-      }
-
-      const lastShareId =
-        this.outgoingCollaborators.length === 1 ? this.outgoingCollaborators[0].id : undefined
-      const loadIndicators = this.outgoingCollaborators.filter((c) => !c.indirect).length === 1
-
-      try {
-        await this.deleteShare({
-          client: this.$client,
-          share: share,
-          path,
-          loadIndicators
-        })
-
-        this.hideModal()
-        this.showMessage({
-          title: this.$gettext('Share was removed successfully')
-        })
-        if (lastShareId && isLocationSharesActive(this.$router, 'files-shares-with-others')) {
-          this.REMOVE_FILES([{ id: lastShareId }])
+            this.showMessage({
+              title: this.$gettext('Share was removed successfully')
+            })
+            if (lastShareId && isLocationSharesActive(this.$router, 'files-shares-with-others')) {
+              this.removeResources([{ id: lastShareId }] as Resource[])
+            }
+          } catch (error) {
+            console.error(error)
+            this.showErrorMessage({
+              title: this.$gettext('Failed to remove share'),
+              errors: [error]
+            })
+          }
         }
-      } catch (error) {
-        console.error(error)
-        this.showErrorMessage({
-          title: this.$gettext('Failed to remove share'),
-          error
-        })
-      }
+      })
     },
 
-    getSharedParentRoute(parentShare) {
-      if (!parentShare.indirect) {
+    getSharedParentRoute(collaborator: CollaboratorShare) {
+      if (!collaborator.indirect) {
         return null
       }
-      const sharedAncestor = this.getSharedAncestor(parentShare.itemSource)
+      const sharedAncestor = this.getSharedAncestor(collaborator.resourceId)
       if (!sharedAncestor) {
         return null
       }
@@ -496,48 +427,16 @@ export default defineComponent({
       })
     },
 
-    isSpaceMemberDeniable(collaborator) {
-      return (
-        this.hasShareCanDenyAccess &&
-        this.resource.isFolder &&
-        !(
-          collaborator.shareType === ShareTypes.spaceUser.value &&
-          collaborator.collaborator.name === this.user.id
-        ) &&
-        (!!this.getDeniedSpaceMember(collaborator) || !this.isSpaceMemberDenied(collaborator))
-      )
-    },
-
-    isShareDeniable(collaborator) {
-      return (
-        this.hasShareCanDenyAccess &&
-        this.resource.isFolder &&
-        !!this.getSharedParentRoute(collaborator) &&
-        (!!this.getDeniedShare(collaborator) || !this.isShareDenied(collaborator))
-      )
-    },
-
-    // fixMe: head-breaking logic
-    isShareModifiable(collaborator) {
-      const isPersonalSpaceShare = !isProjectSpaceResource(this.space)
-      const isPersonalMember = this.currentUserIsMemberOfSpace
-      const isIndirectPersonalCollaborator = collaborator.indirect
-      const isProjectSpaceShare = !isPersonalSpaceShare
-      const isManager = this.space?.isManager(this.user)
-
-      if (isPersonalSpaceShare && isPersonalMember && isManager) {
-        return true
+    isShareModifiable(collaborator: CollaboratorShare) {
+      if (collaborator.indirect) {
+        return false
       }
 
-      if (isPersonalSpaceShare && !isIndirectPersonalCollaborator) {
-        return true
+      if (isProjectSpaceResource(this.space) && !this.space.isManager(this.user)) {
+        return false
       }
 
-      if (isProjectSpaceShare && isManager && !isIndirectPersonalCollaborator) {
-        return true
-      }
-
-      return false
+      return true
     }
   }
 })

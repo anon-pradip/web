@@ -1,23 +1,24 @@
 import { isLocationSpacesActive } from '../../../router'
-import { Store } from 'vuex'
 import { usePreviewService } from '../../previewService'
 import { useClientService } from '../../clientService'
 import { useLoadingService } from '../../loadingService'
 import { useRouter } from '../../router'
-import { useStore } from '../../store'
 import { useGettext } from 'vue3-gettext'
 import { computed } from 'vue'
 import { FileAction, FileActionOptions } from '../types'
-import { Drive } from '@ownclouders/web-client/src/generated'
-import { buildSpace } from '@ownclouders/web-client/src/helpers'
+import { Drive } from '@ownclouders/web-client/graph/generated'
+import { buildSpace } from '@ownclouders/web-client'
+import { useMessages, useSpacesStore, useUserStore } from '../../piniaStores'
 
-export const useFileActionsSetImage = ({ store }: { store?: Store<any> } = {}) => {
-  store = store || useStore()
+export const useFileActionsSetImage = () => {
+  const { showMessage, showErrorMessage } = useMessages()
+  const userStore = useUserStore()
   const router = useRouter()
   const { $gettext } = useGettext()
   const clientService = useClientService()
   const loadingService = useLoadingService()
   const previewService = usePreviewService()
+  const spacesStore = useSpacesStore()
 
   const handler = async ({ space, resources }: FileActionOptions) => {
     const graphClient = clientService.graphAuthenticated
@@ -60,20 +61,18 @@ export const useFileActionsSetImage = ({ store }: { store?: Store<any> } = {}) =
         {}
       )
 
-      store.commit('runtime/spaces/UPDATE_SPACE_FIELD', {
+      spacesStore.updateSpaceField({
         id: storageId,
         field: 'spaceImageData',
         value: buildSpace(updatedDriveData).spaceImageData
       })
 
-      store.dispatch('showMessage', {
-        title: $gettext('Space image was set successfully')
-      })
+      showMessage({ title: $gettext('Space image was set successfully') })
     } catch (error) {
       console.error(error)
-      store.dispatch('showErrorMessage', {
+      showErrorMessage({
         title: $gettext('Failed to set space image'),
-        error
+        errors: [error]
       })
     }
   }
@@ -86,7 +85,7 @@ export const useFileActionsSetImage = ({ store }: { store?: Store<any> } = {}) =
       label: () => {
         return $gettext('Set as space image')
       },
-      isEnabled: ({ space, resources }) => {
+      isVisible: ({ space, resources }) => {
         if (resources.length !== 1) {
           return false
         }
@@ -104,7 +103,7 @@ export const useFileActionsSetImage = ({ store }: { store?: Store<any> } = {}) =
           return false
         }
 
-        return space.canEditImage({ user: store.getters.user })
+        return space.canEditImage({ user: userStore.user })
       },
       componentType: 'button',
       class: 'oc-files-actions-set-space-image-trigger'

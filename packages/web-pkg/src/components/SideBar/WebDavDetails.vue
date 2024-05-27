@@ -1,6 +1,6 @@
 <template>
   <tr>
-    <th scope="col" class="oc-pr-s oc-font-semibold" v-text="'WebDAV path'" />
+    <th scope="col" class="oc-pr-s oc-font-semibold" v-text="$gettext('WebDAV path')" />
     <td class="oc-flex oc-flex-middle">
       <div v-oc-tooltip="webDavPath" class="oc-text-truncate" v-text="webDavPath" />
       <oc-button
@@ -16,7 +16,7 @@
     </td>
   </tr>
   <tr>
-    <th scope="col" class="oc-pr-s oc-font-semibold" v-text="'WebDAV URL'" />
+    <th scope="col" class="oc-pr-s oc-font-semibold" v-text="$gettext('WebDAV URL')" />
     <td class="oc-flex oc-flex-middle">
       <div v-oc-tooltip="webDavUrl" class="oc-text-truncate" v-text="webDavUrl" />
       <oc-button
@@ -34,16 +34,20 @@
 </template>
 
 <script lang="ts">
-import { defineComponent, inject, ref, Ref, computed, unref } from 'vue'
-import { urlJoin } from '@ownclouders/web-client/src/utils'
-import { Resource } from '@ownclouders/web-client'
-import { useConfigurationManager } from '../../composables'
+import { defineComponent, inject, ref, Ref, computed, unref, PropType } from 'vue'
+import { urlJoin } from '@ownclouders/web-client'
+import { Resource, SpaceResource } from '@ownclouders/web-client'
 import { encodePath } from '../../utils'
 
 export default defineComponent({
   name: 'WebDavDetails',
-  setup() {
-    const configurationManager = useConfigurationManager()
+  props: {
+    space: {
+      type: Object as PropType<SpaceResource>,
+      required: true
+    }
+  },
+  setup(props) {
     const resource = inject<Ref<Resource>>('resource')
     const copiedIcon = 'check'
     const copyIcon = 'file-copy'
@@ -54,7 +58,7 @@ export default defineComponent({
       return encodePath(unref(resource).webDavPath)
     })
     const webDavUrl = computed(() => {
-      return urlJoin(configurationManager.serverUrl, 'dav', unref(webDavPath))
+      return urlJoin(props.space?.root?.webDavUrl, 'dav', unref(webDavPath))
     })
 
     const copyWebDAVPathToClipboard = () => {

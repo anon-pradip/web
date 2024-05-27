@@ -104,13 +104,13 @@
 </template>
 
 <script lang="ts">
-import { computed, defineComponent, onMounted, ref, unref, VNodeRef } from 'vue'
+import { computed, defineComponent, onMounted, ref, unref } from 'vue'
 import * as EmailValidator from 'email-validator'
 import {
   NoContentMessage,
   AppLoadingSpinner,
   useClientService,
-  useStore
+  useMessages
 } from '@ownclouders/web-pkg'
 import { useGettext } from 'vue3-gettext'
 import { inviteListSchema, inviteSchema } from '../schemas'
@@ -130,7 +130,7 @@ export default defineComponent({
     AppLoadingSpinner
   },
   setup() {
-    const store = useStore()
+    const { showMessage, showErrorMessage } = useMessages()
     const clientService = useClientService()
     const { $gettext } = useGettext()
 
@@ -144,8 +144,7 @@ export default defineComponent({
     const loading = ref(true)
     const emailErrorMessage = ref(null)
     const descriptionErrorMessage = ref<string>()
-    const inputForFocusEmail = ref<VNodeRef>()
-
+    const inputForFocusEmail = ref<HTMLInputElement>()
     const fields = computed(() => {
       const haveLinks = unref(sortedTokens)[0]?.link
 
@@ -189,7 +188,7 @@ export default defineComponent({
       const { description, recipient } = unref(formInput)
       if (recipient.length > 0 && !EmailValidator.validate(recipient)) {
         emailErrorMessage.value = $gettext('Please enter a valid email address!')
-        ;(unref(inputForFocusEmail) as any).focus()
+        unref(inputForFocusEmail).focus()
         return
       }
 
@@ -224,7 +223,7 @@ export default defineComponent({
             }),
             ...(tokenInfo.description && { description: tokenInfo.description })
           })
-          store.dispatch('showMessage', {
+          showMessage({
             title: $gettext('Success'),
             status: 'success',
             desc: recipient
@@ -274,26 +273,26 @@ export default defineComponent({
       }
     }
 
-    const copyLink = (rowData) => {
+    const copyLink = (rowData: { item: { link: string; token: string } }) => {
       navigator.clipboard.writeText(rowData.item.link)
-      store.dispatch('showMessage', {
+      showMessage({
         title: $gettext('Invition link copied'),
         desc: $gettext('Invitation link has been copied to your clipboard.')
       })
     }
-    const copyToken = (rowData) => {
+    const copyToken = (rowData: { item: { link: string; token: string } }) => {
       navigator.clipboard.writeText(rowData.item.token)
-      store.dispatch('showMessage', {
+      showMessage({
         title: $gettext('Invite token copied'),
         desc: $gettext('Invite token has been copied to your clipboard.')
       })
     }
     const errorPopup = (error: Error) => {
       console.error(error)
-      store.dispatch('showErrorMessage', {
+      showErrorMessage({
         title: $gettext('Error'),
         desc: $gettext('An error occurred when generating the token'),
-        error
+        errors: [error]
       })
     }
 

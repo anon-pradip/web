@@ -1,100 +1,20 @@
-import { getDefaultLinkPermissions, getExpirationRules } from '../../../../src/helpers/share'
-import { Store } from 'vuex'
-import { Ability } from '@ownclouders/web-client/src/helpers/resource/types'
-import { mock } from 'jest-mock-extended'
-import { SharePermissionBit } from '@ownclouders/web-client/src/helpers'
-import { PublicExpirationCapability } from '@ownclouders/web-client/src/ocs/capabilities'
-
-jest.mock('@vueuse/core', () => ({
-  useClipboard: jest.fn().mockReturnValue({ copy: jest.fn() })
-}))
-
-const mockStore = {
-  getters: {
-    capabilities: {
-      files_sharing: {
-        public: {
-          default_permissions: 1,
-          password: {
-            enforced_for: {
-              read_only: false
-            }
-          }
-        }
-      }
-    }
-  },
-  state: {
-    user: {
-      capabilities: {
-        files_sharing: {
-          public: {
-            default_permissions: 1,
-            expire_date: {
-              enforced: true,
-              days: 5
-            },
-            password: {
-              enforced_for: {
-                read_only: false
-              }
-            }
-          }
-        }
-      }
-    }
-  },
-  dispatch: jest.fn(() => Promise.resolve({ url: '' }))
-}
-
-const returnBitmask = 1
-jest.mock('@ownclouders/web-client/src/helpers/share', () => ({
-  ...jest.requireActual('@ownclouders/web-client/src/helpers/share'),
-  LinkShareRoles: {
-    getByName: jest.fn().mockReturnValue({ bitmask: jest.fn(() => returnBitmask) })
-  },
-  linkRoleViewerFolder: { name: 'viewer' }
-}))
-
-describe('getDefaultLinkPermissions', () => {
-  it('returns internal if user is not allowed to create public links', () => {
-    const permissions = getDefaultLinkPermissions({
-      ability: mock<Ability>({ can: () => false }),
-      store: mockStore as any
-    })
-    expect(permissions).toBe(SharePermissionBit.Internal)
-  })
-  it.each([SharePermissionBit.Internal, SharePermissionBit.Read])(
-    'returns the defined default permissions from the capabilities if user is allowed to create public links',
-    (defaultPermissions) => {
-      const store = {
-        state: {
-          user: {
-            capabilities: {
-              files_sharing: { public: { default_permissions: defaultPermissions } }
-            }
-          }
-        }
-      }
-      const permissions = getDefaultLinkPermissions({
-        ability: mock<Ability>({ can: () => true }),
-        store: store as any
-      })
-      expect(permissions).toBe(defaultPermissions)
-    }
-  )
-})
+import { getExpirationRules } from '../../../../src/helpers/share'
+import { mock } from 'vitest-mock-extended'
+import { PublicExpirationCapability } from '@ownclouders/web-client/ocs'
+import { createTestingPinia } from 'web-test-helpers'
+import { useCapabilityStore } from '../../../../src/composables/piniaStores'
 
 describe('getExpirationRules', () => {
   it('correctly computes rules based on the "expire_date"-capability', () => {
-    jest.useFakeTimers().setSystemTime(new Date('2000-01-01'))
-
+    vi.useFakeTimers().setSystemTime(new Date('2000-01-01'))
+    createTestingPinia()
+    const capabilityStore = useCapabilityStore()
     const capabilities = mock<PublicExpirationCapability>({ enforced: true, days: '10' })
+    capabilityStore.capabilities.files_sharing.public.expire_date = capabilities
+
     const rules = getExpirationRules({
       currentLanguage: 'de',
-      store: {
-        getters: { capabilities: { files_sharing: { public: { expire_date: capabilities } } } }
-      } as Store<any>
+      capabilityStore
     })
 
     expect(rules.enforced).toEqual(capabilities.enforced)

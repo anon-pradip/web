@@ -1,44 +1,30 @@
-import { mock } from 'jest-mock-extended'
+import { mock } from 'vitest-mock-extended'
 import {
   RouteLocation,
-  createStore,
   defaultComponentMocks,
   defaultPlugins,
-  defaultStoreMockOptions,
   shallowMount
 } from 'web-test-helpers'
-import { Resource } from '@ownclouders/web-client/src/helpers'
+import { Resource } from '@ownclouders/web-client'
 import AppTopBar from '../../../src/components/AppTopBar.vue'
 import { Action } from '../../../src/composables/actions'
-import { ConfigurationManager } from '../../../types'
-
-jest.mock('../../../src/composables/configuration/useConfigurationManager', () => ({
-  useConfigurationManager: () =>
-    mock<ConfigurationManager>({
-      options: {
-        routing: {
-          fullShareOwnerPaths: false
-        }
-      }
-    })
-}))
 
 describe('AppTopBar', () => {
   describe('if no resource is present', () => {
     it('renders only a close button', () => {
-      const { wrapper } = getWrapper(mock<Resource>({ path: '/test.txt', shareRoot: '/test' }))
+      const { wrapper } = getWrapper(mock<Resource>({ path: '/test.txt', remoteItemPath: '/test' }))
       expect(wrapper.html()).toMatchSnapshot()
     })
   })
   describe('if a resource is present', () => {
     it('renders a resource and no actions (if none given) and a close button', () => {
-      const { wrapper } = getWrapper(mock<Resource>({ path: '/test.txt', shareRoot: '/test' }))
+      const { wrapper } = getWrapper(mock<Resource>({ path: '/test.txt', remoteItemPath: '/test' }))
       expect(wrapper.html()).toMatchSnapshot()
     })
 
     it('renders a resource and mainActions (if given) and a close button', () => {
       const { wrapper } = getWrapper(
-        mock<Resource>({ path: '/test.txt', shareRoot: '/test' }),
+        mock<Resource>({ path: '/test.txt', remoteItemPath: '/test' }),
         [],
         [mock<Action>()]
       )
@@ -47,7 +33,7 @@ describe('AppTopBar', () => {
 
     it('renders a resource and dropdownActions (if given) and a close button', () => {
       const { wrapper } = getWrapper(
-        mock<Resource>({ path: '/test.txt', shareRoot: '/test' }),
+        mock<Resource>({ path: '/test.txt', remoteItemPath: '/test' }),
         [mock<Action>()],
         []
       )
@@ -55,7 +41,7 @@ describe('AppTopBar', () => {
     })
     it('renders a resource and dropdownActions as well as mainActions (if both are passed) and a close button', () => {
       const { wrapper } = getWrapper(
-        mock<Resource>({ path: '/test.txt', shareRoot: '/test' }),
+        mock<Resource>({ path: '/test.txt', remoteItemPath: '/test' }),
         [mock<Action>()],
         [mock<Action>()]
       )
@@ -63,7 +49,7 @@ describe('AppTopBar', () => {
     })
     it('renders a resource without file extension if areFileExtensionsShown is set to false', () => {
       const { wrapper } = getWrapper(
-        mock<Resource>({ path: '/test.txt', shareRoot: '/test' }),
+        mock<Resource>({ path: '/test.txt', remoteItemPath: '/test' }),
         [mock<Action>()],
         [mock<Action>()],
         false
@@ -80,14 +66,10 @@ function getWrapper(
   mainActions: Action[] = [],
   areFileExtensionsShown = true
 ) {
-  const storeOptions = { ...defaultStoreMockOptions }
-  storeOptions.modules.Files.state.areFileExtensionsShown = areFileExtensionsShown
-  const store = createStore(storeOptions)
   const mocks = defaultComponentMocks({
     currentRoute: mock<RouteLocation>({ name: 'admin-settings-general' })
   })
   return {
-    storeOptions,
     wrapper: shallowMount(AppTopBar, {
       props: {
         dropDownActions,
@@ -95,7 +77,9 @@ function getWrapper(
         resource
       },
       global: {
-        plugins: [...defaultPlugins(), store],
+        plugins: [
+          ...defaultPlugins({ piniaOptions: { resourcesStore: { areFileExtensionsShown } } })
+        ],
         mocks,
         provide: mocks
       }

@@ -1,34 +1,34 @@
-import { Resource, SpaceResource } from '@ownclouders/web-client/src/helpers'
-import { computed, unref } from 'vue'
-import { useStore } from '../../store'
-import { FileAction } from '../../../composables'
+import { computed, Ref, unref } from 'vue'
+import { FileAction, useModals, useResourcesStore } from '../../../composables'
 import { CreateShortcutModal } from '../../../components'
 import { useGettext } from 'vue3-gettext'
+import { storeToRefs } from 'pinia'
+import { SpaceResource } from '@ownclouders/web-client'
 
-export const useFileActionsCreateNewShortcut = ({ space }: { space: SpaceResource }) => {
-  const store = useStore()
+export const useFileActionsCreateNewShortcut = ({ space }: { space: Ref<SpaceResource> }) => {
+  const { dispatchModal } = useModals()
   const { $gettext } = useGettext()
-  const currentFolder = computed((): Resource => store.getters['Files/currentFolder'])
 
-  const handler = () => {
-    return store.dispatch('createModal', {
-      title: $gettext('Create a Shortcut'),
-      hideActions: true,
-      customComponent: CreateShortcutModal,
-      customComponentAttrs: () => ({ space })
-    })
-  }
+  const resourcesStore = useResourcesStore()
+  const { currentFolder } = storeToRefs(resourcesStore)
 
   const actions = computed((): FileAction[] => {
     return [
       {
         name: 'create-shortcut',
         icon: 'external-link',
-        handler,
+        handler: () => {
+          dispatchModal({
+            title: $gettext('Create a Shortcut'),
+            confirmText: $gettext('Create'),
+            customComponent: CreateShortcutModal,
+            customComponentAttrs: () => ({ space: unref(space) })
+          })
+        },
         label: () => {
           return $gettext('New Shortcut')
         },
-        isEnabled: () => {
+        isVisible: () => {
           return unref(currentFolder)?.canCreate()
         },
         componentType: 'button',

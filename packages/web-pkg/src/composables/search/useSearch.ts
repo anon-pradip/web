@@ -1,29 +1,26 @@
 import { computed, unref } from 'vue'
 import { SearchResult } from '../../components'
-import { DavProperties } from '@ownclouders/web-client/src/webdav'
-import { urlJoin } from '@ownclouders/web-client/src/utils'
-import { useConfigurationManager } from '../configuration'
-import { useStore } from '../store'
+import { DavProperties } from '@ownclouders/web-client/webdav'
+import { urlJoin } from '@ownclouders/web-client'
 import { useClientService } from '../clientService'
-import { isProjectSpaceResource } from '@ownclouders/web-client/src/helpers'
+import { isProjectSpaceResource } from '@ownclouders/web-client'
+import { useConfigStore, useResourcesStore, useSpacesStore } from '../piniaStores'
+import { SearchResource } from '@ownclouders/web-client'
 
 export const useSearch = () => {
-  const store = useStore()
-  const configurationManager = useConfigurationManager()
+  const configStore = useConfigStore()
   const clientService = useClientService()
+  const spacesStore = useSpacesStore()
+  const resourcesStore = useResourcesStore()
 
-  const areHiddenFilesShown = computed(() => store.state.Files?.areHiddenFilesShown)
-  const projectSpaces = computed(() =>
-    store.getters['runtime/spaces/spaces'].filter((s) => isProjectSpaceResource(s))
-  )
-  const getProjectSpace = (id) => {
+  const areHiddenFilesShown = computed(() => resourcesStore.areHiddenFilesShown)
+  const projectSpaces = computed(() => spacesStore.spaces.filter(isProjectSpaceResource))
+  const getProjectSpace = (id: string) => {
     return unref(projectSpaces).find((s) => s.id === id)
   }
-  const search = async (term: string, searchLimit = null): Promise<SearchResult> => {
-    if (configurationManager.options.routing.fullShareOwnerPaths) {
-      await store.dispatch('runtime/spaces/loadMountPoints', {
-        graphClient: clientService.graphAuthenticated
-      })
+  const search = async (term: string, searchLimit: number = null): Promise<SearchResult> => {
+    if (configStore.options.routing.fullShareOwnerPaths) {
+      await spacesStore.loadMountPoints({ graphClient: clientService.graphAuthenticated })
     }
 
     if (!term) {
@@ -43,10 +40,10 @@ export const useSearch = () => {
       values: resources
         .map((resource) => {
           const matchingSpace = getProjectSpace(resource.parentFolderId)
-          const data = matchingSpace ? matchingSpace : resource
+          const data = (matchingSpace ? matchingSpace : resource) as SearchResource
 
-          if (configurationManager.options.routing.fullShareOwnerPaths && data.shareRoot) {
-            data.path = urlJoin(data.shareRoot, data.path)
+          if (configStore.options.routing.fullShareOwnerPaths && data.remoteItemPath) {
+            data.path = urlJoin(data.remoteItemPath, data.path)
           }
 
           return { id: data.id, data }

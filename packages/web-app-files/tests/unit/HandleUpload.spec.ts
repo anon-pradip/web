@@ -1,19 +1,24 @@
 import Uppy, { UppyFile, State, UIPlugin } from '@uppy/core'
 import { HandleUpload } from '../../src/HandleUpload'
-import { mock, mockDeep } from 'jest-mock-extended'
-import { Resource, SpaceResource } from '@ownclouders/web-client/src'
+import { mock, mockDeep } from 'vitest-mock-extended'
+import { Resource, SpaceResource } from '@ownclouders/web-client'
 import { RouteLocationNormalizedLoaded } from 'vue-router'
 import { ref, unref } from 'vue'
 import {
   ClientService,
   UppyService,
   UppyResource,
-  locationSpacesGeneric
+  locationSpacesGeneric,
+  useUserStore,
+  useMessages,
+  useSpacesStore,
+  useResourcesStore
 } from '@ownclouders/web-pkg'
 import { Language } from 'vue3-gettext'
-import { ResourceConflict } from 'web-app-files/src/helpers/resource/actions'
+import { UploadResourceConflict } from 'web-app-files/src/helpers/resource/actions'
+import { createTestingPinia } from 'web-test-helpers'
 
-jest.mock('web-app-files/src/helpers/resource/actions')
+vi.mock('web-app-files/src/helpers/resource/actions')
 
 describe('HandleUpload', () => {
   it('installs the handleUpload callback when files are being added', () => {
@@ -38,15 +43,16 @@ describe('HandleUpload', () => {
     const fileToUpload = mock<UppyFile>({ name: 'name' })
     const processedFiles = instance.prepareFiles([fileToUpload])
 
-    const currentFolder = mocks.opts.store.getters['Files/currentFolder']
+    const resourcesStore = useResourcesStore()
+    const currentFolder = resourcesStore.currentFolder
     const route = unref(mocks.opts.route)
 
     expect(processedFiles[0].tus.endpoint).toEqual('/')
     expect(processedFiles[0].meta.name).toEqual(fileToUpload.name)
-    expect(processedFiles[0].meta.spaceId).toEqual(mocks.opts.space.id)
-    expect(processedFiles[0].meta.spaceName).toEqual(mocks.opts.space.name)
-    expect(processedFiles[0].meta.driveAlias).toEqual(mocks.opts.space.driveAlias)
-    expect(processedFiles[0].meta.driveType).toEqual(mocks.opts.space.driveType)
+    expect(processedFiles[0].meta.spaceId).toEqual(unref(mocks.opts.space).id)
+    expect(processedFiles[0].meta.spaceName).toEqual(unref(mocks.opts.space).name)
+    expect(processedFiles[0].meta.driveAlias).toEqual(unref(mocks.opts.space).driveAlias)
+    expect(processedFiles[0].meta.driveType).toEqual(unref(mocks.opts.space).driveType)
     expect(processedFiles[0].meta.currentFolder).toEqual(currentFolder.path)
     expect(processedFiles[0].meta.currentFolderId).toEqual(currentFolder.id)
     expect(processedFiles[0].meta.tusEndpoint).toEqual(currentFolder.path)
@@ -65,7 +71,8 @@ describe('HandleUpload', () => {
       mocks.opts.clientService.webdav.createFolder.mockResolvedValue(createdFolder)
 
       const result = await instance.createDirectoryTree([fileToUpload])
-      const currentFolder = mocks.opts.store.getters['Files/currentFolder']
+      const resourcesStore = useResourcesStore()
+      const currentFolder = resourcesStore.currentFolder
 
       expect(mocks.opts.uppyService.publish).toHaveBeenCalledWith(
         'uploadSuccess',
@@ -74,10 +81,10 @@ describe('HandleUpload', () => {
           isFolder: true,
           type: 'folder',
           meta: expect.objectContaining({
-            spaceId: mocks.opts.space.id,
-            spaceName: mocks.opts.space.name,
-            driveAlias: mocks.opts.space.driveAlias,
-            driveType: mocks.opts.space.driveType,
+            spaceId: unref(mocks.opts.space).id,
+            spaceName: unref(mocks.opts.space).name,
+            driveAlias: unref(mocks.opts.space).driveAlias,
+            driveType: unref(mocks.opts.space).driveType,
             currentFolder: currentFolder.path,
             currentFolderId: currentFolder.id,
             relativeFolder: '',
@@ -89,14 +96,17 @@ describe('HandleUpload', () => {
         })
       )
       expect(mocks.opts.clientService.webdav.createFolder).toHaveBeenCalledTimes(1)
-      expect(mocks.opts.clientService.webdav.createFolder).toHaveBeenCalledWith(mocks.opts.space, {
-        path: relativeFolder,
-        fetchFolder: true
-      })
+      expect(mocks.opts.clientService.webdav.createFolder).toHaveBeenCalledWith(
+        unref(mocks.opts.space),
+        {
+          path: relativeFolder,
+          fetchFolder: true
+        }
+      )
       expect(result.length).toBe(1)
     })
     it('filters out files whose folders could not be created', async () => {
-      jest.spyOn(console, 'error').mockImplementation(() => undefined)
+      vi.spyOn(console, 'error').mockImplementation(() => undefined)
 
       const { instance, mocks } = getWrapper()
       mocks.uppy.getPlugin.mockReturnValue(mock<UIPlugin>())
@@ -114,7 +124,7 @@ describe('HandleUpload', () => {
   describe('method handleUpload', () => {
     it('prepares files and eventually triggers the upload in uppy', async () => {
       const { instance, mocks } = getWrapper()
-      const prepareFilesSpy = jest.spyOn(instance, 'prepareFiles')
+      const prepareFilesSpy = vi.spyOn(instance, 'prepareFiles')
       await instance.handleUpload([mock<UppyFile>({ name: 'name' })])
       expect(prepareFilesSpy).toHaveBeenCalledTimes(1)
       expect(mocks.opts.uppyService.publish).toHaveBeenCalledWith(
@@ -126,13 +136,13 @@ describe('HandleUpload', () => {
     describe('quota check', () => {
       it('checks quota if check enabled', async () => {
         const { instance } = getWrapper()
-        const checkQuotaExceededSpy = jest.spyOn(instance, 'checkQuotaExceeded')
+        const checkQuotaExceededSpy = vi.spyOn(instance, 'checkQuotaExceeded')
         await instance.handleUpload([mock<UppyFile>({ name: 'name' })])
         expect(checkQuotaExceededSpy).toHaveBeenCalled()
       })
       it('does not check quota if check disabled', async () => {
         const { instance } = getWrapper({ quotaCheckEnabled: false })
-        const checkQuotaExceededSpy = jest.spyOn(instance, 'checkQuotaExceeded')
+        const checkQuotaExceededSpy = vi.spyOn(instance, 'checkQuotaExceeded')
         await instance.handleUpload([mock<UppyFile>({ name: 'name' })])
         expect(checkQuotaExceededSpy).not.toHaveBeenCalled()
       })
@@ -154,8 +164,8 @@ describe('HandleUpload', () => {
           const result = await instance.checkQuotaExceeded([
             mock<UppyResource>({
               name: 'name',
-              meta: { spaceId: '1', routeName: locationSpacesGeneric.name as any },
-              data: { size }
+              meta: { spaceId: '1', routeName: locationSpacesGeneric.name as string },
+              data: { size } as Blob
             })
           ])
           expect(result).toBe(quotaExceeded)
@@ -173,8 +183,8 @@ describe('HandleUpload', () => {
         const result = await instance.checkQuotaExceeded([
           mock<UppyResource>({
             name: 'name',
-            meta: { spaceId: '1', routeName: locationSpacesGeneric.name as any },
-            data: { size }
+            meta: { spaceId: '1', routeName: locationSpacesGeneric.name as string },
+            data: { size } as Blob
           })
         ])
         expect(result).toBeFalsy()
@@ -192,8 +202,8 @@ describe('HandleUpload', () => {
         const result = await instance.checkQuotaExceeded([
           mock<UppyResource>({
             name: 'name',
-            meta: { spaceId: '1', routeName: locationSpacesGeneric.name as any },
-            data: { size }
+            meta: { spaceId: '1', routeName: locationSpacesGeneric.name as string },
+            data: { size } as Blob
           })
         ])
         expect(result).toBeFalsy()
@@ -212,7 +222,7 @@ describe('HandleUpload', () => {
       })
       it('does not start upload if all files were skipped in conflict handling', async () => {
         const { instance, mocks } = getWrapper({ conflicts: [{}], conflictHandlerResult: [] })
-        const removeFilesFromUploadSpy = jest.spyOn(instance, 'removeFilesFromUpload')
+        const removeFilesFromUploadSpy = vi.spyOn(instance, 'removeFilesFromUpload')
 
         await instance.handleUpload([mock<UppyFile>({ name: 'name' })])
         expect(mocks.opts.uppyService.uploadFiles).not.toHaveBeenCalled()
@@ -232,13 +242,13 @@ describe('HandleUpload', () => {
     describe('create directory tree', () => {
       it('creates the directly tree if enabled', async () => {
         const { instance } = getWrapper()
-        const createDirectoryTreeSpy = jest.spyOn(instance, 'createDirectoryTree')
+        const createDirectoryTreeSpy = vi.spyOn(instance, 'createDirectoryTree')
         await instance.handleUpload([mock<UppyFile>({ name: 'name' })])
         expect(createDirectoryTreeSpy).toHaveBeenCalled()
       })
       it('does not create the directly tree if disabled', async () => {
         const { instance } = getWrapper({ directoryTreeCreateEnabled: false })
-        const createDirectoryTreeSpy = jest.spyOn(instance, 'createDirectoryTree')
+        const createDirectoryTreeSpy = vi.spyOn(instance, 'createDirectoryTree')
         await instance.handleUpload([mock<UppyFile>({ name: 'name' })])
         expect(createDirectoryTreeSpy).not.toHaveBeenCalled()
       })
@@ -254,19 +264,11 @@ const getWrapper = ({
   conflictHandlerResult = [],
   spaces = []
 } = {}) => {
-  const resourceConflict = mock<ResourceConflict>()
+  const resourceConflict = mock<UploadResourceConflict>()
   resourceConflict.getConflicts.mockReturnValue(conflicts)
   resourceConflict.displayOverwriteDialog.mockResolvedValue(conflictHandlerResult)
-  jest.mocked(ResourceConflict).mockImplementation(() => resourceConflict)
+  vi.mocked(UploadResourceConflict).mockImplementation(() => resourceConflict)
 
-  const store = {
-    getters: {
-      'Files/currentFolder': mock<Resource>({ path: '/' }),
-      'Files/files': [mock<Resource>()],
-      'runtime/spaces/spaces': spaces
-    },
-    dispatch: jest.fn()
-  } as any
   const route = mock<RouteLocationNormalizedLoaded>()
   route.params.driveAliasAndItem = '1'
   route.query.shareId = '1'
@@ -274,13 +276,22 @@ const getWrapper = ({
   const uppy = mockDeep<Uppy>()
   uppy.getState.mockReturnValue(mock<State>({ files: {} }))
 
+  createTestingPinia({
+    initialState: {
+      spaces: { spaces },
+      resources: { currentFolder: mock<Resource>({ path: '/' }), resources: [mock<Resource>()] }
+    }
+  })
+
   const opts = {
     clientService: mockDeep<ClientService>(),
-    hasSpaces: ref(true),
     language: mock<Language>(),
     route: ref(route),
-    store,
-    space: mock<SpaceResource>(),
+    userStore: useUserStore(),
+    messageStore: useMessages(),
+    spacesStore: useSpacesStore(),
+    resourcesStore: useResourcesStore(),
+    space: ref(mock<SpaceResource>()),
     uppyService: mock<UppyService>(),
     conflictHandlingEnabled,
     directoryTreeCreateEnabled,

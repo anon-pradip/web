@@ -3,6 +3,9 @@
   "version": "0.0.0",
   "description": "OCM",
   "license": "AGPL-3.0",
+  "devDependencies": {
+    "@types/uuid": "9.0.1"
+  },
   "peerDependencies": {
     "@ownclouders/web-client": "workspace:*",
     "@ownclouders/web-pkg": "workspace:*",
@@ -10,9 +13,8 @@
     "email-validator": "^2.0.4",
     "fuse.js": "6.6.2",
     "lodash-es": "4.17.21",
-    "vue-concurrency": "4.0.1",
+    "vue-concurrency": "5.0.1",
     "uuid": "9.0.1",
-    "vuex": "4.1.0",
     "zod": "3.22.4"
   }
 }

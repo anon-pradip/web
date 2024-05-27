@@ -1,7 +1,7 @@
+import { Modal } from '@ownclouders/web-pkg'
 import EditPasswordModal from '../../../src/components/EditPasswordModal.vue'
 import { defaultPlugins, shallowMount } from 'web-test-helpers'
-
-afterEach(() => jest.clearAllMocks())
+import { mock } from 'vitest-mock-extended'
 
 describe('EditPasswordModal', () => {
   describe('computed method "confirmButtonDisabled"', () => {
@@ -39,13 +39,7 @@ function getWrapper() {
   return {
     wrapper: shallowMount(EditPasswordModal, {
       props: {
-        cancel: jest.fn(),
-        confirm: jest.fn(),
-        existingGroups: [
-          {
-            displayName: 'admins'
-          }
-        ]
+        modal: mock<Modal>()
       },
       global: {
         plugins: [...defaultPlugins()]

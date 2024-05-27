@@ -1,21 +1,17 @@
 import { useSpaceActionsEditQuota } from '../../../../../src/composables/actions'
-import { buildSpace } from '@ownclouders/web-client/src/helpers'
-import {
-  createStore,
-  defaultComponentMocks,
-  defaultStoreMockOptions,
-  getComposableWrapper
-} from 'web-test-helpers'
+import { useModals } from '../../../../../src/composables/piniaStores'
+import { buildSpace } from '@ownclouders/web-client'
+import { defaultComponentMocks, getComposableWrapper } from 'web-test-helpers'
 import { unref } from 'vue'
-import { mock } from 'jest-mock-extended'
-import { Drive } from '@ownclouders/web-client/src/generated'
+import { mock } from 'vitest-mock-extended'
+import { Drive } from '@ownclouders/web-client/graph/generated'
 
 describe('editQuota', () => {
-  describe('isEnabled property', () => {
+  describe('isVisible property', () => {
     it('should be false when not resource given', () => {
       getWrapper({
         setup: ({ actions }) => {
-          expect(unref(actions)[0].isEnabled({ resources: [] })).toBe(false)
+          expect(unref(actions)[0].isVisible({ resources: [] })).toBe(false)
         }
       })
     })
@@ -32,7 +28,7 @@ describe('editQuota', () => {
       getWrapper({
         canEditSpaceQuota: true,
         setup: ({ actions }) => {
-          expect(unref(actions)[0].isEnabled({ resources: [buildSpace(spaceMock)] })).toBe(true)
+          expect(unref(actions)[0].isVisible({ resources: [buildSpace(spaceMock)] })).toBe(true)
         }
       })
     })
@@ -49,7 +45,7 @@ describe('editQuota', () => {
       getWrapper({
         canEditSpaceQuota: false,
         setup: ({ actions }) => {
-          expect(unref(actions)[0].isEnabled({ resources: [buildSpace(spaceMock)] })).toBe(false)
+          expect(unref(actions)[0].isVisible({ resources: [buildSpace(spaceMock)] })).toBe(false)
         }
       })
     })
@@ -57,9 +53,10 @@ describe('editQuota', () => {
   describe('handler', () => {
     it('should create a modal', () => {
       getWrapper({
-        setup: async ({ actions }, { storeOptions }) => {
+        setup: async ({ actions }) => {
+          const { dispatchModal } = useModals()
           await unref(actions)[0].handler({ resources: [] })
-          expect(storeOptions.actions.createModal).toHaveBeenCalled()
+          expect(dispatchModal).toHaveBeenCalled()
         }
       })
     })
@@ -71,31 +68,17 @@ function getWrapper({
   setup
 }: {
   canEditSpaceQuota?: boolean
-  setup: (
-    instance: ReturnType<typeof useSpaceActionsEditQuota>,
-    {
-      storeOptions
-    }: {
-      storeOptions: typeof defaultStoreMockOptions
-    }
-  ) => void
+  setup: (instance: ReturnType<typeof useSpaceActionsEditQuota>) => void
 }) {
   const mocks = defaultComponentMocks()
-
-  const storeOptions = {
-    ...defaultStoreMockOptions,
-    modules: { ...defaultStoreMockOptions.modules, user: { state: { id: 'alice', uuid: 1 } } }
-  }
-  const store = createStore(storeOptions)
 
   return {
     wrapper: getComposableWrapper(
       () => {
-        const instance = useSpaceActionsEditQuota({ store })
-        setup(instance, { storeOptions })
+        const instance = useSpaceActionsEditQuota()
+        setup(instance)
       },
       {
-        store,
         mocks,
         pluginOptions: {
           abilities: canEditSpaceQuota ? [{ action: 'set-quota-all', subject: 'Drive' }] : []

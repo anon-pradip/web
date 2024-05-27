@@ -1,16 +1,11 @@
 import FileDetails from '../../../../../src/components/SideBar/Details/FileDetails.vue'
-import { ShareTypes } from '@ownclouders/web-client/src/helpers/share'
-import {
-  createStore,
-  defaultComponentMocks,
-  defaultPlugins,
-  defaultStoreMockOptions,
-  RouteLocation
-} from 'web-test-helpers'
-import { mock, mockDeep } from 'jest-mock-extended'
-import { Resource, SpaceResource } from '@ownclouders/web-client/src/helpers'
-import { createLocationSpaces, createLocationPublic } from '@ownclouders/web-pkg/'
+import { Resource, ShareResource, ShareTypes } from '@ownclouders/web-client'
+import { defaultComponentMocks, defaultPlugins, RouteLocation } from 'web-test-helpers'
+import { mock, mockDeep } from 'vitest-mock-extended'
+import { SpaceResource } from '@ownclouders/web-client'
+import { AncestorMetaData } from '@ownclouders/web-pkg/'
 import { mount } from '@vue/test-utils'
+import { User } from '@ownclouders/web-client/graph/generated'
 
 const getResourceMock = ({
   type = 'file',
@@ -18,28 +13,30 @@ const getResourceMock = ({
   tags = [],
   thumbnail = null,
   shareTypes = [],
-  share = null,
   path = '/somePath/someResource',
   locked = false,
-  canEditTags = true
+  canEditTags = true,
+  sharedBy = undefined
 } = {}) =>
-  mock<Resource>({
+  mock<ShareResource>({
     id: '1',
     type,
     isFolder: type === 'folder',
     mimeType,
-    ownerId: 'marie',
-    ownerDisplayName: 'Marie',
-    owner: null,
+    owner: {
+      id: 'marie',
+      displayName: 'Marie'
+    },
+    sharedBy,
     mdate: 'Wed, 21 Oct 2015 07:28:00 GMT',
     tags,
     size: '740',
     path,
     thumbnail,
     shareTypes,
-    share,
     locked,
-    canEditTags: jest.fn(() => canEditTags)
+    canEditTags: vi.fn(() => canEditTags),
+    ...(sharedBy && { sharedWith: [] })
   })
 
 const selectors = {
@@ -110,16 +107,21 @@ describe('Details SideBar Panel', () => {
       const resource = getResourceMock()
       const ancestorMetaData = {
         '/somePath': { path: '/somePath', shareTypes: [ShareTypes.user.value] }
-      }
+      } as unknown as AncestorMetaData
       const { wrapper } = createWrapper({ resource, ancestorMetaData })
       expect(wrapper.find(selectors.sharedVia).exists()).toBeTruthy()
     })
   })
   describe('shared by', () => {
     it('shows if the resource is a share from another user', () => {
-      const share = { fileOwner: { displayName: 'Marie' } }
-      const resource = getResourceMock({ shareTypes: [ShareTypes.user.value], share })
-      const { wrapper } = createWrapper({ resource, user: { id: 'einstein' } })
+      const resource = getResourceMock({
+        shareTypes: [ShareTypes.user.value],
+        sharedBy: [{ id: '1', displayName: 'Marie' }]
+      })
+      const { wrapper } = createWrapper({
+        resource,
+        user: { onPremisesSamAccountName: 'einstein' }
+      })
       expect(wrapper.find(selectors.sharedBy).exists()).toBeTruthy()
     })
   })
@@ -138,9 +140,12 @@ describe('Details SideBar Panel', () => {
     })
   })
   describe('versions', () => {
-    it('show if given for files on a private page', () => {
+    it('show if given for files on a private page', async () => {
       const resource = getResourceMock()
       const { wrapper } = createWrapper({ resource, versions: ['1'] })
+      await wrapper.vm.$nextTick()
+      await wrapper.vm.$nextTick()
+      await wrapper.vm.$nextTick()
       expect(wrapper.find(selectors.versionsInfo).exists()).toBeTruthy()
     })
     it('do not show for folders on a private page', () => {
@@ -156,7 +161,7 @@ describe('Details SideBar Panel', () => {
   })
 
   describe('tags', () => {
-    it('shows when enabled via capabilities', async () => {
+    it('shows when enabled via capabilities', () => {
       const resource = getResourceMock()
       const { wrapper } = createWrapper({ resource })
       expect(wrapper.find(selectors.tags).exists()).toBeTruthy()
@@ -195,36 +200,42 @@ function createWrapper({
   resource = null,
   isPublicLinkContext = false,
   ancestorMetaData = {},
-  user = { id: 'marie' },
+  user = { onPremisesSamAccountName: 'marie' },
   versions = [],
   tagsEnabled = true
+}: {
+  resource?: Resource
+  isPublicLinkContext?: boolean
+  ancestorMetaData?: AncestorMetaData
+  user?: User
+  versions?: string[]
+  tagsEnabled?: boolean
 } = {}) {
-  const storeOptions = defaultStoreMockOptions
-  storeOptions.getters.user.mockReturnValue(user)
-  storeOptions.modules.Files.getters.versions.mockReturnValue(versions)
-  storeOptions.getters.capabilities.mockReturnValue({ files: { tags: tagsEnabled } })
-  storeOptions.modules.runtime.modules.ancestorMetaData.getters.ancestorMetaData.mockReturnValue(
-    ancestorMetaData
-  )
-  storeOptions.modules.runtime.modules.auth.getters.isPublicLinkContextReady.mockReturnValue(
-    isPublicLinkContext
-  )
-  const store = createStore(storeOptions)
-
-  const spacesLocation = createLocationSpaces('files-spaces-generic')
-  const publicLocation = createLocationPublic('files-public-link')
-  const currentRoute = isPublicLinkContext ? publicLocation : spacesLocation
-  const mocks = defaultComponentMocks({ currentRoute: mock<RouteLocation>(currentRoute as any) })
+  const currentRouteName = isPublicLinkContext ? 'files-public-link' : 'files-spaces-generic'
+  const mocks = defaultComponentMocks({
+    currentRoute: mock<RouteLocation>({ name: currentRouteName })
+  })
+  const capabilities = { files: { tags: tagsEnabled } }
   return {
     wrapper: mount(FileDetails, {
       global: {
-        stubs: { 'router-link': true, 'oc-resource-icon': true },
+        stubs: { 'router-link': true, 'resource-icon': true },
         provide: {
           ...mocks,
+          versions,
           resource,
           space: mockDeep<SpaceResource>()
         },
-        plugins: [...defaultPlugins(), store],
+        plugins: [
+          ...defaultPlugins({
+            piniaOptions: {
+              userState: { user },
+              authState: { publicLinkContextReady: isPublicLinkContext },
+              capabilityState: { capabilities },
+              resourcesStore: { ancestorMetaData }
+            }
+          })
+        ],
         mocks
       }
     })

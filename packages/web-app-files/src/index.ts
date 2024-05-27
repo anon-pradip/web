@@ -8,61 +8,61 @@ import SpaceDriveResolver from './views/spaces/DriveResolver.vue'
 import SpaceProjects from './views/spaces/Projects.vue'
 import TrashOverview from './views/trash/Overview.vue'
 import translations from '../l10n/translations.json'
-import { defineWebApplication } from '@ownclouders/web-pkg'
-import store from './store'
+import {
+  ApplicationInformation,
+  defineWebApplication,
+  useCapabilityStore,
+  useSpacesStore,
+  useUserStore
+} from '@ownclouders/web-pkg'
 import { extensions } from './extensions'
 import { buildRoutes } from '@ownclouders/web-pkg'
 import { AppNavigationItem } from '@ownclouders/web-pkg'
 
 // dirty: importing view from other extension within project
 import SearchResults from '../../web-app-search/src/views/List.vue'
-import {
-  SpaceResource,
-  isPersonalSpaceResource,
-  isShareSpaceResource
-} from '@ownclouders/web-client/src/helpers'
+import { isPersonalSpaceResource, isShareSpaceResource } from '@ownclouders/web-client'
+import { ComponentCustomProperties } from 'vue'
+import { extensionPoints } from './extensionPoints'
 
 // just a dummy function to trick gettext tools
-function $gettext(msg) {
+function $gettext(msg: string) {
   return msg
 }
 
-const appInfo = {
+const appInfo: ApplicationInformation = {
   name: $gettext('Files'),
   id: 'files',
   icon: 'resource-type-folder',
   color: 'var(--oc-color-swatch-primary-muted)',
   isFileEditor: false,
-  extensions: [],
-  applicationMenu: {
-    enabled: () => true,
-    priority: 10
-  }
+  extensions: []
 }
-export const navItems = (context): AppNavigationItem[] => {
+
+export const navItems = (context: ComponentCustomProperties): AppNavigationItem[] => {
+  const spacesStores = useSpacesStore()
+  const userStore = useUserStore()
+  const capabilityStore = useCapabilityStore()
+
   return [
     {
-      name(capabilities) {
-        return capabilities.spaces?.enabled ? $gettext('Personal') : $gettext('All files')
+      name() {
+        return $gettext('Personal')
       },
       icon: appInfo.icon,
       route: {
         path: `/${appInfo.id}/spaces/personal`
       },
       isActive: () => {
-        return (
-          !context.$store.getters['runtime/spaces/currentSpace'] ||
-          context.$store.getters['runtime/spaces/currentSpace']?.isOwner(
-            context.$store.getters.user
-          )
-        )
+        return !spacesStores.currentSpace || spacesStores.currentSpace?.isOwner(userStore.user)
       },
-      enabled(capabilities) {
-        if (!capabilities.spaces?.enabled) {
+      isVisible() {
+        if (!spacesStores.spacesInitialized) {
           return true
         }
-        return !!context?.$store?.getters['runtime/spaces/spaces'].find(
-          (drive) => isPersonalSpaceResource(drive) && drive.isOwner(context.$store.getters.user)
+
+        return !!spacesStores.spaces.find(
+          (drive) => isPersonalSpaceResource(drive) && drive.isOwner(userStore.user)
         )
       },
       priority: 10
@@ -73,8 +73,8 @@ export const navItems = (context): AppNavigationItem[] => {
       route: {
         path: `/${appInfo.id}/favorites`
       },
-      enabled(capabilities) {
-        return capabilities.files?.favorites && context.$ability.can('read', 'Favorite')
+      isVisible() {
+        return capabilityStore.filesFavorites && context.$ability.can('read', 'Favorite')
       },
       priority: 20
     },
@@ -85,16 +85,16 @@ export const navItems = (context): AppNavigationItem[] => {
         path: `/${appInfo.id}/shares`
       },
       isActive: () => {
-        const space = context.$store.getters['runtime/spaces/currentSpace'] as SpaceResource
+        const space = spacesStores.currentSpace
         // last check is when fullShareOwnerPaths is enabled
-        return !space || isShareSpaceResource(space) || !space?.isOwner(context.$store.getters.user)
+        return !space || isShareSpaceResource(space) || !space?.isOwner(userStore.user)
       },
       activeFor: [
         { path: `/${appInfo.id}/spaces/share` },
         { path: `/${appInfo.id}/spaces/personal` }
       ],
-      enabled(capabilities) {
-        return capabilities.files_sharing?.api_enabled !== false
+      isVisible() {
+        return capabilityStore.sharingApiEnabled !== false
       },
       priority: 30
     },
@@ -105,8 +105,8 @@ export const navItems = (context): AppNavigationItem[] => {
         path: `/${appInfo.id}/spaces/projects`
       },
       activeFor: [{ path: `/${appInfo.id}/spaces/project` }],
-      enabled(capabilities) {
-        return capabilities.spaces?.projects
+      isVisible() {
+        return capabilityStore.spacesProjects
       },
       priority: 40
     },
@@ -117,8 +117,8 @@ export const navItems = (context): AppNavigationItem[] => {
         path: `/${appInfo.id}/trash/overview`
       },
       activeFor: [{ path: `/${appInfo.id}/trash` }],
-      enabled(capabilities) {
-        return capabilities.dav?.trashbin === '1.0' && capabilities.files?.undelete
+      isVisible() {
+        return capabilityStore.davTrashbin === '1.0' && capabilityStore.filesUndelete
       },
       priority: 50
     }
@@ -126,10 +126,19 @@ export const navItems = (context): AppNavigationItem[] => {
 }
 
 export default defineWebApplication({
-  setup(args) {
+  setup() {
+    const userStore = useUserStore()
+
     return {
-      appInfo,
-      store,
+      appInfo: {
+        ...appInfo,
+        applicationMenu: {
+          enabled: () => {
+            return !!userStore.user
+          },
+          priority: 10
+        }
+      },
       routes: buildRoutes({
         App,
         Favorites,
@@ -150,7 +159,8 @@ export default defineWebApplication({
       }),
       navItems,
       translations,
-      extensions: extensions(args)
+      extensions: extensions(),
+      extensionPoints: extensionPoints()
     }
   }
 })

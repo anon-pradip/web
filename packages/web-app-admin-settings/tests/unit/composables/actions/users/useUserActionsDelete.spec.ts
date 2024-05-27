@@ -1,31 +1,26 @@
 import { useUserActionsDelete } from '../../../../../src/composables/actions/users/useUserActionsDelete'
-import { mock } from 'jest-mock-extended'
+import { mock } from 'vitest-mock-extended'
 import { unref } from 'vue'
-import { User } from '@ownclouders/web-client/src/generated'
-import { eventBus } from '@ownclouders/web-pkg'
-import {
-  createStore,
-  defaultComponentMocks,
-  defaultStoreMockOptions,
-  getComposableWrapper
-} from 'web-test-helpers'
+import { User } from '@ownclouders/web-client/graph/generated'
+import { useCapabilityStore } from '@ownclouders/web-pkg'
+import { defaultComponentMocks, getComposableWrapper, writable } from 'web-test-helpers'
+import { useUserSettingsStore } from '../../../../../src/composables/stores/userSettings'
 
 describe('useUserActionsDelete', () => {
-  describe('method "isEnabled"', () => {
+  describe('method "isVisible"', () => {
     it.each([
-      { resources: [], disabledViaCapability: false, isEnabled: false },
-      { resources: [mock<User>()], disabledViaCapability: false, isEnabled: true },
-      { resources: [mock<User>(), mock<User>()], disabledViaCapability: false, isEnabled: true },
-      { resources: [mock<User>(), mock<User>()], disabledViaCapability: true, isEnabled: false }
+      { resources: [], disabledViaCapability: false, isVisible: false },
+      { resources: [mock<User>()], disabledViaCapability: false, isVisible: true },
+      { resources: [mock<User>(), mock<User>()], disabledViaCapability: false, isVisible: true },
+      { resources: [mock<User>(), mock<User>()], disabledViaCapability: true, isVisible: false }
     ])(
       'should only return true if 1 or more users are selected and not disabled via capability',
-      ({ resources, disabledViaCapability, isEnabled }) => {
+      ({ resources, disabledViaCapability, isVisible }) => {
         getWrapper({
-          setup: ({ actions }, { storeOptions }) => {
-            storeOptions.getters.capabilities.mockImplementation(() => ({
-              graph: { users: { delete_disabled: !!disabledViaCapability } }
-            }))
-            expect(unref(actions)[0].isEnabled({ resources })).toEqual(isEnabled)
+          setup: ({ actions }) => {
+            const capabilityStore = useCapabilityStore()
+            writable(capabilityStore).graphUsersDeleteDisabled = !!disabledViaCapability
+            expect(unref(actions)[0].isVisible({ resources })).toEqual(isVisible)
           }
         })
       }
@@ -33,28 +28,26 @@ describe('useUserActionsDelete', () => {
   })
   describe('method "deleteUsers"', () => {
     it('should successfully delete all given users and reload the users list', () => {
-      const eventSpy = jest.spyOn(eventBus, 'publish')
       getWrapper({
-        setup: async ({ deleteUsers }, { storeOptions, clientService }) => {
+        setup: async ({ deleteUsers }, { clientService }) => {
           const user = mock<User>({ id: '1' })
           await deleteUsers([user])
           expect(clientService.graphAuthenticated.users.deleteUser).toHaveBeenCalledWith(user.id)
-          expect(storeOptions.actions.hideModal).toHaveBeenCalled()
-          expect(eventSpy).toHaveBeenCalledWith('app.admin-settings.list.load')
+          const { removeUsers } = useUserSettingsStore()
+          expect(removeUsers).toHaveBeenCalled()
         }
       })
     })
     it('should handle errors', () => {
-      jest.spyOn(console, 'error').mockImplementation(() => undefined)
-      const eventSpy = jest.spyOn(eventBus, 'publish')
+      vi.spyOn(console, 'error').mockImplementation(() => undefined)
       getWrapper({
-        setup: async ({ deleteUsers }, { storeOptions, clientService }) => {
+        setup: async ({ deleteUsers }, { clientService }) => {
           clientService.graphAuthenticated.users.deleteUser.mockRejectedValue({})
           const user = mock<User>({ id: '1' })
           await deleteUsers([user])
           expect(clientService.graphAuthenticated.users.deleteUser).toHaveBeenCalledWith(user.id)
-          expect(storeOptions.actions.hideModal).toHaveBeenCalled()
-          expect(eventSpy).toHaveBeenCalledWith('app.admin-settings.list.load')
+          const { removeUsers } = useUserSettingsStore()
+          expect(removeUsers).toHaveBeenCalled()
         }
       })
     })
@@ -67,24 +60,20 @@ function getWrapper({
   setup: (
     instance: ReturnType<typeof useUserActionsDelete>,
     {
-      storeOptions,
       clientService
     }: {
-      storeOptions: typeof defaultStoreMockOptions
       clientService: ReturnType<typeof defaultComponentMocks>['$clientService']
     }
   ) => void
 }) {
-  const storeOptions = defaultStoreMockOptions
-  const store = createStore(storeOptions)
   const mocks = defaultComponentMocks()
   return {
     wrapper: getComposableWrapper(
       () => {
-        const instance = useUserActionsDelete({ store })
-        setup(instance, { storeOptions, clientService: mocks.$clientService })
+        const instance = useUserActionsDelete()
+        setup(instance, { clientService: mocks.$clientService })
       },
-      { store, mocks, provide: mocks }
+      { mocks, provide: mocks }
     )
   }
 }

@@ -2,10 +2,10 @@
   <div class="link-details oc-flex oc-flex-between oc-flex-middle">
     <div v-if="isModifiable">
       <link-role-dropdown
-        :model-value="currentLinkRole"
-        :available-role-options="availableRoleOptions"
+        :model-value="currentLinkType"
+        :available-link-type-options="availableLinkTypeOptions"
         drop-offset="0"
-        @update:model-value="updateSelectedRole"
+        @update:model-value="updateSelectedType"
       />
     </div>
     <p v-else class="oc-my-rm">
@@ -16,14 +16,14 @@
       />
     </p>
     <oc-checkbox
-      v-if="isRunningOnEos && isCurrentLinkRoleUploader()"
+      v-if="isRunningOnEos && isUploaderLink"
       :model-value="currentLinkNotifyUploads"
       :label="$gettext('Notify me about uploads')"
       @input="toggleNotifyUploads"
     />
     <div :class="{ 'oc-pr-s': !isModifiable }" class="details-buttons">
       <oc-button
-        v-if="link.indirect"
+        v-if="linkShare.indirect"
         v-oc-tooltip="viaTooltip"
         :area-label="viaTooltip"
         type="router-link"
@@ -34,17 +34,18 @@
         <oc-icon name="folder-shared" fill-type="line" />
       </oc-button>
       <oc-icon
-        v-if="link.password"
+        v-if="linkShare.hasPassword"
         v-oc-tooltip="passwortProtectionTooltip"
         name="lock-password"
+        class="oc-files-file-link-has-password"
         fill-type="line"
         :aria-label="passwortProtectionTooltip"
       />
       <oc-icon
-        v-if="link.expiration"
+        v-if="linkShare.expirationDateTime"
         v-oc-tooltip="expirationDateTooltip"
         class="oc-files-public-link-expires oc-ml-xs"
-        :data-testid="`files-link-id-${link.id}-expiration-date`"
+        :data-testid="`files-link-id-${linkShare.id}-expiration-date`"
         :aria-label="expirationDateTooltip"
         name="calendar-event"
         fill-type="line"
@@ -58,17 +59,17 @@
       />
       <div v-if="isModifiable">
         <oc-button
-          :id="`edit-public-link-dropdown-toggl-${link.id}`"
+          :id="`edit-public-link-dropdown-toggl-${linkShare.id}`"
           appearance="raw"
           class="edit-drop-trigger"
-          :data-testid="`files-link-id-${link.id}-btn-edit`"
+          :data-testid="`files-link-id-${linkShare.id}-btn-edit`"
         >
           <oc-icon name="more-2" />
         </oc-button>
         <oc-drop
           ref="editPublicLinkDropdown"
           :drop-id="`edit-public-link-dropdown`"
-          :toggle="`#edit-public-link-dropdown-toggl-${link.id}`"
+          :toggle="`#edit-public-link-dropdown-toggl-${linkShare.id}`"
           padding-size="small"
           mode="click"
         >
@@ -92,7 +93,7 @@
               >
                 <template #default="{ togglePopover }">
                   <oc-button
-                    :data-testid="`files-link-id-${link.id}-edit-${option.id}`"
+                    :data-testid="`files-link-id-${linkShare.id}-edit-${option.id}`"
                     appearance="raw"
                     class="oc-p-s action-menu-item"
                     :variation="option.variation"
@@ -103,7 +104,7 @@
                   </oc-button>
                   <oc-button
                     v-if="option.remove && option.remove.isRemovable"
-                    :data-testid="`files-link-id-${link.id}-edit-${option.id}`"
+                    :data-testid="`files-link-id-${linkShare.id}-edit-${option.id}`"
                     :aria-label="option.remove.title"
                     appearance="raw"
                     @click="option.remove.method"
@@ -116,7 +117,7 @@
                 v-else
                 appearance="raw"
                 class="oc-p-s action-menu-item"
-                :data-testid="`files-link-id-${link.id}-edit-${option.id}`"
+                :data-testid="`files-link-id-${linkShare.id}-edit-${option.id}`"
                 @click="option.method"
               >
                 <oc-icon :name="option.icon" fill-type="line" size="medium" />
@@ -132,7 +133,7 @@
               <oc-button
                 appearance="raw"
                 class="oc-p-s action-menu-item"
-                :data-testid="`files-link-id-${link.id}-edit-${deleteOption.id}`"
+                :data-testid="`files-link-id-${linkShare.id}-edit-${deleteOption.id}`"
                 @click="deleteOption.method"
               >
                 <oc-icon :name="deleteOption.icon" fill-type="line" size="medium" />
@@ -149,38 +150,43 @@
 <script lang="ts">
 import { basename } from 'path'
 import { DateTime } from 'luxon'
-import { mapActions, mapGetters } from 'vuex'
 import * as EmailValidator from 'email-validator'
 import {
   createLocationSpaces,
-  useConfigurationManager,
   LinkRoleDropdown,
-  useStore
+  useAbility,
+  useConfigStore,
+  useGetMatchingSpace,
+  useLinkTypes,
+  useModals,
+  useResourcesStore
 } from '@ownclouders/web-pkg'
-import {
-  linkRoleInternalFile,
-  linkRoleInternalFolder,
-  linkRoleUploaderFolder,
-  LinkShareRoles,
-  ShareRole
-} from '@ownclouders/web-client/src/helpers/share'
-import { computed, defineComponent, inject, PropType, Ref, ref } from 'vue'
+import { LinkShare, ShareTypes } from '@ownclouders/web-client'
+import { computed, defineComponent, inject, PropType, Ref, ref, unref } from 'vue'
 import { formatDateFromDateTime, formatRelativeDateFromDateTime } from '@ownclouders/web-pkg'
-import { Resource, SpaceResource } from '@ownclouders/web-client/src/helpers'
+import { Resource, SpaceResource } from '@ownclouders/web-client'
 import { createFileRouteOptions } from '@ownclouders/web-pkg'
 import { OcDrop } from 'design-system/src/components'
 import { usePasswordPolicyService, ExpirationRules } from '@ownclouders/web-pkg'
 import { useGettext } from 'vue3-gettext'
 import SetLinkPasswordModal from '../../../Modals/SetLinkPasswordModal.vue'
+import { storeToRefs } from 'pinia'
+import { SharingLinkType } from '@ownclouders/web-client/graph/generated'
+
+type EditOption = {
+  id: string
+  title: string
+  icon: string
+  method: () => void
+  variation?: string
+  remove?: any
+  showDatepicker?: boolean
+}
 
 export default defineComponent({
   name: 'DetailsAndEdit',
   components: { LinkRoleDropdown },
   props: {
-    availableRoleOptions: {
-      type: Array as PropType<ShareRole[]>,
-      required: true
-    },
     canRename: {
       type: Boolean,
       default: false
@@ -205,83 +211,150 @@ export default defineComponent({
       type: Boolean,
       default: false
     },
-    link: {
-      type: Object,
+    linkShare: {
+      type: Object as PropType<LinkShare>,
       required: true
     }
   },
   emits: ['removePublicLink', 'updateLink'],
   setup(props, { emit }) {
-    const store = useStore()
+    const { dispatchModal } = useModals()
     const { $gettext, current } = useGettext()
-    const configurationManager = useConfigurationManager()
+    const configStore = useConfigStore()
     const passwordPolicyService = usePasswordPolicyService()
+    const { can } = useAbility()
+    const { getMatchingSpace } = useGetMatchingSpace()
+    const { getAvailableLinkTypes, getLinkRoleByType, isPasswordEnforcedForLinkType } =
+      useLinkTypes()
 
-    const currentLinkRole = ref<ShareRole>(
-      LinkShareRoles.getByBitmask(props.link.permissions, props.isFolderShare)
-    ) as Ref<ShareRole>
+    const resourcesStore = useResourcesStore()
+    const { ancestorMetaData } = storeToRefs(resourcesStore)
+
+    const space = inject<Ref<SpaceResource>>('space')
+    const resource = inject<Ref<Resource>>('resource')
+
+    const currentLinkType = ref<SharingLinkType>(props.linkShare.type)
+
+    const canDeleteReadOnlyPublicLinkPassword = computed(() =>
+      can('delete-all', 'ReadOnlyPublicLinkPassword')
+    )
 
     const dateExpire = computed(() => {
-      return formatRelativeDateFromDateTime(
-        DateTime.fromISO(props.link.expiration).endOf('day'),
+      return formatDateFromDateTime(
+        DateTime.fromISO(props.linkShare.expirationDateTime).endOf('day'),
         current
       )
     })
 
-    const updateLink = ({ link, onSuccess = () => {} }) => {
-      link = link || props.link
-      emit('updateLink', { link, onSuccess })
+    const updateSelectedType = (type: SharingLinkType) => {
+      currentLinkType.value = type
+      const linkShare = props.linkShare
+      linkShare.type = type
+
+      const needsNoPw =
+        type === SharingLinkType.Internal ||
+        (unref(canDeleteReadOnlyPublicLinkPassword) && type === SharingLinkType.View)
+
+      if (!linkShare.hasPassword && !needsNoPw && isPasswordEnforcedForLinkType(type)) {
+        showPasswordModal(() => emit('updateLink', { linkShare: { ...linkShare, type } }))
+        return
+      }
+
+      emit('updateLink', { linkShare })
     }
-    const updateSelectedRole = (role: ShareRole) => {
-      currentLinkRole.value = role
-      updateLink({
-        link: { ...props.link, permissions: role.bitmask(false) }
+
+    const showPasswordModal = (callbackFn: () => void = undefined) => {
+      dispatchModal({
+        title: props.linkShare.hasPassword ? $gettext('Edit password') : $gettext('Add password'),
+        customComponent: SetLinkPasswordModal,
+        customComponentAttrs: () => ({
+          space: unref(space),
+          resource: unref(resource),
+          link: props.linkShare,
+          ...(callbackFn && { callbackFn })
+        })
       })
     }
 
-    const showPasswordModal = () => {
-      return store.dispatch('createModal', {
-        variation: 'passive',
-        title: props.link.password ? $gettext('Edit password') : $gettext('Add password'),
-        hideActions: true,
-        customComponent: SetLinkPasswordModal,
-        customComponentAttrs: () => ({ link: props.link })
+    const availableLinkTypeOptions = computed(() =>
+      getAvailableLinkTypes({ isFolder: props.isFolderShare })
+    )
+
+    const isAliasLink = computed(() => {
+      return props.linkShare.type === SharingLinkType.Internal
+    })
+
+    const isUploaderLink = computed(() => {
+      return props.linkShare.type === SharingLinkType.Upload
+    })
+
+    const currentLinkRoleDescription = computed(() => {
+      return getLinkRoleByType(unref(currentLinkType))?.description || ''
+    })
+
+    const currentLinkRoleLabel = computed(() => {
+      return getLinkRoleByType(unref(currentLinkType))?.label || ''
+    })
+
+    const sharedAncestor = computed(() => {
+      const ancestorPath = Object.keys(unref(ancestorMetaData)).find((key) =>
+        unref(ancestorMetaData)[key].shareTypes.includes(ShareTypes.link.value)
+      )
+      return ancestorPath ? unref(ancestorMetaData)[ancestorPath] : undefined
+    })
+
+    const viaRouterParams = computed(() => {
+      const matchingSpace = getMatchingSpace(unref(resource))
+      if (!matchingSpace || !unref(sharedAncestor)) {
+        return {}
+      }
+
+      return createLocationSpaces(
+        'files-spaces-generic',
+        createFileRouteOptions(matchingSpace, {
+          path: unref(sharedAncestor).path,
+          fileId: unref(sharedAncestor).id
+        })
+      )
+    })
+
+    const viaTooltip = computed(() => {
+      if (!props.linkShare.indirect || !unref(sharedAncestor)) {
+        return null
+      }
+
+      return $gettext('Navigate to the parent (%{folderName})', {
+        folderName: basename(unref(sharedAncestor).path)
       })
-    }
+    })
 
     return {
-      space: inject<Ref<SpaceResource>>('space'),
-      resource: inject<Ref<Resource>>('resource'),
+      space,
       passwordPolicyService,
       dateExpire,
-      updateLink,
-      updateSelectedRole,
-      currentLinkRole,
-      isRunningOnEos: computed(() => configurationManager.options.isRunningOnEos),
-      showPasswordModal
+      updateSelectedType,
+      currentLinkType,
+      isRunningOnEos: computed(() => configStore.options.isRunningOnEos),
+      showPasswordModal,
+      dispatchModal,
+      availableLinkTypeOptions,
+      getLinkRoleByType,
+      isAliasLink,
+      isUploaderLink,
+      currentLinkRoleDescription,
+      currentLinkRoleLabel,
+      viaRouterParams,
+      viaTooltip
     }
   },
   data() {
     return {
-      newExpiration: this.link.expiration
+      newExpiration: this.linkShare.expirationDateTime
     }
   },
   computed: {
-    ...mapGetters('runtime/spaces', ['spaces']),
-
-    currentLinkRoleDescription() {
-      return this.currentLinkRole?.description(false) || ''
-    },
-
-    currentLinkRoleLabel() {
-      if (this.currentLinkRole?.longLabel !== '') {
-        return this.$gettext(this.currentLinkRole.longLabel)
-      }
-      return this.$gettext(this.currentLinkRole?.label || '')
-    },
-
-    editOptions() {
-      const result = []
+    editOptions(): EditOption[] {
+      const result: EditOption[] = []
 
       if (this.canRename) {
         result.push({
@@ -292,11 +365,15 @@ export default defineComponent({
         })
       }
 
-      if (this.link.expiration) {
+      if (this.linkShare.expirationDateTime) {
         result.push({
           id: 'edit-expiration',
-          title: this.$gettext('Expires %{expires}', { expires: this.dateExpire }),
-          method: this.updateLink,
+          title: this.$gettext('Expires %{expires}', { expires: this.expirationDateRelative }),
+          method: () => {
+            this.$emit('updateLink', {
+              linkShare: { ...this.linkShare, expirationDateTime: this.dateExpire }
+            })
+          },
           icon: 'calendar-event',
           showDatepicker: true,
           remove: {
@@ -305,11 +382,8 @@ export default defineComponent({
             icon: 'close',
             isRemovable: !this.expirationRules.enforced,
             method: () =>
-              this.updateLink({
-                link: {
-                  ...this.link,
-                  expiration: ''
-                }
+              this.$emit('updateLink', {
+                linkShare: { ...this.linkShare, expirationDateTime: null }
               })
           }
         })
@@ -317,18 +391,22 @@ export default defineComponent({
         result.push({
           id: 'add-expiration',
           title: this.$gettext('Set expiration date'),
-          method: this.updateLink,
+          method: () => {
+            this.$emit('updateLink', {
+              linkShare: { ...this.linkShare, expirationDateTime: this.dateExpire }
+            })
+          },
           icon: 'calendar-event',
           showDatepicker: true
         })
       }
 
-      if (this.link.password) {
+      if (this.linkShare.hasPassword) {
         result.push({
           id: 'edit-password',
           title: this.$gettext('Edit password'),
           icon: 'lock-password',
-          method: this.showPasswordModal
+          method: () => this.showPasswordModal()
         })
 
         if (this.isPasswordRemovable) {
@@ -336,52 +414,47 @@ export default defineComponent({
             id: 'remove-password',
             title: this.$gettext('Remove password'),
             icon: 'lock-unlock',
-            method: () =>
-              this.updateLink({
-                link: {
-                  ...this.link,
-                  password: ''
-                }
-              })
+            method: () => this.$emit('updateLink', { linkShare: this.linkShare, password: '' })
           })
         }
       }
-      if (!this.link.password && !this.isAliasLink) {
+      if (!this.linkShare.hasPassword && !this.isAliasLink) {
         result.push({
           id: 'add-password',
           title: this.$gettext('Add password'),
           icon: 'lock-password',
-          method: this.showPasswordModal
+          method: () => this.showPasswordModal()
         })
       }
 
-      if (this.isCurrentLinkRoleUploader && this.currentLinkNotifyUploads) {
-        result.push({
-          id: 'add-notify-uploads-extra-recipients',
-          title: this.notifyUploadsExtraRecipientsMenuEntry,
-          icon: 'mail-add',
-          method: this.showNotifyUploadsExtraRecipientsModal
-        })
-      }
-      if (this.currentLinkNotifyUploadsExtraRecipients) {
-        result.push({
-          id: 'remove-notify-uploads-extra-recipients',
-          title: this.$gettext('Remove third party notification'),
-          icon: 'mail-close',
-          method: () =>
-            this.updateLink({
-              link: {
-                ...this.link,
-                notifyUploadsExtraRecipients: ''
-              }
-            })
-        })
-      }
+      // FIXME cern code
+      // if (this.isCurrentLinkRoleUploader && this.currentLinkNotifyUploads) {
+      //   result.push({
+      //     id: 'add-notify-uploads-extra-recipients',
+      //     title: this.notifyUploadsExtraRecipientsMenuEntry,
+      //     icon: 'mail-add',
+      //     method: this.showNotifyUploadsExtraRecipientsModal
+      //   })
+      // }
+      // if (this.currentLinkNotifyUploadsExtraRecipients) {
+      //   result.push({
+      //     id: 'remove-notify-uploads-extra-recipients',
+      //     title: this.$gettext('Remove third party notification'),
+      //     icon: 'mail-close',
+      //     method: () =>
+      //       this.updateLink({
+      //         link: {
+      //           ...this.linkShare,
+      //           notifyUploadsExtraRecipients: ''
+      //         }
+      //       })
+      //   })
+      // }
 
       return result
     },
 
-    deleteOption() {
+    deleteOption(): EditOption {
       return {
         id: 'delete',
         title: this.$gettext('Delete link'),
@@ -391,32 +464,9 @@ export default defineComponent({
       }
     },
 
-    viaRouterParams() {
-      const matchingSpace = (this.space ||
-        this.spaces.find((space) => space.id === this.resource.storageId)) as SpaceResource
-      if (!matchingSpace) {
-        return {}
-      }
-
-      return createLocationSpaces(
-        'files-spaces-generic',
-        createFileRouteOptions(matchingSpace, {
-          path: this.link.path,
-          fileId: this.link.file.source
-        })
-      )
-    },
-
-    localExpirationDate() {
-      return formatDateFromDateTime(
-        DateTime.fromISO(this.link.expiration).endOf('day'),
-        this.$language.current
-      )
-    },
-
     expirationDateRelative() {
       return formatRelativeDateFromDateTime(
-        DateTime.fromISO(this.link.expiration).endOf('day'),
+        DateTime.fromISO(this.linkShare.expirationDateTime).endOf('day'),
         this.$language.current
       )
     },
@@ -424,18 +474,7 @@ export default defineComponent({
     expirationDateTooltip() {
       return this.$gettext(
         'Expires %{timeToExpiry} (%{expiryDate})',
-        { timeToExpiry: this.expirationDateRelative, expiryDate: this.localExpirationDate },
-        true
-      )
-    },
-
-    viaTooltip() {
-      if (!this.link.indirect) {
-        return null
-      }
-      return (
-        this.$gettext('Navigate to the parent (%{folderName})'),
-        { folderName: basename(this.link.path) },
+        { timeToExpiry: this.expirationDateRelative, expiryDate: this.dateExpire },
         true
       )
     },
@@ -444,18 +483,13 @@ export default defineComponent({
       return this.$gettext('This link is password-protected')
     },
 
-    isAliasLink() {
-      if (this.isFolderShare) {
-        return parseInt(this.link.permissions) == linkRoleInternalFolder.bitmask(false)
-      }
-      return parseInt(this.link.permissions) == linkRoleInternalFile.bitmask(false)
-    },
-
     currentLinkNotifyUploads() {
-      return this.link.notifyUploads
+      // FIXME cern code
+      return undefined
     },
     currentLinkNotifyUploadsExtraRecipients() {
-      return this.link.notifyUploadsExtraRecipients
+      // FIXME cern code
+      return undefined
     },
     notifyUploadsExtraRecipientsMenuEntry() {
       if (this.currentLinkNotifyUploadsExtraRecipients) {
@@ -465,80 +499,52 @@ export default defineComponent({
     }
   },
   watch: {
-    newExpiration(expiration) {
-      this.updateLink({
-        link: {
-          ...this.link,
-          expiration
-        }
+    newExpiration(expirationDateTime: string) {
+      const date = DateTime.fromJSDate(new Date(expirationDateTime))
+      this.$emit('updateLink', {
+        linkShare: { ...this.linkShare, expirationDateTime: date.toString() }
       })
     }
   },
   methods: {
-    ...mapActions([
-      'createModal',
-      'hideModal',
-      'setModalInputErrorMessage',
-      'setModalConfirmButtonDisabled'
-    ]),
-
     deleteLink() {
-      this.$emit('removePublicLink', { link: this.link })
+      this.$emit('removePublicLink', { link: this.linkShare })
       ;(this.$refs.editPublicLinkDropdown as InstanceType<typeof OcDrop>).hide()
     },
-    checkInputValue(value) {
-      if (value.length > 255) {
-        return this.setModalInputErrorMessage(
-          this.$gettext('Link name cannot exceed 255 characters')
-        )
-      }
-      this.setModalInputErrorMessage(null)
-    },
     showRenameModal() {
-      const modal = {
-        variation: 'passive',
+      this.dispatchModal({
         title: this.$gettext('Edit name'),
-        cancelText: this.$gettext('Cancel'),
         confirmText: this.$gettext('Save'),
         hasInput: true,
-        inputValue: this.link.name,
+        inputValue: this.linkShare.displayName,
         inputLabel: this.$gettext('Link name'),
-        onCancel: this.hideModal,
-        onInput: this.checkInputValue,
-        onConfirm: (name) =>
-          this.updateLink({
-            link: {
-              ...this.link,
-              name
-            }
-          })
-      }
-
-      this.createModal(modal)
+        onInput: (name, setError) => {
+          if (name.length > 255) {
+            return setError(this.$gettext('Link name cannot exceed 255 characters'))
+          }
+          return setError(null)
+        },
+        onConfirm: (displayName: string) => {
+          const linkShare = this.linkShare
+          linkShare.displayName = displayName
+          this.$emit('updateLink', { linkShare })
+        }
+      })
     },
 
     toggleNotifyUploads() {
       if (this.currentLinkNotifyUploads) {
         this.$emit('updateLink', {
-          link: { ...this.link, notifyUploads: false, notifyUploadsExtraRecipients: '' }
+          link: { ...this.linkShare, notifyUploads: false, notifyUploadsExtraRecipients: '' }
         })
       } else {
-        this.$emit('updateLink', { link: { ...this.link, notifyUploads: true } })
+        this.$emit('updateLink', { linkShare: { ...this.linkShare, notifyUploads: true } })
       }
     },
-    isCurrentLinkRoleUploader() {
-      return (
-        LinkShareRoles.getByBitmask(parseInt(this.link.permissions), this.isFolderShare).bitmask(
-          false
-        ) === linkRoleUploaderFolder.bitmask(false)
-      )
-    },
     showNotifyUploadsExtraRecipientsModal() {
-      const modal = {
-        variation: 'passive',
+      this.dispatchModal({
         icon: 'mail-add',
         title: this.$gettext('Notify a third party about uploads'),
-        cancelText: this.$gettext('Cancel'),
         confirmText: this.$gettext('Apply'),
         hasInput: true,
         inputDescription: this.$gettext(
@@ -547,30 +553,20 @@ export default defineComponent({
         inputValue: this.currentLinkNotifyUploadsExtraRecipients,
         inputLabel: this.$gettext('Email address'),
         inputType: 'email',
-        onCancel: this.hideModal,
-        onInput: (value) => this.checkEmailValid(value),
-        onConfirm: (value) => {
-          this.updateLink({
-            link: {
-              ...this.link,
-              notifyUploadsExtraRecipients: value
-            },
-            onSuccess: () => {
-              this.hideModal()
-            }
-          })
+        onInput: (value, setError) => setError(this.getEmailValidationMsg(value)),
+        onConfirm: () => {
+          this.$emit('updateLink', { linkShare: { ...this.linkShare } })
         }
-      }
-      this.createModal(modal)
+      })
     },
-    checkEmailValid(email) {
+    getEmailValidationMsg(email: string) {
       if (!EmailValidator.validate(email)) {
-        return this.setModalInputErrorMessage(this.$gettext('Email is invalid'))
+        return this.$gettext('Email is invalid')
       }
       if (email === '') {
-        return this.setModalInputErrorMessage(this.$gettext("Email can't be empty"))
+        return this.$gettext("Email can't be empty")
       }
-      return this.setModalInputErrorMessage(null)
+      return null
     }
   }
 })

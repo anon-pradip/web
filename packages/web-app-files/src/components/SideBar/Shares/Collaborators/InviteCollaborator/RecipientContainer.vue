@@ -18,16 +18,17 @@
 </template>
 
 <script lang="ts">
-import { mapGetters } from 'vuex'
 import { avatarUrl } from '../../../../../helpers/user'
-import { ShareTypes } from '@ownclouders/web-client/src/helpers/share'
-import { defineComponent } from 'vue'
-import { Recipient } from 'design-system/src/components/OcRecipient/OcRecipient.vue'
+import { CollaboratorAutoCompleteItem, ShareTypes } from '@ownclouders/web-client'
+import { defineComponent, PropType } from 'vue'
+import { Recipient } from 'design-system/src/components/OcRecipient/types'
+import { useCapabilityStore, useConfigStore } from '@ownclouders/web-pkg'
+import { storeToRefs } from 'pinia'
 
 export default defineComponent({
   props: {
     recipient: {
-      type: Object,
+      type: Object as PropType<CollaboratorAutoCompleteItem>,
       required: true
     },
     deselect: {
@@ -36,35 +37,42 @@ export default defineComponent({
       default: null
     }
   },
+  setup() {
+    const capabilityStore = useCapabilityStore()
+    const capabilityRefs = storeToRefs(capabilityStore)
 
+    const configStore = useConfigStore()
+    const { serverUrl } = storeToRefs(configStore)
+
+    return {
+      serverUrl,
+      userProfilePicture: capabilityRefs.sharingUserProfilePicture
+    }
+  },
   data(): { formattedRecipient: Recipient } {
     return {
       formattedRecipient: {
-        name: this.recipient.label,
+        name: this.recipient.displayName,
         icon: this.getRecipientIcon(),
-        hasAvatar: [ShareTypes.user.value, ShareTypes.spaceUser.value].includes(
-          this.recipient.value.shareType
-        ),
+        hasAvatar: this.recipient.shareType === ShareTypes.user.value,
         isLoadingAvatar: true
       }
     }
   },
 
   computed: {
-    ...mapGetters(['configuration', 'capabilities']),
-
     btnDeselectRecipientLabel() {
-      return this.$gettext('Deselect %{name}', { name: this.recipient.label })
+      return this.$gettext('Deselect %{name}', { name: this.recipient.displayName })
     }
   },
 
   async created() {
-    if (this.capabilities.files_sharing.user.profile_picture && this.formattedRecipient.hasAvatar) {
+    if (this.userProfilePicture && this.formattedRecipient.hasAvatar) {
       try {
         this.formattedRecipient.avatar = await avatarUrl({
           clientService: this.$clientService,
-          server: this.configuration.server,
-          username: this.recipient.value.shareWith
+          server: this.serverUrl,
+          username: this.recipient.displayName
         })
       } catch (error) {
         console.error(error)
@@ -76,7 +84,7 @@ export default defineComponent({
 
   methods: {
     getRecipientIcon() {
-      switch (this.recipient.value.shareType) {
+      switch (this.recipient.shareType) {
         case ShareTypes.group.value:
           return {
             name: ShareTypes.group.icon,

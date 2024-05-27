@@ -3,6 +3,7 @@
     <whitespace-context-menu ref="whitespaceContextMenu" :space="space" />
     <files-view-wrapper>
       <app-bar
+        ref="appBarRef"
         :breadcrumbs="breadcrumbs"
         :breadcrumbs-context-actions-items="[currentFolder]"
         :has-bulk-actions="displayFullAppBar"
@@ -18,6 +19,7 @@
             v-if="isEmbedModeEnabled"
             key="new-folder-btn"
             v-oc-tooltip="limitedScreenSpace ? $gettext('New folder') : ''"
+            class="oc-mr-s"
             data-testid="btn-new-folder"
             :aria-label="$gettext('New folder')"
             appearance="filled"
@@ -63,87 +65,64 @@
               <span v-if="canUpload" class="file-empty-upload-hint" v-text="uploadHint" />
             </template>
           </no-content-message>
-          <resource-tiles
-            v-else-if="viewMode === ViewModeConstants.tilesView.name"
-            v-model:selectedIds="selectedResourcesIds"
-            :data="paginatedResources"
-            class="oc-px-m oc-pt-l"
-            :target-route-callback="resourceTargetRouteCallback"
-            :space="space"
-            :drag-drop="true"
-            :sort-fields="sortFields"
-            :sort-by="sortBy"
-            :sort-dir="sortDir"
-            :view-size="viewSize"
-            @row-mounted="rowMounted"
-            @file-click="triggerDefaultAction"
-            @file-dropped="fileDropped"
-            @sort="handleSort"
-          >
-            <template #contextMenuActions="{ resource }">
-              <context-actions :action-options="{ space, resources: [resource] }" />
-            </template>
-            <template #footer>
-              <pagination :pages="paginationPages" :current-page="paginationPage" />
-              <list-info
-                v-if="paginatedResources.length > 0"
-                class="oc-width-1-1 oc-my-s"
-                :files="totalFilesCount.files"
-                :folders="totalFilesCount.folders"
-                :size="totalFilesSize"
-              />
-            </template>
-          </resource-tiles>
-          <resource-details
-            v-else-if="displayResourceAsSingleResource"
-            :single-resource="paginatedResources[0]"
-            :space="space"
-          />
-          <resource-table
-            v-else
-            id="files-space-table"
-            v-model:selectedIds="selectedResourcesIds"
-            class="files-table"
-            :class="{ 'files-table-squashed': isSideBarOpen }"
-            :view-mode="viewMode"
-            :are-thumbnails-displayed="displayThumbnails"
-            :resources="paginatedResources"
-            :target-route-callback="resourceTargetRouteCallback"
-            :header-position="fileListHeaderY"
-            :drag-drop="true"
-            :sort-by="sortBy"
-            :sort-dir="sortDir"
-            :space="space"
-            @file-dropped="fileDropped"
-            @file-click="triggerDefaultAction"
-            @row-mounted="rowMounted"
-            @sort="handleSort"
-          >
-            <template #quickActions="{ resource }">
-              <quick-actions
-                :class="resource.preview"
-                class="oc-visible@s"
-                :space="space"
-                :item="resource"
-              />
-            </template>
-            <template #contextMenu="{ resource }">
-              <context-actions
-                v-if="isResourceInSelection(resource)"
-                :action-options="{ space, resources: selectedResources }"
-              />
-            </template>
-            <template #footer>
-              <pagination :pages="paginationPages" :current-page="paginationPage" />
-              <list-info
-                v-if="paginatedResources.length > 0"
-                class="oc-width-1-1 oc-my-s"
-                :files="totalFilesCount.files"
-                :folders="totalFilesCount.folders"
-                :size="totalFilesSize"
-              />
-            </template>
-          </resource-table>
+          <template v-else>
+            <resource-details
+              v-if="displayResourceAsSingleResource"
+              :single-resource="paginatedResources[0]"
+              :space="space"
+            />
+            <component
+              :is="folderView.component"
+              v-else
+              v-model:selectedIds="selectedResourcesIds"
+              :resources="paginatedResources"
+              :view-mode="viewMode"
+              :target-route-callback="resourceTargetRouteCallback"
+              :space="space"
+              :are-thumbnails-displayed="displayThumbnails"
+              :drag-drop="true"
+              :sort-by="sortBy"
+              :sort-dir="sortDir"
+              :header-position="fileListHeaderY /* table */"
+              :sort-fields="sortFields /* tiles */"
+              :view-size="viewSize /* tiles */"
+              :style="folderViewStyle"
+              v-bind="folderView.componentAttrs?.()"
+              @file-dropped="fileDropped"
+              @file-click="triggerDefaultAction"
+              @row-mounted="rowMounted"
+              @sort="handleSort"
+            >
+              <template #contextMenu="{ resource }">
+                <context-actions
+                  v-if="isResourceInSelection(resource)"
+                  :action-options="{ space, resources: selectedResources }"
+                />
+              </template>
+
+              <template #footer>
+                <pagination :pages="paginationPages" :current-page="paginationPage" />
+                <list-info
+                  v-if="paginatedResources.length > 0"
+                  class="oc-width-1-1 oc-my-s"
+                  :files="totalResourcesCount.files"
+                  :hidden-files="totalResourcesCount.hiddenFiles"
+                  :folders="totalResourcesCount.folders"
+                  :hidden-folders="totalResourcesCount.hiddenFolders"
+                  :size="totalResourcesSize"
+                  :show-hidden-items="!areHiddenFilesShown"
+                />
+              </template>
+              <template #quickActions="{ resource }">
+                <quick-actions
+                  :class="resource.preview"
+                  class="oc-visible@s"
+                  :space="space"
+                  :item="resource"
+                />
+              </template>
+            </component>
+          </template>
         </template>
       </template>
     </files-view-wrapper>
@@ -154,9 +133,17 @@
 <script lang="ts">
 import { debounce, omit, last } from 'lodash-es'
 import { basename } from 'path'
-import { computed, defineComponent, PropType, onBeforeUnmount, onMounted, unref, ref } from 'vue'
+import {
+  computed,
+  ComponentPublicInstance,
+  defineComponent,
+  PropType,
+  onBeforeUnmount,
+  onMounted,
+  unref,
+  ref
+} from 'vue'
 import { RouteLocationNamedRaw } from 'vue-router'
-import { mapGetters, mapState, mapActions, mapMutations, useStore } from 'vuex'
 import { useGettext } from 'vue3-gettext'
 import { Resource } from '@ownclouders/web-client'
 import {
@@ -165,13 +152,19 @@ import {
   isPublicSpaceResource,
   isShareSpaceResource,
   SpaceResource
-} from '@ownclouders/web-client/src/helpers'
+} from '@ownclouders/web-client'
 
 import {
   ProcessorType,
+  ResourceTransfer,
+  TransferType,
+  useConfigStore,
   useEmbedMode,
+  useExtensionRegistry,
   useFileActions,
-  useFileActionsCreateNewFolder
+  useFileActionsCreateNewFolder,
+  useResourcesStore,
+  useUserStore
 } from '@ownclouders/web-pkg'
 
 import {
@@ -183,15 +176,13 @@ import {
   Pagination,
   ResourceTable,
   CreateTargetRouteOptions,
-  ImageType,
-  ViewModeConstants,
+  FolderViewModeConstants,
   VisibilityObserver,
   createFileRouteOptions,
   createLocationPublic,
   createLocationSpaces,
   displayPositionedDropdown,
   useBreadcrumbsFromPath,
-  useCapabilityShareJailEnabled,
   useClientService,
   useDocumentTitle,
   useOpenWithDefaultApp,
@@ -205,12 +196,11 @@ import ListInfo from '../../components/FilesList/ListInfo.vue'
 import NotFoundMessage from '../../components/FilesList/NotFoundMessage.vue'
 import QuickActions from '../../components/FilesList/QuickActions.vue'
 import ResourceDetails from '../../components/FilesList/ResourceDetails.vue'
-import ResourceTiles from '../../components/FilesList/ResourceTiles.vue'
+import { ResourceTiles } from '@ownclouders/web-pkg'
 import SpaceHeader from '../../components/Spaces/SpaceHeader.vue'
 import WhitespaceContextMenu from 'web-app-files/src/components/Spaces/WhitespaceContextMenu.vue'
 import { eventBus } from '@ownclouders/web-pkg'
 import { useResourcesViewDefaults } from '../../composables'
-import { ResourceTransfer, TransferType } from '../../helpers/resource'
 import { FolderLoaderOptions } from '../../services/folder'
 import { BreadcrumbItem } from 'design-system/src/components/OcBreadcrumb/types'
 import { v4 as uuidv4 } from 'uuid'
@@ -219,6 +209,8 @@ import {
   useKeyboardTableNavigation,
   useKeyboardTableSpaceActions
 } from 'web-app-files/src/composables/keyboardActions'
+import { storeToRefs } from 'pinia'
+import { folderViewsFolderExtensionPoint } from '../../extensionPoints'
 
 const visibilityObserver = new VisibilityObserver()
 
@@ -262,37 +254,48 @@ export default defineComponent({
   },
 
   setup(props) {
-    const store = useStore()
+    const userStore = useUserStore()
     const { $gettext, $ngettext } = useGettext()
     const openWithDefaultAppQuery = useRouteQuery('openWithDefaultApp')
     const clientService = useClientService()
-    const hasShareJail = useCapabilityShareJailEnabled()
     const { breadcrumbsFromPath, concatBreadcrumbs } = useBreadcrumbsFromPath()
     const { openWithDefaultApp } = useOpenWithDefaultApp()
-    const { actions: createNewFolder } = useFileActionsCreateNewFolder({
-      store,
-      space: props.space
-    })
+
+    const space = computed(() => props.space)
+
+    const { actions: createNewFolder } = useFileActionsCreateNewFolder({ space })
+
     const { isEnabled: isEmbedModeEnabled } = useEmbedMode()
+
+    const configStore = useConfigStore()
+    const { options: configOptions } = storeToRefs(configStore)
+
+    const resourcesStore = useResourcesStore()
+    const { removeResources, resetSelection, updateResourceField } = resourcesStore
+    const { currentFolder, totalResourcesCount, totalResourcesSize, areHiddenFilesShown } =
+      storeToRefs(resourcesStore)
 
     let loadResourcesEventToken: string
 
     const canUpload = computed(() => {
-      return store.getters['Files/currentFolder']?.canUpload({ user: store.getters.user })
+      return unref(currentFolder)?.canUpload({ user: userStore.user })
     })
 
-    const viewModes = computed(() => [
-      ViewModeConstants.condensedTable,
-      ViewModeConstants.default,
-      ViewModeConstants.tilesView
-    ])
+    const extensionRegistry = useExtensionRegistry()
+    const viewModes = computed(() => {
+      return [
+        ...extensionRegistry
+          .requestExtensions(folderViewsFolderExtensionPoint)
+          .map((e) => e.folderView)
+      ]
+    })
 
     const resourceTargetRouteCallback = ({
       path,
       fileId
     }: CreateTargetRouteOptions): RouteLocationNamedRaw => {
-      const { params, query } = createFileRouteOptions(props.space, { path, fileId })
-      if (isPublicSpaceResource(props.space)) {
+      const { params, query } = createFileRouteOptions(unref(space), { path, fileId })
+      if (isPublicSpaceResource(unref(space))) {
         return createLocationPublic('files-public-link', { params, query })
       }
       return createLocationSpaces('files-spaces-generic', { params, query })
@@ -300,17 +303,17 @@ export default defineComponent({
 
     const hasSpaceHeader = computed(() => {
       // for now the space header is only available in the root of a project space.
-      return props.space.driveType === 'project' && props.item === '/'
+      return unref(space).driveType === 'project' && props.item === '/'
     })
 
-    const folderNotFound = computed(() => store.getters['Files/currentFolder'] === null)
+    const folderNotFound = computed(() => unref(currentFolder) === null)
 
     const isCurrentFolderEmpty = computed(
       () => unref(resourcesViewDefaults.paginatedResources).length < 1
     )
 
     const titleSegments = computed(() => {
-      const segments = [props.space.name]
+      const segments = [unref(space).name]
       if (props.item !== '/') {
         segments.unshift(basename(props.item))
       }
@@ -321,16 +324,15 @@ export default defineComponent({
 
     const route = useRoute()
     const breadcrumbs = computed(() => {
-      const space = props.space
       const rootBreadcrumbItems: BreadcrumbItem[] = []
-      if (isProjectSpaceResource(space)) {
+      if (isProjectSpaceResource(unref(space))) {
         rootBreadcrumbItems.push({
           id: uuidv4(),
           text: $gettext('Spaces'),
           to: createLocationSpaces('files-spaces-projects'),
           isStaticNav: true
         })
-      } else if (isShareSpaceResource(space)) {
+      } else if (isShareSpaceResource(unref(space))) {
         rootBreadcrumbItems.push(
           {
             id: uuidv4(),
@@ -348,30 +350,30 @@ export default defineComponent({
       }
 
       let spaceBreadcrumbItem: BreadcrumbItem
-      let { params, query } = createFileRouteOptions(space, { fileId: space.fileId })
+      let { params, query } = createFileRouteOptions(unref(space), { fileId: unref(space).fileId })
       query = omit({ ...unref(route).query, ...query }, 'page')
-      if (isPersonalSpaceResource(space)) {
+      if (isPersonalSpaceResource(unref(space))) {
         spaceBreadcrumbItem = {
           id: uuidv4(),
-          text: space.name,
-          ...(space.isOwner(store.getters.user) && {
+          text: unref(space).name,
+          ...(unref(space).isOwner(userStore.user) && {
             to: createLocationSpaces('files-spaces-generic', {
               params,
               query
             })
           })
         }
-      } else if (isShareSpaceResource(space)) {
+      } else if (isShareSpaceResource(unref(space))) {
         spaceBreadcrumbItem = {
           id: uuidv4(),
           allowContextActions: true,
-          text: space.name,
+          text: unref(space).name,
           to: createLocationSpaces('files-spaces-generic', {
             params,
             query: omit(query, 'fileId')
           })
         }
-      } else if (isPublicSpaceResource(space)) {
+      } else if (isPublicSpaceResource(unref(space))) {
         spaceBreadcrumbItem = {
           id: uuidv4(),
           text: $gettext('Public link'),
@@ -385,7 +387,7 @@ export default defineComponent({
         spaceBreadcrumbItem = {
           id: uuidv4(),
           allowContextActions: !unref(hasSpaceHeader),
-          text: space.name,
+          text: unref(space).name,
           to: createLocationSpaces('files-spaces-generic', {
             params,
             query
@@ -401,7 +403,7 @@ export default defineComponent({
       )
     })
 
-    const focusAndAnnounceBreadcrumb = (sameRoute) => {
+    const focusAndAnnounceBreadcrumb = (sameRoute: boolean) => {
       const breadcrumbEl = document.getElementById('files-breadcrumb')
       if (!breadcrumbEl) {
         return
@@ -412,14 +414,14 @@ export default defineComponent({
         return
       }
 
-      const totalFilesCount = store.getters['Files/totalFilesCount']
+      const totalFilesCount = unref(totalResourcesCount)
       const itemCount = totalFilesCount.files + totalFilesCount.folders
 
       const announcement = $ngettext(
         'This folder contains %{ amount } item.',
         'This folder contains %{ amount } items.',
         itemCount,
-        { amount: itemCount }
+        { amount: itemCount.toString() }
       )
 
       const translatedHint = itemCount > 0 ? announcement : $gettext('This folder has no content.')
@@ -438,6 +440,19 @@ export default defineComponent({
 
     const resourcesViewDefaults = useResourcesViewDefaults<Resource, any, any[]>()
 
+    const folderView = computed(() => {
+      const viewMode = unref(resourcesViewDefaults.viewMode)
+      return unref(viewModes).find((v) => v.name === viewMode)
+    })
+    const appBarRef = ref<ComponentPublicInstance | null>()
+    const folderViewStyle = computed(() => {
+      return {
+        ...(unref(folderView)?.isScrollable === false && {
+          height: `calc(100% - ${unref(appBarRef)?.$el.getBoundingClientRect().height}px)`
+        })
+      }
+    })
+
     const keyActions = useKeyboardActions()
     useKeyboardTableNavigation(
       keyActions,
@@ -445,7 +460,7 @@ export default defineComponent({
       resourcesViewDefaults.viewMode
     )
     useKeyboardTableMouseActions(keyActions, resourcesViewDefaults.viewMode)
-    useKeyboardTableSpaceActions(keyActions, props.space)
+    useKeyboardTableSpaceActions(keyActions, space)
 
     const performLoaderTask = async (
       sameRoute: boolean,
@@ -456,16 +471,16 @@ export default defineComponent({
         return
       }
 
-      const options: FolderLoaderOptions = { loadShares: !isPublicSpaceResource(props.space) }
+      const options: FolderLoaderOptions = { loadShares: !isPublicSpaceResource(unref(space)) }
       await resourcesViewDefaults.loadResourcesTask.perform(
-        props.space,
+        unref(space),
         path || props.item,
         fileId || props.itemId,
         options
       )
 
       resourcesViewDefaults.scrollToResourceFromRoute(
-        [store.getters['Files/currentFolder'], ...unref(resourcesViewDefaults.paginatedResources)],
+        [unref(currentFolder), ...unref(resourcesViewDefaults.paginatedResources)],
         'files-app-bar'
       )
       resourcesViewDefaults.refreshFileListHeaderPosition()
@@ -473,7 +488,7 @@ export default defineComponent({
 
       if (unref(openWithDefaultAppQuery) === 'true') {
         openWithDefaultApp({
-          space: props.space,
+          space: unref(space),
           resource: unref(resourcesViewDefaults.selectedResources)[0]
         })
       }
@@ -504,9 +519,8 @@ export default defineComponent({
       eventBus.unsubscribe('app.files.list.load', loadResourcesEventToken)
     })
 
-    const whitespaceContextMenu = ref(null)
-    const showContextMenu = (event) => {
-      store.commit('Files/RESET_SELECTION')
+    const whitespaceContextMenu = ref<ComponentPublicInstance<typeof WhitespaceContextMenu>>(null)
+    const showContextMenu = (event: MouseEvent) => {
       displayPositionedDropdown(
         unref(whitespaceContextMenu).$el._tippy,
         event,
@@ -519,6 +533,7 @@ export default defineComponent({
     return {
       ...useFileActions(),
       ...resourcesViewDefaults,
+      configOptions,
       canUpload,
       breadcrumbs,
       folderNotFound,
@@ -526,38 +541,34 @@ export default defineComponent({
       isCurrentFolderEmpty,
       resourceTargetRouteCallback,
       performLoaderTask,
-      ViewModeConstants,
+      FolderViewModeConstants,
       viewModes,
-      uploadHint: $gettext(
-        'Drag files and folders here or use the "New" or "Upload" buttons to add files'
+      appBarRef,
+      folderView,
+      folderViewStyle,
+      uploadHint: computed(() =>
+        $gettext('Drag files and folders here or use the "New" or "Upload" buttons to add files')
       ),
       whitespaceContextMenu,
       clientService,
-      hasShareJail,
       createNewFolderAction,
-      isEmbedModeEnabled
+      isEmbedModeEnabled,
+      currentFolder,
+      totalResourcesCount,
+      totalResourcesSize,
+      removeResources,
+      resetSelection,
+      updateResourceField,
+      areHiddenFilesShown
     }
   },
 
   computed: {
-    ...mapState(['app']),
-    ...mapState('Files', ['files']),
-    ...mapGetters('Files', ['currentFolder', 'totalFilesCount', 'totalFilesSize']),
-    ...mapGetters(['user', 'configuration']),
-
-    isRunningOnEos() {
-      return !!this.configuration?.options?.runningOnEos
-    },
-
     displayFullAppBar() {
       return !this.displayResourceAsSingleResource
     },
 
     displayResourceAsSingleResource() {
-      if (!unref(this.hasShareJail)) {
-        return false
-      }
-
       if (this.paginatedResources.length !== 1) {
         return false
       }
@@ -570,7 +581,7 @@ export default defineComponent({
         return true
       }
 
-      if (this.isRunningOnEos) {
+      if (this.configOptions.runningOnEos) {
         if (
           !this.currentFolder.fileId ||
           this.currentFolder.path === this.paginatedResources[0].path
@@ -583,7 +594,7 @@ export default defineComponent({
     },
 
     displayThumbnails() {
-      return !this.configuration?.options?.disablePreviews
+      return !this.configOptions.disablePreviews
     },
 
     isSpaceFrontpage() {
@@ -605,11 +616,7 @@ export default defineComponent({
   },
 
   methods: {
-    ...mapActions('Files', ['loadPreview']),
-    ...mapActions(['showMessage', 'showErrorMessage', 'createModal', 'hideModal']),
-    ...mapMutations('Files', ['REMOVE_FILES', 'REMOVE_FILES_FROM_SEARCHED', 'RESET_SELECTION']),
-
-    async fileDropped(fileTarget) {
+    async fileDropped(fileTarget: string | { name: string; path: string }) {
       const selected = [...this.selectedResources]
       let targetFolder = null
       if (typeof fileTarget === 'string') {
@@ -649,41 +656,49 @@ export default defineComponent({
         selected,
         this.space,
         targetFolder,
-        this.currentFolder,
+        computed(() => this.currentFolder),
         this.$clientService,
         this.$loadingService,
-        this.createModal,
-        this.hideModal,
-        this.showMessage,
-        this.showErrorMessage,
         this.$gettext,
         this.$ngettext
       )
       const movedResources = await copyMove.perform(TransferType.MOVE)
-      this.REMOVE_FILES(movedResources)
-      this.REMOVE_FILES_FROM_SEARCHED(movedResources)
-      this.RESET_SELECTION()
+      this.removeResources(movedResources)
+      this.resetSelection()
     },
 
-    rowMounted(resource, component, dimensions) {
+    rowMounted(
+      resource: Resource,
+      component: ComponentPublicInstance<unknown>,
+      dimensions: [number, number]
+    ) {
       if (!this.displayThumbnails) {
         return
       }
 
-      const debounced = debounce(({ unobserve }) => {
-        unobserve()
+      const loadPreview = async () => {
         const processor =
-          this.viewMode === ViewModeConstants.tilesView.name
+          this.viewMode === FolderViewModeConstants.name.tiles
             ? ProcessorType.enum.fit
             : ProcessorType.enum.thumbnail
-        this.loadPreview({
-          previewService: this.$previewService,
-          space: this.space,
-          resource,
-          dimensions,
-          processor,
-          type: ImageType.Thumbnail
-        })
+
+        const preview = await this.$previewService.loadPreview(
+          {
+            space: this.space,
+            resource,
+            processor,
+            dimensions
+          },
+          true
+        )
+        if (preview) {
+          this.updateResourceField({ id: resource.id, field: 'thumbnail', value: preview })
+        }
+      }
+
+      const debounced = debounce(({ unobserve }) => {
+        unobserve()
+        loadPreview()
       }, 250)
 
       visibilityObserver.observe(component.$el, { onEnter: debounced, onExit: debounced.cancel })

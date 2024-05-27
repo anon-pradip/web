@@ -3,7 +3,7 @@
     <div class="oc-app-top-bar oc-flex">
       <span class="oc-app-top-bar-inner oc-px-m oc-flex oc-flex-middle oc-flex-between">
         <div class="open-file-bar oc-flex">
-          <oc-resource
+          <resource-list-item
             v-if="resource"
             id="app-top-bar-resource"
             :is-thumbnail-displayed="false"
@@ -24,7 +24,7 @@
                 {
                   name: 'main-actions',
                   items: mainActions
-                    .filter((action) => action.isEnabled())
+                    .filter((action) => action.isVisible())
                     .map((action) => {
                       return { ...action, class: 'oc-p-xs', hideLabel: true }
                     })
@@ -82,26 +82,24 @@
 import { computed, defineComponent, PropType, unref } from 'vue'
 import ContextActionMenu from './ContextActions/ContextActionMenu.vue'
 import { useGettext } from 'vue3-gettext'
-import { Action, useFolderLink, useGetMatchingSpace, useStore } from '../composables'
-import {
-  Resource,
-  isPublicSpaceResource,
-  isShareSpaceResource
-} from '@ownclouders/web-client/src/helpers'
+import { Action, useFolderLink, useGetMatchingSpace, useResourcesStore } from '../composables'
+import ResourceListItem from './FilesList/ResourceListItem.vue'
+import { Resource, isPublicSpaceResource, isShareSpaceResource } from '@ownclouders/web-client'
 
 export default defineComponent({
   name: 'AppTopBar',
   components: {
-    ContextActionMenu
+    ContextActionMenu,
+    ResourceListItem
   },
   props: {
     dropDownActions: {
       type: Array as PropType<Action[]>,
-      default: () => []
+      default: (): Action[] => []
     },
     mainActions: {
       type: Array as PropType<Action[]>,
-      default: () => []
+      default: (): Action[] => []
     },
     resource: {
       type: Object as PropType<Resource>,
@@ -112,9 +110,9 @@ export default defineComponent({
   setup(props) {
     const { $gettext } = useGettext()
     const { getMatchingSpace } = useGetMatchingSpace()
-    const store = useStore()
+    const resourcesStore = useResourcesStore()
 
-    const areFileExtensionsShown = computed(() => unref(store.state.Files.areFileExtensionsShown))
+    const areFileExtensionsShown = computed(() => resourcesStore.areFileExtensionsShown)
     const contextMenuLabel = computed(() => $gettext('Show context menu'))
     const closeButtonLabel = computed(() => $gettext('Close'))
 

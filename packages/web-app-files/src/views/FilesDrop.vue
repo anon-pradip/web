@@ -47,8 +47,16 @@
 
 <script lang="ts">
 import { storeToRefs } from 'pinia'
-import { mapGetters } from 'vuex'
-import { createLocationPublic, createLocationSpaces, useThemeStore } from '@ownclouders/web-pkg'
+import {
+  createLocationPublic,
+  createLocationSpaces,
+  useAuthStore,
+  useMessages,
+  useSpacesStore,
+  useThemeStore,
+  useUserStore,
+  useResourcesStore
+} from '@ownclouders/web-pkg'
 import ResourceUpload from '../components/AppBar/Upload/ResourceUpload.vue'
 import {
   computed,
@@ -63,25 +71,19 @@ import {
 import { useGettext } from 'vue3-gettext'
 import {
   useClientService,
-  usePublicLinkToken,
-  useStore,
   useRouter,
   useRoute,
-  useCapabilitySpacesEnabled,
   useGetMatchingSpace,
-  useUserContext,
   useRouteQuery,
   queryItemAsString,
   useUpload
 } from '@ownclouders/web-pkg'
 import { eventBus } from '@ownclouders/web-pkg'
-import { linkRoleUploaderFolder } from '@ownclouders/web-client/src/helpers/share'
 import { useService, UppyService } from '@ownclouders/web-pkg'
 import { useAuthService } from '@ownclouders/web-pkg'
 import { HandleUpload } from 'web-app-files/src/HandleUpload'
 import { createFileRouteOptions } from '@ownclouders/web-pkg'
-import { SpaceResource } from '@ownclouders/web-client/src'
-import { PublicSpaceResource } from '@ownclouders/web-client/src/helpers'
+import { PublicSpaceResource, SharePermissionBit } from '@ownclouders/web-client'
 
 export default defineComponent({
   components: {
@@ -89,18 +91,20 @@ export default defineComponent({
   },
   setup() {
     const uppyService = useService<UppyService>('$uppyService')
-    const store = useStore()
+    const userStore = useUserStore()
+    const messageStore = useMessages()
     const themeStore = useThemeStore()
+    const spacesStore = useSpacesStore()
     const router = useRouter()
     const route = useRoute()
     const language = useGettext()
-    const hasSpaces = useCapabilitySpacesEnabled(store)
     const authService = useAuthService()
     const clientService = useClientService()
-    const publicToken = usePublicLinkToken({ store })
-    const isUserContext = useUserContext({ store })
+    const authStore = useAuthStore()
     const { getInternalSpace } = useGetMatchingSpace()
     useUpload({ uppyService })
+
+    const resourcesStore = useResourcesStore()
 
     const { currentTheme } = storeToRefs(themeStore)
     const themeSlogan = computed(() => currentTheme.value.common.slogan)
@@ -113,10 +117,12 @@ export default defineComponent({
     if (!uppyService.getPlugin('HandleUpload')) {
       uppyService.addPlugin(HandleUpload, {
         clientService,
-        hasSpaces,
         language,
         route,
-        store,
+        userStore,
+        spacesStore,
+        messageStore,
+        resourcesStore,
         uppyService,
         quotaCheckEnabled: false,
         directoryTreeCreateEnabled: false,
@@ -128,14 +134,14 @@ export default defineComponent({
     const dragareaEnabled = ref(false)
     const loading = ref(true)
     const errorMessage = ref(null)
-    let dragOver
-    let dragOut
-    let drop
+    let dragOver: string
+    let dragOut: string
+    let drop: string
 
     const hideDropzone = () => {
       dragareaEnabled.value = false
     }
-    const onDragOver = (event) => {
+    const onDragOver = (event: DragEvent) => {
       dragareaEnabled.value = (event.dataTransfer.types || []).some((e) => e === 'Files')
     }
 
@@ -153,7 +159,7 @@ export default defineComponent({
     const resolvePublicLink = async () => {
       loading.value = true
 
-      if (unref(isUserContext) && unref(fileId)) {
+      if (authStore.userContextReady && unref(fileId)) {
         try {
           const path = await clientService.webdav.getPathForFileId(unref(fileId))
           await resolveToInternalLocation(path)
@@ -164,18 +170,20 @@ export default defineComponent({
         }
       }
 
-      const spaces: SpaceResource[] = store.getters['runtime/spaces/spaces']
-      const space = spaces.find((s) => s.driveAlias === `public/${unref(publicToken)}`)
+      const space = spacesStore.spaces.find(
+        (s) => s.driveAlias === `public/${authStore.publicLinkToken}`
+      )
 
       clientService.webdav
         .listFiles(space, {}, { depth: 0 })
         .then(({ resource }) => {
           // Redirect to files list if the link doesn't have role "uploader"
+          // FIXME: check for type once https://github.com/owncloud/ocis/issues/8740 is resolved
           const sharePermissions = (resource as PublicSpaceResource).publicLinkPermission
-          if (linkRoleUploaderFolder.bitmask(false) !== sharePermissions) {
+          if (sharePermissions !== SharePermissionBit.Create) {
             router.replace(
               createLocationPublic('files-public-link', {
-                params: { driveAliasAndItem: `public/${unref(publicToken)}` }
+                params: { driveAliasAndItem: `public/${authStore.publicLinkToken}` }
               })
             )
             return
@@ -228,7 +236,6 @@ export default defineComponent({
     }
   },
   computed: {
-    ...mapGetters(['configuration']),
     pageTitle() {
       return this.$gettext(this.$route.meta.title as string)
     },

@@ -54,16 +54,23 @@
         </oc-button>
       </div>
       <p v-if="space.description" class="oc-mt-rm oc-text-bold">{{ space.description }}</p>
-      <div>
-        <!-- eslint-disable vue/no-v-html -->
-        <div ref="markdownContainerRef" class="markdown-container" v-html="markdownContent"></div>
-        <!-- eslint-enable -->
-        <div v-if="showMarkdownCollapse" class="markdown-collapse oc-text-center oc-mt-s">
-          <oc-button appearance="raw" @click="toggleMarkdownCollapsed">
-            <oc-icon :name="toggleMarkdownCollapsedIcon" />
-            <span>{{ toggleMarkdownCollapsedText }}</span>
-          </oc-button>
-        </div>
+      <div ref="markdownContainerRef" class="markdown-container">
+        <text-editor
+          v-if="markdownContent"
+          :resource="markdownResource"
+          :current-content="markdownContent"
+          :is-read-only="true"
+          :application-config="{}"
+        />
+      </div>
+      <div
+        v-if="showMarkdownCollapse && markdownContent"
+        class="markdown-collapse oc-text-center oc-mt-s"
+      >
+        <oc-button appearance="raw" @click="toggleMarkdownCollapsed">
+          <oc-icon :name="toggleMarkdownCollapsedIcon" />
+          <span>{{ toggleMarkdownCollapsedText }}</span>
+        </oc-button>
       </div>
     </div>
   </div>
@@ -82,12 +89,16 @@ import {
   unref,
   watch
 } from 'vue'
-import { SpaceResource } from '@ownclouders/web-client/src/helpers'
-import { useClientService, useStore, usePreviewService, ProcessorType } from '@ownclouders/web-pkg'
+import { SpaceResource } from '@ownclouders/web-client'
+import {
+  useClientService,
+  usePreviewService,
+  ProcessorType,
+  useResourcesStore,
+  TextEditor
+} from '@ownclouders/web-pkg'
 import { ImageDimension } from '@ownclouders/web-pkg'
 import { VisibilityObserver } from '@ownclouders/web-pkg'
-import { marked } from 'marked'
-import sanitizeHtml from 'sanitize-html'
 import SpaceContextActions from './SpaceContextActions.vue'
 import { eventBus } from '@ownclouders/web-pkg'
 import { SideBarEventTopics } from '@ownclouders/web-pkg'
@@ -100,7 +111,8 @@ const markdownContainerCollapsedClass = 'collapsed'
 export default defineComponent({
   name: 'SpaceHeader',
   components: {
-    SpaceContextActions
+    SpaceContextActions,
+    TextEditor
   },
   props: {
     space: {
@@ -114,11 +126,12 @@ export default defineComponent({
     const { $gettext, $ngettext } = language
     const clientService = useClientService()
     const { getFileContents, getFileInfo } = clientService.webdav
-    const store = useStore()
     const previewService = usePreviewService()
+    const resourcesStore = useResourcesStore()
 
     const markdownContainerRef = ref(null)
     const markdownContent = ref('')
+    const markdownResource = ref(null)
     const markdownCollapsed = ref(true)
     const showMarkdownCollapse = ref(false)
     const toggleMarkdownCollapsedIcon = computed(() => {
@@ -178,10 +191,13 @@ export default defineComponent({
           path: `.space/${props.space.spaceReadmeData.name}`
         })
 
+        const fileInfoResponse = await getFileInfo(props.space, {
+          path: `.space/${props.space.spaceReadmeData.name}`
+        })
+
         unobserveMarkdownContainerResize()
-        const parsedMarkdown = marked.parse(fileContentsResponse.body)
-        // Sanitize markdown content to prevent XSS vulnerabilities
-        markdownContent.value = sanitizeHtml(parsedMarkdown)
+        markdownContent.value = fileContentsResponse.body
+        markdownResource.value = fileInfoResponse
 
         if (unref(markdownContent)) {
           observeMarkdownContainerResize()
@@ -220,16 +236,16 @@ export default defineComponent({
     )
 
     const memberCount = computed(() => {
-      return store.getters['runtime/spaces/spaceMembers'].length
+      return Object.values(props.space.spaceRoles).flat().length
     })
     const memberCountString = computed(() => {
       return $ngettext('%{count} member', '%{count} members', unref(memberCount), {
-        count: unref(memberCount)
+        count: unref(memberCount).toString()
       })
     })
 
     const openSideBarSharePanel = () => {
-      store.commit('Files/SET_SELECTED_IDS', [])
+      resourcesStore.setSelection([])
       eventBus.publish(SideBarEventTopics.openWithPanel, 'space-share')
     }
 
@@ -237,6 +253,7 @@ export default defineComponent({
       isMobileWidth: inject<Ref<boolean>>('isMobileWidth'),
       markdownContainerRef,
       markdownContent,
+      markdownResource,
       markdownCollapsed,
       showMarkdownCollapse,
       toggleMarkdownCollapsedIcon,

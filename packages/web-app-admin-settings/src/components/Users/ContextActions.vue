@@ -12,9 +12,7 @@ import {
 } from '../../composables/actions/users'
 import { computed, defineComponent, PropType, unref } from 'vue'
 import { ContextActionMenu } from '@ownclouders/web-pkg'
-import { User } from '@ownclouders/web-client/src/generated'
-
-import { useStore } from '@ownclouders/web-pkg'
+import { User } from '@ownclouders/web-client/graph/generated'
 import { useActionsShowDetails } from '@ownclouders/web-pkg'
 
 export default defineComponent({
@@ -27,25 +25,24 @@ export default defineComponent({
     }
   },
   setup(props) {
-    const store = useStore()
     const filterParams = computed(() => ({ resources: props.items }))
 
     const { actions: showDetailsActions } = useActionsShowDetails()
     const { actions: editQuotaActions } = useUserActionsEditQuota()
     const { actions: userEditActions } = useUserActionsEdit()
-    const { actions: userDeleteActions } = useUserActionsDelete({ store })
+    const { actions: userDeleteActions } = useUserActionsDelete()
 
     const menuItemsPrimaryActions = computed(() =>
       [...unref(userEditActions), ...unref(userDeleteActions)].filter((item) =>
-        item.isEnabled(unref(filterParams))
+        item.isVisible(unref(filterParams))
       )
     )
     const menuItemsSecondaryActions = computed(() =>
-      [...unref(editQuotaActions)].filter((item) => item.isEnabled(unref(filterParams)))
+      [...unref(editQuotaActions)].filter((item) => item.isVisible(unref(filterParams)))
     )
 
     const menuItemsSidebar = computed(() =>
-      [...unref(showDetailsActions)].filter((item) => item.isEnabled(unref(filterParams)))
+      [...unref(showDetailsActions)].filter((item) => item.isVisible(unref(filterParams)))
     )
 
     const menuSections = computed(() => {

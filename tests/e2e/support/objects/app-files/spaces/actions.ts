@@ -1,7 +1,7 @@
 import { Page } from '@playwright/test'
 import util from 'util'
 
-import { sidebar } from '../utils'
+import { sidebar, editor } from '../utils'
 import Collaborator, { ICollaborator } from '../share/collaborator'
 import { createLink } from '../link/actions'
 import { File } from '../../../types'
@@ -19,7 +19,8 @@ const spacesQuotaSearchField = '.oc-modal .vs__search'
 const selectedQuotaValueField = '.vs--open'
 const quotaValueDropDown = `.vs__dropdown-option :text-is("%s")`
 const editSpacesDescription = '.oc-files-actions-edit-readme-content-trigger:visible'
-const spacesDescriptionInputArea = '#description-input-area'
+const spacesDescriptionInputArea = '.md-mode .ProseMirror'
+const spacesDescriptionSaveTextFileInEditorButton = '#app-save-action:visible'
 const spaceHeaderSelector = '.space-header'
 
 export const openActionsPanel = async (page: Page): Promise<void> => {
@@ -49,27 +50,11 @@ export const createSpace = async (args: createSpaceArgs): Promise<string> => {
     (postResp) =>
       postResp.status() === 201 &&
       postResp.request().method() === 'POST' &&
-      postResp.url().endsWith('drives')
-  )
-  const mkcolResponsePromise = page.waitForResponse(
-    (resp) =>
-      resp.status() === 201 && resp.request().method() === 'MKCOL' && resp.url().includes('.space')
-  )
-  const putResponsePromise = page.waitForResponse(
-    (resp) =>
-      resp.status() === 201 &&
-      resp.request().method() === 'PUT' &&
-      resp.url().endsWith('/.space/readme.md')
-  )
-  const patchResponsePromise = page.waitForResponse(
-    (resp) => resp.status() === 200 && resp.request().method() === 'PATCH'
+      postResp.url().endsWith('drives?template=default')
   )
 
   const [responses] = await Promise.all([
     postResponsePromise,
-    mkcolResponsePromise,
-    putResponsePromise,
-    patchResponsePromise,
     page.locator(actionConfirmButton).click()
   ])
 
@@ -147,29 +132,22 @@ export const changeSpaceDescription = async (args: {
 }): Promise<void> => {
   const { page, value } = args
   await openActionsPanel(page)
-  const waitForGET = page.waitForResponse(
-    (resp) =>
-      resp.url().endsWith('readme.md') && resp.status() === 200 && resp.request().method() === 'GET'
-  )
-  await Promise.all([waitForGET, page.locator(editSpacesDescription).click()])
+  const waitForUpdate = () =>
+    page.waitForResponse(
+      (resp) =>
+        resp.url().endsWith('readme.md') &&
+        resp.status() === 200 &&
+        resp.request().method() === 'GET'
+    )
+  await Promise.all([waitForUpdate(), page.locator(editSpacesDescription).click()])
+
   await page.locator(spacesDescriptionInputArea).fill(value)
   await Promise.all([
-    page.waitForResponse(
-      (resp) =>
-        resp.url().endsWith('readme.md') &&
-        resp.status() === 204 &&
-        resp.request().method() === 'PUT'
-    ),
-    page.waitForResponse(
-      (resp) =>
-        resp.url().endsWith('readme.md') &&
-        resp.status() === 207 &&
-        resp.request().method() === 'PROPFIND'
-    ),
-    waitForGET,
-    page.locator(actionConfirmButton).click()
+    page.waitForResponse((resp) => resp.status() === 204 && resp.request().method() === 'PUT'),
+    page.waitForResponse((resp) => resp.status() === 207 && resp.request().method() === 'PROPFIND'),
+    page.locator(spacesDescriptionSaveTextFileInEditorButton).click()
   ])
-  await sidebar.close({ page: page })
+  await editor.close(page)
 }
 
 /**/
@@ -255,10 +233,12 @@ export const changeSpaceImage = async (args: {
 
   await sidebar.close({ page: page })
 }
+
 export interface removeAccessMembersArgs extends Omit<SpaceMembersArgs, 'users'> {
   users: Omit<ICollaborator, 'role'>[]
   removeOwnSpaceAccess?: boolean
 }
+
 export const removeAccessSpaceMembers = async (args: removeAccessMembersArgs): Promise<void> => {
   const { page, users, removeOwnSpaceAccess } = args
   await openSharingPanel(page)
@@ -276,9 +256,9 @@ export const changeSpaceRole = async (args: SpaceMembersArgs): Promise<void> => 
     await Promise.all([
       page.waitForResponse(
         (resp) =>
-          resp.url().includes('shares') &&
+          resp.url().includes('permissions') &&
           resp.status() === 200 &&
-          resp.request().method() === 'POST'
+          resp.request().method() === 'PATCH'
       ),
       Collaborator.changeCollaboratorRole({ page, collaborator })
     ])

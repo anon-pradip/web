@@ -1,8 +1,6 @@
 import join from 'join-path'
-
 import { checkResponseStatus, request } from '../http'
 import { User } from '../../types'
-import { shareRoles } from '../../objects/app-files/share/collaborator'
 
 export const shareTypes: Readonly<{
   user: string
@@ -17,6 +15,22 @@ export const shareTypes: Readonly<{
   federated: '6',
   space: '7'
 }
+
+export const shareRoles: Readonly<{
+  'Invited people': string
+  'Can upload': string
+  'Can manage': string
+  'Can edit': string
+  'Can view': string
+  'Secret File Drop': string
+}> = {
+  'Invited people': 'internal',
+  'Can upload': 'contributor',
+  'Can manage': 'manager',
+  'Can edit': 'editor',
+  'Can view': 'viewer',
+  'Secret File Drop': 'uploader'
+} as const
 
 export const createShare = async ({
   user,
@@ -38,8 +52,8 @@ export const createShare = async ({
   const body = new URLSearchParams()
   body.append('path', path)
   body.append('shareWith', shareWith)
-  body.append('shareType', shareTypes[shareType])
-  body.append('role', shareRoles[role])
+  body.append('shareType', shareTypes[shareType as keyof typeof shareTypes])
+  body.append('role', shareRoles[role as keyof typeof shareRoles])
   body.append('name', name)
   if (space_ref) {
     body.append('space_ref', space_ref)

@@ -1,18 +1,14 @@
-import { useStore } from '../store'
-import { Store } from 'vuex'
 import { computed, Ref, ref, unref, watch } from 'vue'
-import { buildShareSpaceResource, SpaceResource } from '@ownclouders/web-client/src/helpers'
+import { buildShareSpaceResource, SHARE_JAIL_ID, SpaceResource } from '@ownclouders/web-client'
 import { useRouteQuery } from '../router'
-import { Resource } from '@ownclouders/web-client'
 import { useSpacesLoading } from './useSpacesLoading'
 import { queryItemAsString } from '../appDefaults'
-import { urlJoin } from '@ownclouders/web-client/src/utils'
-import { useCapabilitySpacesEnabled } from '../capability'
+import { urlJoin } from '@ownclouders/web-client'
 import { useClientService } from '../clientService'
-import { useConfigurationManager } from '../configuration'
+import { useSpacesStore, useConfigStore } from '../piniaStores'
+import { onUnmounted } from 'vue'
 
 interface DriveResolverOptions {
-  store?: Store<any>
   driveAliasAndItem?: Ref<string>
 }
 
@@ -24,18 +20,17 @@ interface DriveResolverResult {
 }
 
 export const useDriveResolver = (options: DriveResolverOptions = {}): DriveResolverResult => {
-  const store = options.store || useStore()
-  const { areSpacesLoading } = useSpacesLoading({ store })
+  const spacesStore = useSpacesStore()
+  const { areSpacesLoading } = useSpacesLoading()
   const shareId = useRouteQuery('shareId')
   const fileIdQueryItem = useRouteQuery('fileId')
   const fileId = computed(() => {
     return queryItemAsString(unref(fileIdQueryItem))
   })
-  const hasSpaces = useCapabilitySpacesEnabled(store)
-  const configurationManager = useConfigurationManager()
+  const configStore = useConfigStore()
 
   const clientService = useClientService()
-  const spaces = computed<SpaceResource[]>(() => store.getters['runtime/spaces/spaces'])
+  const spaces = computed(() => spacesStore.spaces)
   const space = ref<SpaceResource>(null)
   const item: Ref<string> = ref(null)
   const loading = ref(false)
@@ -59,6 +54,14 @@ export const useDriveResolver = (options: DriveResolverOptions = {}): DriveResol
       return s
     })
   }
+
+  // clean up global state as the watchers aren't triggered anymore when navigating away
+  onUnmounted(() => {
+    const driveAliasAndItem = unref(options.driveAliasAndItem)
+    if (!driveAliasAndItem?.startsWith('personal/') && !driveAliasAndItem?.startsWith('project/')) {
+      spacesStore.setCurrentSpace(null)
+    }
+  })
 
   watch(
     [options.driveAliasAndItem, areSpacesLoading],
@@ -94,15 +97,22 @@ export const useDriveResolver = (options: DriveResolverOptions = {}): DriveResol
       ) {
         const [shareName, ...item] = driveAliasAndItem.split('/').slice(1)
         const driveAliasPrefix = driveAliasAndItem.startsWith('ocm-share/') ? 'ocm-share' : 'share'
+
+        let shareIdStr = queryItemAsString(unref(shareId))
+        // keep compatibility with old share jail ids pre sharing NG
+        if (shareIdStr?.includes(':')) {
+          shareIdStr = [SHARE_JAIL_ID, shareIdStr].join('!')
+        }
+
         matchingSpace = buildShareSpaceResource({
           driveAliasPrefix,
-          shareId: queryItemAsString(unref(shareId)),
+          id: shareIdStr,
           shareName: unref(shareName),
-          serverUrl: configurationManager.serverUrl
+          serverUrl: configStore.serverUrl
         })
         path = item.join('/')
       } else {
-        if (unref(hasSpaces) && unref(fileId)) {
+        if (unref(fileId)) {
           matchingSpace = unref(spaces).find((s) => {
             return unref(fileId).startsWith(`${s.fileId}`)
           })
@@ -112,13 +122,11 @@ export const useDriveResolver = (options: DriveResolverOptions = {}): DriveResol
 
         if (!matchingSpace) {
           if (
-            !store.state.runtime.spaces.mountPointsInitialized &&
-            configurationManager.options.routing.fullShareOwnerPaths
+            !spacesStore.mountPointsInitialized &&
+            configStore.options.routing.fullShareOwnerPaths
           ) {
             loading.value = true
-            await store.dispatch('runtime/spaces/loadMountPoints', {
-              graphClient: clientService.graphAuthenticated
-            })
+            await spacesStore.loadMountPoints({ graphClient: clientService.graphAuthenticated })
           }
 
           matchingSpace = getSpaceByDriveAliasAndItem(driveAliasAndItem)
@@ -138,15 +146,8 @@ export const useDriveResolver = (options: DriveResolverOptions = {}): DriveResol
   )
   watch(
     space,
-    (s: Resource) => {
-      store.commit('runtime/spaces/SET_CURRENT_SPACE', s)
-      if (!s || ['public', 'share', 'personal', 'mountpoint'].includes(s.driveType)) {
-        return
-      }
-      return store.dispatch('runtime/spaces/loadSpaceMembers', {
-        graphClient: clientService.graphAuthenticated,
-        space: s
-      })
+    (s: SpaceResource) => {
+      spacesStore.setCurrentSpace(s)
     },
     { immediate: true }
   )

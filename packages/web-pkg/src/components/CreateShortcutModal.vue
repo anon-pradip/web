@@ -2,14 +2,29 @@
   <oc-text-input
     id="create-shortcut-modal-url-input"
     v-model="inputUrl"
-    :label="$gettext('Shortcut to a webpage or file')"
+    :placeholder="'example.org'"
+    :label="$gettext('Webpage or file')"
     @keydown.up="onKeyUpDrop"
     @keydown.down="onKeyDownDrop"
     @keydown.esc="onKeyEscDrop"
     @keydown.enter="onKeyEnterDrop"
     @input="onInputUrlInput"
     @click="onClickUrlInput"
-  />
+  >
+    <template #label>
+      <div class="oc-flex oc-flex-middle create-shortcut-modal-label">
+        <label for="create-shortcut-modal-url-input" v-text="$gettext('Webpage or file')"></label>
+        <oc-contextual-helper
+          :text="
+            $gettext(
+              'Enter the target URL of a webpage or the name of a file. Users will be directed to this webpage or file.'
+            )
+          "
+          class="oc-ml-xs"
+        />
+      </div>
+    </template>
+  </oc-text-input>
   <oc-drop
     ref="dropRef"
     class="oc-pt-s"
@@ -65,32 +80,27 @@
       </template>
     </oc-list>
   </oc-drop>
-  <div class="oc-flex oc-width-1-1 oc-mt-m">
+  <div v-if="inputFilename" class="oc-flex oc-width-1-1 oc-mt-m">
     <oc-text-input
+      id="create-shortcut-modal-filename-input"
       v-model="inputFilename"
       class="oc-width-1-1"
-      :label="$gettext('Shortcut name')"
       :error-message="inputFileNameErrorMessage"
       :fix-message-line="true"
-    />
-    <span class="oc-ml-s oc-flex oc-flex-bottom create-shortcut-modal-url-extension">.url</span>
-  </div>
-  <div class="oc-flex oc-flex-right oc-flex-middle oc-mt-m">
-    <oc-button
-      class="oc-modal-body-actions-cancel oc-ml-s"
-      appearance="outline"
-      variation="passive"
-      @click="onCancel"
-      >{{ $gettext('Cancel') }}
-    </oc-button>
-    <oc-button
-      class="oc-modal-body-actions-confirm oc-ml-s"
-      appearance="filled"
-      variation="primary"
-      :disabled="confirmButtonDisabled"
-      @click="onConfirm"
-      >{{ $gettext('Create') }}
-    </oc-button>
+    >
+      <template #label>
+        <div class="oc-flex oc-flex-middle create-shortcut-modal-label">
+          <label
+            for="create-shortcut-modal-filename-input"
+            v-text="$gettext('Shortcut name')"
+          ></label>
+          <oc-contextual-helper
+            :text="$gettext('Shortcut name as it will appear in the file list.')"
+            class="oc-ml-xs"
+          />
+        </div>
+      </template>
+    </oc-text-input>
   </div>
 </template>
 
@@ -106,9 +116,17 @@ import {
   watch,
   onMounted
 } from 'vue'
-import { Resource, SpaceResource } from '@ownclouders/web-client'
-import { useClientService, useFolderLink, useRouter, useSearch, useStore } from '../composables'
-import { urlJoin } from '@ownclouders/web-client/src/utils'
+import { SpaceResource } from '@ownclouders/web-client'
+import {
+  Modal,
+  useClientService,
+  useFolderLink,
+  useMessages,
+  useResourcesStore,
+  useRouter,
+  useSearch
+} from '../composables'
+import { urlJoin } from '@ownclouders/web-client'
 import { useGettext } from 'vue3-gettext'
 import DOMPurify from 'dompurify'
 import Mark from 'mark.js'
@@ -119,6 +137,7 @@ import { debounce } from 'lodash-es'
 import ResourcePreview from './Search/ResourcePreview.vue'
 import { SearchResult, SearchResultValue } from './Search'
 import { isLocationPublicActive } from '../router'
+import { storeToRefs } from 'pinia'
 
 const SEARCH_LIMIT = 7
 const SEARCH_DEBOUNCE_TIME = 200
@@ -127,15 +146,17 @@ export default defineComponent({
   name: 'CreateShortcutModal',
   components: { ResourcePreview },
   props: {
+    modal: { type: Object as PropType<Modal>, required: true },
     space: {
       type: Object as PropType<SpaceResource>,
       required: true
     }
   },
-  setup(props, { expose }) {
+  emits: ['update:confirmDisabled'],
+  setup(props, { emit, expose }) {
     const clientService = useClientService()
     const { $gettext } = useGettext()
-    const store = useStore()
+    const { showMessage, showErrorMessage } = useMessages()
     const router = useRouter()
     const { search } = useSearch()
     const {
@@ -146,13 +167,16 @@ export default defineComponent({
       getFolderLink
     } = useFolderLink()
 
+    const resourcesStore = useResourcesStore()
+    const { resources, currentFolder } = storeToRefs(resourcesStore)
+
     const dropRef = ref(null)
     const inputUrl = ref('')
     const inputFilename = ref('')
     const searchResult: Ref<SearchResult> = ref(null)
     const activeDropItemIndex = ref(null)
     const isDropOpen = ref(false)
-    let markInstance = null
+    let markInstance: Mark = null
 
     const dropItemUrl = computed(() => {
       let url = unref(inputUrl).trim()
@@ -164,15 +188,20 @@ export default defineComponent({
       return `https://${url}`
     })
 
+    const fileAlreadyExists = computed(
+      () => !!unref(resources).find((file) => file.name === `${unref(inputFilename)}.url`)
+    )
+
     const confirmButtonDisabled = computed(
       () => unref(fileAlreadyExists) || !unref(inputFilename) || !unref(inputUrl)
     )
-    const currentFolder = computed(() => store.getters['Files/currentFolder'])
 
-    const files = computed((): Array<Resource> => store.getters['Files/files'])
-
-    const fileAlreadyExists = computed(
-      () => !!unref(files).find((file) => file.name === `${unref(inputFilename)}.url`)
+    watch(
+      confirmButtonDisabled,
+      () => {
+        emit('update:confirmDisabled', unref(confirmButtonDisabled))
+      },
+      { immediate: true }
     )
 
     const inputFileNameErrorMessage = computed(() => {
@@ -208,8 +237,11 @@ export default defineComponent({
       inputUrl.value = unref(dropItemUrl)
       try {
         let filename = new URL(unref(dropItemUrl)).host
-        if (unref(files).some((f) => f.name === `${filename}.url`)) {
-          filename = resolveFileNameDuplicate(`${filename}.url`, 'url', unref(files)).slice(0, -4)
+        if (unref(resources).some((f) => f.name === `${filename}.url`)) {
+          filename = resolveFileNameDuplicate(`${filename}.url`, 'url', unref(resources)).slice(
+            0,
+            -4
+          )
         }
         inputFilename.value = filename
       } catch (_) {}
@@ -222,14 +254,14 @@ export default defineComponent({
 
       inputUrl.value = `${webURL.origin}/f/${item.id}`
 
-      if (unref(files).some((f) => f.name === `${filename}.url`)) {
-        filename = resolveFileNameDuplicate(`${filename}.url`, 'url', unref(files)).slice(0, -4)
+      if (unref(resources).some((f) => f.name === `${filename}.url`)) {
+        filename = resolveFileNameDuplicate(`${filename}.url`, 'url', unref(resources)).slice(0, -4)
       }
 
       inputFilename.value = filename
     }
 
-    const isDropItemActive = (index) => {
+    const isDropItemActive = (index: number) => {
       return unref(activeDropItemIndex) === index
     }
 
@@ -310,6 +342,7 @@ export default defineComponent({
     const onInputUrlInput = async () => {
       await nextTick()
 
+      inputFilename.value = inputUrl.value.trim()
       const hideDrop = !inputUrl.value.trim().length
 
       if (hideDrop) {
@@ -335,22 +368,15 @@ export default defineComponent({
           path,
           content
         })
-        store.commit('Files/UPSERT_RESOURCE', resource)
-        store.dispatch('hideModal')
-        store.dispatch('showMessage', {
-          title: $gettext('Shortcut was created successfully')
-        })
+        resourcesStore.upsertResource(resource)
+        showMessage({ title: $gettext('Shortcut was created successfully') })
       } catch (e) {
         console.error(e)
-        store.dispatch('showErrorMessage', {
+        showErrorMessage({
           title: $gettext('Failed to create shortcut'),
-          error: e
+          errors: [e]
         })
       }
-    }
-
-    const onCancel = () => {
-      store.dispatch('hideModal')
     }
 
     onMounted(async () => {
@@ -392,7 +418,7 @@ export default defineComponent({
       )
     })
 
-    expose({ onConfirm, onCancel })
+    expose({ onConfirm })
 
     return {
       inputUrl,
@@ -403,8 +429,6 @@ export default defineComponent({
       confirmButtonDisabled,
       inputFileNameErrorMessage,
       searchTask,
-      onConfirm,
-      onCancel,
       dropItemUrlClicked,
       dropItemResourceClicked,
       getPathPrefix,
@@ -420,7 +444,10 @@ export default defineComponent({
       onShowDrop,
       onInputUrlInput,
       onClickUrlInput,
-      isDropItemActive
+      isDropItemActive,
+
+      // unit tests
+      onConfirm
     }
   }
 })
@@ -433,6 +460,10 @@ export default defineComponent({
 
   &-search-separator:hover {
     background: none !important;
+  }
+
+  &-label {
+    margin-bottom: 0.2rem;
   }
 }
 

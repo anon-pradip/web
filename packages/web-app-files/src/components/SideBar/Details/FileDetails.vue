@@ -16,14 +16,10 @@
         v-else
         class="details-icon-wrapper oc-width-1-1 oc-flex oc-flex-middle oc-flex-center oc-mb"
       >
-        <oc-resource-icon
-          class="details-icon oc-position-relative"
-          :resource="resource"
-          size="xxxlarge"
-        />
+        <resource-icon class="details-icon" :resource="resource" size="xxxlarge" />
       </div>
       <div
-        v-if="!isPublicLinkContext && shareIndicators.length"
+        v-if="!publicLinkContextReady && shareIndicators.length"
         key="file-shares"
         data-testid="sharingInfo"
         class="oc-flex oc-flex-middle oc-my-m"
@@ -37,6 +33,12 @@
       >
         <col class="oc-width-1-3" />
         <col class="oc-width-2-3" />
+        <tr v-if="hasDeletionDate" data-testid="delete-timestamp">
+          <th scope="col" class="oc-pr-s oc-font-semibold" v-text="$gettext('Deleted at')" />
+          <td>
+            <span v-text="capitalizedDeletionDate"></span>
+          </td>
+        </tr>
         <tr v-if="hasTimestamp" data-testid="timestamp">
           <th scope="col" class="oc-pr-s oc-font-semibold" v-text="$gettext('Last modified')" />
           <td>
@@ -46,8 +48,9 @@
               appearance="raw"
               :aria-label="seeVersionsLabel"
               @click="expandVersionsPanel"
-              v-text="capitalizedTimestamp"
-            />
+            >
+              {{ capitalizedTimestamp }}
+            </oc-button>
             <span v-else v-text="capitalizedTimestamp" />
           </td>
         </tr>
@@ -68,18 +71,18 @@
         <tr v-if="showSharedBy" data-testid="shared-by">
           <th scope="col" class="oc-pr-s oc-font-semibold" v-text="$gettext('Shared by')" />
           <td>
-            <span v-text="sharedByDisplayName" />
+            <span v-text="sharedByDisplayNames" />
           </td>
         </tr>
-        <tr v-if="ownerDisplayName" data-testid="ownerDisplayName">
+        <tr
+          v-if="ownerDisplayName && ownerDisplayName !== sharedByDisplayNames"
+          data-testid="ownerDisplayName"
+        >
           <th scope="col" class="oc-pr-s oc-font-semibold" v-text="$gettext('Owner')" />
           <td>
             <p class="oc-m-rm">
               {{ ownerDisplayName }}
               <span v-if="ownedByCurrentUser" v-translate>(me)</span>
-              <span v-if="!ownedByCurrentUser && ownerAdditionalInfo"
-                >({{ ownerAdditionalInfo }})</span
-              >
             </p>
           </td>
         </tr>
@@ -87,7 +90,7 @@
           <th scope="col" class="oc-pr-s oc-font-semibold" v-text="$gettext('Size')" />
           <td v-text="resourceSize" />
         </tr>
-        <web-dav-details v-if="showWebDavDetails" />
+        <web-dav-details v-if="showWebDavDetails" :space="space" />
         <tr v-if="showVersions" data-testid="versionsInfo">
           <th scope="col" class="oc-pr-s oc-font-semibold" v-text="$gettext('Versions')" />
           <td>
@@ -96,8 +99,9 @@
               appearance="raw"
               :aria-label="seeVersionsLabel"
               @click="expandVersionsPanel"
-              v-text="versions.length"
-            />
+            >
+              {{ versions.length }}
+            </oc-button>
           </td>
         </tr>
         <portal-target
@@ -124,19 +128,20 @@
   </div>
 </template>
 <script lang="ts">
+import { storeToRefs } from 'pinia'
 import { computed, defineComponent, inject, Ref, ref, unref, watch } from 'vue'
-import { mapGetters } from 'vuex'
-import { ImageDimension, useConfigurationManager } from '@ownclouders/web-pkg'
-import upperFirst from 'lodash-es/upperFirst'
-import { ShareTypes } from '@ownclouders/web-client/src/helpers/share'
 import {
-  useCapabilityFilesTags,
-  useClientService,
-  usePublicLinkContext,
-  useStore,
-  usePreviewService,
-  useGetMatchingSpace
+  ImageDimension,
+  useAuthStore,
+  useUserStore,
+  useCapabilityStore,
+  useConfigStore,
+  useResourcesStore,
+  formatDateFromJSDate
 } from '@ownclouders/web-pkg'
+import upperFirst from 'lodash-es/upperFirst'
+import { isShareResource, ShareTypes } from '@ownclouders/web-client'
+import { usePreviewService, useGetMatchingSpace } from '@ownclouders/web-pkg'
 import { getIndicators } from '@ownclouders/web-pkg'
 import {
   formatDateFromHTTP,
@@ -149,15 +154,15 @@ import { Resource, SpaceResource } from '@ownclouders/web-client'
 import { useTask } from 'vue-concurrency'
 import { useGettext } from 'vue3-gettext'
 import { getSharedAncestorRoute } from '@ownclouders/web-pkg'
-import { AncestorMetaData } from '@ownclouders/web-pkg'
+import { ResourceIcon } from '@ownclouders/web-pkg'
 import { tagsHelper } from '../../../helpers/contextualHelpers'
 import { ContextualHelper } from '@ownclouders/design-system/src/helpers'
 import TagsSelect from './TagsSelect.vue'
-import WebDavDetails from '@ownclouders/web-pkg/src/components/SideBar/WebDavDetails.vue'
+import { WebDavDetails } from '@ownclouders/web-pkg'
 
 export default defineComponent({
   name: 'FileDetails',
-  components: { TagsSelect, WebDavDetails },
+  components: { ResourceIcon, TagsSelect, WebDavDetails },
   props: {
     previewEnabled: {
       type: Boolean,
@@ -171,30 +176,27 @@ export default defineComponent({
     }
   },
   setup(props) {
-    const configurationManager = useConfigurationManager()
-    const store = useStore()
-    const clientService = useClientService()
+    const configStore = useConfigStore()
+    const userStore = useUserStore()
+    const capabilityStore = useCapabilityStore()
     const { getMatchingSpace } = useGetMatchingSpace()
+
     const language = useGettext()
 
+    const resourcesStore = useResourcesStore()
+    const { ancestorMetaData } = storeToRefs(resourcesStore)
+
+    const { user } = storeToRefs(userStore)
+
     const resource = inject<Ref<Resource>>('resource')
+    const versions = inject<Ref<Resource[]>>('versions')
     const space = inject<Ref<SpaceResource>>('space')
-    const isPublicLinkContext = usePublicLinkContext({ store })
+
     const previewService = usePreviewService()
     const preview = ref(undefined)
 
-    const loadData = async () => {
-      const calls = []
-      if (unref(resource).type === 'file' && !unref(isPublicLinkContext)) {
-        calls.push(
-          store.dispatch('Files/loadVersions', {
-            client: clientService.webdav,
-            fileId: unref(resource).id
-          })
-        )
-      }
-      await Promise.all(calls.map((p) => p.catch((e) => e)))
-    }
+    const authStore = useAuthStore()
+    const { publicLinkContextReady } = storeToRefs(authStore)
 
     const isPreviewEnabled = computed(() => {
       if (unref(resource).isFolder) {
@@ -220,9 +222,6 @@ export default defineComponent({
       return loadPreviewTask.isRunning || !loadPreviewTask.last
     })
 
-    const ancestorMetaData: Ref<AncestorMetaData> = computed(
-      () => store.getters['runtime/ancestorMetaData/ancestorMetaData']
-    )
     const sharedAncestor = computed(() => {
       return Object.values(unref(ancestorMetaData)).find(
         (a) =>
@@ -237,59 +236,81 @@ export default defineComponent({
       })
     })
     const showWebDavDetails = computed(() => {
-      return store.getters['Files/areWebDavDetailsShown']
+      /**
+       * webDavPath might not be set when user is navigating on public link,
+       * even if the user is authenticated and the file owner.
+       */
+      return resourcesStore.areWebDavDetailsShown && unref(resource).webDavPath
     })
-    const formatDateRelative = (date) => {
+    const formatDateRelative = (date: string) => {
       return formatRelativeDateFromJSDate(new Date(date), language.current)
     }
+
+    const contextualHelper = {
+      isEnabled: configStore.options.contextHelpers,
+      data: tagsHelper({ configStore })
+    } as ContextualHelper
+
+    const hasTags = computed(() => {
+      return props.tagsEnabled && capabilityStore.filesTags
+    })
+
+    const hasDeletionDate = computed(() => {
+      return unref(resource).ddate
+    })
+
+    const capitalizedDeletionDate = computed(() => {
+      const displayDate = formatDateFromJSDate(new Date(unref(resource).ddate), language.current)
+      return upperFirst(displayDate)
+    })
+
+    const shareIndicators = computed(() => {
+      return getIndicators({
+        space: unref(space),
+        resource: unref(resource),
+        ancestorMetaData: unref(ancestorMetaData),
+        user: unref(user)
+      })
+    })
 
     watch(
       resource,
       () => {
         if (unref(resource)) {
-          loadData()
           loadPreviewTask.perform(unref(resource))
         }
       },
       { immediate: true }
     )
 
-    const contextualHelper = {
-      isEnabled: configurationManager.options.contextHelpers,
-      data: tagsHelper({ configurationManager: configurationManager })
-    } as ContextualHelper
-
-    const capabilityFilesTags = useCapabilityFilesTags()
-    const hasTags = computed(() => {
-      return props.tagsEnabled && unref(capabilityFilesTags)
-    })
-
     return {
+      user,
       preview,
-      isPublicLinkContext,
+      publicLinkContextReady,
       space,
       resource,
       hasTags,
+      hasDeletionDate,
+      capitalizedDeletionDate,
       isPreviewLoading,
-      ancestorMetaData,
       sharedAncestor,
       sharedAncestorRoute,
       formatDateRelative,
       contextualHelper,
-      showWebDavDetails
+      showWebDavDetails,
+      versions,
+      shareIndicators
     }
   },
   computed: {
-    ...mapGetters('Files', ['versions']),
-    ...mapGetters(['user', 'configuration']),
-
     hasContent() {
       return (
         this.hasTimestamp ||
         this.ownerDisplayName ||
         this.showSize ||
         this.showShares ||
-        this.showVersions
+        this.showVersions ||
+        this.hasDeletionDate
       )
     },
     sharedViaTooltip() {
@@ -300,13 +321,13 @@ export default defineComponent({
       )
     },
     showSharedBy() {
-      return this.showShares && !this.ownedByCurrentUser && this.sharedByDisplayName
+      return this.showShares && !this.ownedByCurrentUser && this.sharedByDisplayNames
     },
     showSharedVia() {
       return this.showShares && this.sharedAncestor
     },
     showShares() {
-      if (this.isPublicLinkContext) {
+      if (this.publicLinkContextReady) {
         return false
       }
       return this.hasAnyShares
@@ -321,14 +342,7 @@ export default defineComponent({
       return this.resource.mdate?.length > 0
     },
     ownerDisplayName() {
-      return (
-        this.resource.ownerDisplayName ||
-        this.resource.shareOwnerDisplayname ||
-        this.resource.owner?.[0].displayName
-      )
-    },
-    ownerAdditionalInfo() {
-      return this.resource.owner?.[0].additionalInfo
+      return this.resource.owner?.displayName
     },
     resourceSize() {
       return formatFileSize(this.resource.size, this.$language.current)
@@ -337,7 +351,7 @@ export default defineComponent({
       return this.resourceSize !== '?'
     },
     showVersions() {
-      if (this.resource.type === 'folder' || this.isPublicLinkContext) {
+      if (this.resource.type === 'folder' || this.publicLinkContextReady) {
         return
       }
       return this.versions.length > 0
@@ -357,17 +371,13 @@ export default defineComponent({
       )
     },
     ownedByCurrentUser() {
-      return (
-        this.resource.ownerId === this.user.id ||
-        this.resource.owner?.[0].username === this.user.id ||
-        this.resource.shareOwner === this.user.id
-      )
+      return this.resource.owner?.id === this.user?.id
     },
-    shareIndicators() {
-      return getIndicators({ resource: this.resource, ancestorMetaData: this.ancestorMetaData })
-    },
-    sharedByDisplayName() {
-      return this.resource.share?.fileOwner?.displayName
+    sharedByDisplayNames() {
+      if (!isShareResource(this.resource)) {
+        return ''
+      }
+      return this.resource.sharedBy?.map(({ displayName }) => displayName).join(', ')
     }
   },
   methods: {

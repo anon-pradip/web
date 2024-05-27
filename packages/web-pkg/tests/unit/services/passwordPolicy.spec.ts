@@ -1,7 +1,8 @@
 import { PasswordPolicyService } from '../../../src/services'
-import { createStore, defaultStoreMockOptions } from 'web-test-helpers'
+import { createTestingPinia } from 'web-test-helpers'
 import { Language } from 'vue3-gettext'
-import { PasswordPolicyCapability } from '@ownclouders/web-client/src/ocs/capabilities'
+import { PasswordPolicyCapability } from '@ownclouders/web-client/ocs'
+import { useCapabilityStore } from '../../../src/composables/piniaStores'
 
 describe('PasswordPolicyService', () => {
   describe('policy', () => {
@@ -45,7 +46,7 @@ describe('PasswordPolicyService', () => {
       ])('capability "%s"', (capability: PasswordPolicyCapability, expected: Array<string>) => {
         const { passwordPolicyService, store } = getWrapper(capability)
         passwordPolicyService.initialize(store)
-        expect(Object.keys((passwordPolicyService.getPolicy() as any).rules)).toEqual(expected)
+        expect(Object.keys(passwordPolicyService.getPolicy().rules)).toEqual(expected)
       })
     })
     describe('method "check"', () => {
@@ -105,7 +106,7 @@ describe('PasswordPolicyService', () => {
             passwordPolicyService.initialize(store)
             const policy = passwordPolicyService.getPolicy()
             for (let i = 0; i < passwords.length; i++) {
-              expect((policy as any).check(passwords[i])).toEqual(expected[i])
+              expect(policy.check(passwords[i])).toEqual(expected[i])
             }
           }
         )
@@ -115,11 +116,10 @@ describe('PasswordPolicyService', () => {
 })
 
 const getWrapper = (capability: PasswordPolicyCapability) => {
-  const storeOptions = defaultStoreMockOptions
-  storeOptions.getters.capabilities.mockReturnValue({
-    password_policy: capability
-  })
-  const store = createStore(storeOptions)
+  createTestingPinia()
+  const store = useCapabilityStore()
+  store.capabilities.password_policy = capability
+
   return {
     store,
     passwordPolicyService: new PasswordPolicyService({

@@ -1,4 +1,4 @@
-import { defaultPlugins, shallowMount } from 'web-test-helpers/src'
+import { PartialComponentProps, defaultPlugins, shallowMount } from 'web-test-helpers/src'
 import OcButton from './OcButton.vue'
 
 describe('OcButton', () => {
@@ -27,7 +27,7 @@ describe('OcButton', () => {
     })
   })
   describe('when oc button is disabled', () => {
-    let wrapper
+    let wrapper: ReturnType<typeof getWrapperWithProps>
     beforeEach(() => {
       wrapper = getWrapperWithProps({ disabled: true })
     })
@@ -87,7 +87,7 @@ describe('OcButton', () => {
     it.each(['appearance', 'size', 'submit', 'justifyContent', 'variation', 'gapSize', 'type'])(
       'when prop "%s" is set to an invalid value"',
       (prop) => {
-        expect((OcButton as any).props[prop].validator('not-valid')).toBeFalsy()
+        expect(OcButton.props[prop].validator('not-valid')).toBeFalsy()
       }
     )
   })
@@ -121,7 +121,7 @@ describe('OcButton', () => {
   })
 })
 
-function getWrapperWithProps(props) {
+function getWrapperWithProps(props: PartialComponentProps<typeof OcButton>) {
   return shallowMount(OcButton, { props, global: { plugins: [...defaultPlugins()] } })
 }
 function getWrapperWithTestSlot() {

@@ -1,13 +1,6 @@
-import {
-  createStore,
-  defaultComponentMocks,
-  defaultPlugins,
-  defaultStoreMockOptions,
-  defaultStubs,
-  mount
-} from 'web-test-helpers'
-import { mock } from 'jest-mock-extended'
-import { Resource } from '@ownclouders/web-client/src/helpers'
+import { defaultComponentMocks, defaultPlugins, defaultStubs, mount } from 'web-test-helpers'
+import { mock } from 'vitest-mock-extended'
+import { SpaceResource } from '@ownclouders/web-client'
 import ContextActions from '../../../../src/components/Spaces/ContextActions.vue'
 import {
   Action,
@@ -34,8 +27,8 @@ describe.skip('ContextActions', () => {
       ]
 
       for (const composable of enabledComposables) {
-        jest.mocked(composable).mockImplementation(() => ({
-          actions: computed(() => [mock<Action>({ isEnabled: () => true })]),
+        vi.mocked(composable).mockImplementation(() => ({
+          actions: computed(() => [mock<Action>({ isVisible: () => true })]),
           checkName: null,
           renameSpace: null,
           editDescriptionSpace: null,
@@ -54,22 +47,19 @@ describe.skip('ContextActions', () => {
 })
 
 function getWrapper() {
-  const storeOptions = { ...defaultStoreMockOptions }
-  const store = createStore(storeOptions)
   const mocks = {
     ...defaultComponentMocks()
   }
   return {
-    storeOptions,
     mocks,
     wrapper: mount(ContextActions, {
       props: {
-        items: [mock<Resource>()]
+        items: [mock<SpaceResource>()]
       },
       global: {
         mocks,
         stubs: { ...defaultStubs, 'action-menu-item': true },
-        plugins: [...defaultPlugins(), store]
+        plugins: [...defaultPlugins()]
       }
     })
   }

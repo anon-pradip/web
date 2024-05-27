@@ -1,25 +1,35 @@
 import Projects from '../../../../src/views/spaces/Projects.vue'
-import { mock } from 'jest-mock-extended'
-import { nextTick } from 'vue'
-import { queryItemAsString, useFileActionsDelete } from '@ownclouders/web-pkg'
+import { mock } from 'vitest-mock-extended'
+import { h, nextTick, ref } from 'vue'
+import {
+  queryItemAsString,
+  useFileActionsDelete,
+  useExtensionRegistry,
+  FolderViewExtension
+} from '@ownclouders/web-pkg'
 
 import {
-  createStore,
   defaultPlugins,
   mount,
-  defaultStoreMockOptions,
   defaultComponentMocks,
   defaultStubs,
   RouteLocation
 } from 'web-test-helpers'
+import { AbilityRule, SpaceResource } from '@ownclouders/web-client'
+import {
+  folderViewsFavoritesExtensionPoint,
+  folderViewsFolderExtensionPoint,
+  folderViewsProjectSpacesExtensionPoint
+} from '../../../../src/extensionPoints'
 
-jest.mock('@ownclouders/web-pkg', () => ({
-  ...jest.requireActual('@ownclouders/web-pkg'),
-  displayPositionedDropdown: jest.fn(),
-  queryItemAsString: jest.fn(),
-  appDefaults: jest.fn(),
-  useFileActions: jest.fn(),
-  useFileActionsDelete: jest.fn(() => mock<ReturnType<typeof useFileActionsDelete>>())
+vi.mock('@ownclouders/web-pkg', async (importOriginal) => ({
+  ...(await importOriginal<any>()),
+  displayPositionedDropdown: vi.fn(),
+  queryItemAsString: vi.fn(),
+  appDefaults: vi.fn(),
+  useRouteQueryPersisted: vi.fn().mockImplementation(() => ref('resource-table')),
+  useFileActions: vi.fn(),
+  useFileActionsDelete: vi.fn(() => mock<ReturnType<typeof useFileActionsDelete>>())
 }))
 
 const spacesResources = [
@@ -43,7 +53,7 @@ const spacesResources = [
     isFolder: true,
     getDriveAliasAndItem: () => '2'
   }
-]
+] as unknown as SpaceResource[]
 
 describe('Projects view', () => {
   it('appBar always present', () => {
@@ -82,7 +92,7 @@ describe('Projects view', () => {
       expect(wrapper.vm.items).toEqual([spacesResources[1]])
     })
   })
-  it.skip('should display the "Create Space"-button when permission given', () => {
+  it('should display the "Create Space"-button when permission given', () => {
     const { wrapper } = getMountedWrapper({
       abilities: [{ action: 'create-all', subject: 'Drive' }],
       stubAppBar: false
@@ -91,24 +101,57 @@ describe('Projects view', () => {
   })
 })
 
-function getMountedWrapper({ mocks = {}, spaces = [], abilities = [], stubAppBar = true } = {}) {
-  jest.mocked(queryItemAsString).mockImplementationOnce(() => '1')
-  jest.mocked(queryItemAsString).mockImplementationOnce(() => '100')
+function getMountedWrapper({
+  mocks = {},
+  spaces = [],
+  abilities = [],
+  stubAppBar = true
+}: {
+  mocks?: Record<string, unknown>
+  spaces?: SpaceResource[]
+  abilities?: AbilityRule[]
+  stubAppBar?: boolean
+} = {}) {
+  const plugins = defaultPlugins({ abilities, piniaOptions: { spacesState: { spaces } } })
+
+  vi.mocked(queryItemAsString).mockImplementationOnce(() => '1')
+  vi.mocked(queryItemAsString).mockImplementationOnce(() => '100')
+
+  const extensions = [
+    {
+      id: 'com.github.owncloud.web.files.folder-view.resource-table',
+      type: 'folderView',
+      extensionPointIds: [
+        folderViewsFolderExtensionPoint.id,
+        folderViewsProjectSpacesExtensionPoint.id,
+        folderViewsFavoritesExtensionPoint.id
+      ],
+      folderView: {
+        name: 'resource-table',
+        label: 'Switch to default view',
+        icon: {
+          name: 'menu-line',
+          fillType: 'none'
+        },
+        component: h('div', { class: 'resource-table' })
+      }
+    }
+  ] satisfies FolderViewExtension[]
+  const { requestExtensions } = useExtensionRegistry()
+  vi.mocked(requestExtensions).mockReturnValue(extensions)
+
   const defaultMocks = {
     ...defaultComponentMocks({
       currentRoute: mock<RouteLocation>({ name: 'files-spaces-projects' })
     }),
     ...(mocks && mocks)
   }
-  const storeOptions = { ...defaultStoreMockOptions }
-  storeOptions.modules.runtime.modules.spaces.getters.spaces = jest.fn(() => spaces)
-  const store = createStore(storeOptions)
+
   return {
     mocks: defaultMocks,
-    storeOptions,
     wrapper: mount(Projects, {
       global: {
-        plugins: [...defaultPlugins({ abilities }), store],
+        plugins,
         mocks: defaultMocks,
         provide: defaultMocks,
         stubs: {

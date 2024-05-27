@@ -1,16 +1,15 @@
 import CreateUserModal from '../../../../src/components/Users/CreateUserModal.vue'
 import {
-  createStore,
   defaultComponentMocks,
   defaultPlugins,
-  defaultStoreMockOptions,
   mockAxiosReject,
   mockAxiosResolve,
   shallowMount
 } from 'web-test-helpers'
-import { mock } from 'jest-mock-extended'
+import { mock } from 'vitest-mock-extended'
 import { AxiosResponse } from 'axios'
-import { eventBus } from '@ownclouders/web-pkg'
+import { Modal, eventBus, useMessages } from '@ownclouders/web-pkg'
+import { useUserSettingsStore } from '../../../../src/composables/stores/userSettings'
 
 describe('CreateUserModal', () => {
   describe('computed method "isFormInvalid"', () => {
@@ -116,88 +115,87 @@ describe('CreateUserModal', () => {
   })
   describe('method "onConfirm"', () => {
     it('should not create user if form is invalid', async () => {
-      const { wrapper, storeOptions } = getWrapper()
+      vi.spyOn(console, 'error').mockImplementation(() => undefined)
+      const { wrapper } = getWrapper()
 
-      const eventSpy = jest.spyOn(eventBus, 'publish')
-      await wrapper.vm.onConfirm()
+      const eventSpy = vi.spyOn(eventBus, 'publish')
+      try {
+        await wrapper.vm.onConfirm()
+      } catch (error) {}
 
-      expect(storeOptions.actions.showMessage).not.toHaveBeenCalled()
+      const { showMessage } = useMessages()
+      expect(showMessage).not.toHaveBeenCalled()
       expect(eventSpy).not.toHaveBeenCalled()
     })
     it('should create user on success', async () => {
-      const { wrapper, mocks, storeOptions } = getWrapper()
+      const { wrapper, mocks } = getWrapper()
       mocks.$clientService.graphAuthenticated.users.getUser.mockRejectedValueOnce(new Error(''))
 
       wrapper.vm.user.onPremisesSamAccountName = 'foo'
-      wrapper.vm.validateUserName()
+      await wrapper.vm.validateUserName()
       wrapper.vm.user.displayName = 'foo bar'
-      await wrapper.vm.validateDisplayName()
+      wrapper.vm.validateDisplayName()
       wrapper.vm.user.mail = 'foo@bar.com'
       wrapper.vm.validateEmail()
       wrapper.vm.user.passwordProfile.password = 'asecret'
       wrapper.vm.validatePassword()
 
-      mocks.$clientService.graphAuthenticated.users.createUser.mockImplementation(() =>
+      mocks.$clientService.graphAuthenticated.users.createUser.mockResolvedValue(
         mockAxiosResolve({ id: 'e3515ffb-d264-4dfc-8506-6c239f6673b5' })
       )
       mocks.$clientService.graphAuthenticated.users.getUser.mockResolvedValueOnce(
         mockAxiosResolve({ id: 'e3515ffb-d264-4dfc-8506-6c239f6673b5' })
       )
 
-      const eventSpy = jest.spyOn(eventBus, 'publish')
       await wrapper.vm.onConfirm()
 
-      expect(storeOptions.actions.showMessage).toHaveBeenCalled()
-      expect(eventSpy).toHaveBeenCalled()
+      const { upsertUser } = useUserSettingsStore()
+      expect(upsertUser).toHaveBeenCalled()
+      const { showMessage } = useMessages()
+      expect(showMessage).toHaveBeenCalled()
     })
 
     it('should show message on error', async () => {
-      jest.spyOn(console, 'error').mockImplementation(() => undefined)
+      vi.spyOn(console, 'error').mockImplementation(() => undefined)
 
-      const { wrapper, mocks, storeOptions } = getWrapper()
+      const { wrapper, mocks } = getWrapper()
       mocks.$clientService.graphAuthenticated.users.getUser.mockRejectedValue(new Error(''))
 
       wrapper.vm.user.onPremisesSamAccountName = 'foo'
-      wrapper.vm.validateUserName()
+      await wrapper.vm.validateUserName()
       wrapper.vm.user.displayName = 'foo bar'
-      await wrapper.vm.validateDisplayName()
+      wrapper.vm.validateDisplayName()
       wrapper.vm.user.mail = 'foo@bar.com'
       wrapper.vm.validateEmail()
       wrapper.vm.user.passwordProfile.password = 'asecret'
       wrapper.vm.validatePassword()
 
-      mocks.$clientService.graphAuthenticated.users.createUser.mockImplementation(() =>
+      mocks.$clientService.graphAuthenticated.users.createUser.mockResolvedValue(
         mockAxiosResolve({ id: 'e3515ffb-d264-4dfc-8506-6c239f6673b5' })
       )
-      const eventSpy = jest.spyOn(eventBus, 'publish')
+      const eventSpy = vi.spyOn(eventBus, 'publish')
       await wrapper.vm.onConfirm()
 
-      expect(storeOptions.actions.showErrorMessage).toHaveBeenCalled()
+      const { showErrorMessage } = useMessages()
+      expect(showErrorMessage).toHaveBeenCalled()
       expect(eventSpy).not.toHaveBeenCalled()
-    })
-  })
-  describe('method "onCancel"', () => {
-    it('hides the modal', async () => {
-      const { wrapper, storeOptions } = getWrapper()
-      await wrapper.vm.onCancel()
-      expect(storeOptions.actions.hideModal).toHaveBeenCalled()
     })
   })
 })
 
 function getWrapper() {
   const mocks = defaultComponentMocks()
-  const storeOptions = defaultStoreMockOptions
-  const store = createStore(storeOptions)
 
   return {
     mocks,
-    storeOptions,
     wrapper: shallowMount(CreateUserModal, {
+      props: {
+        modal: mock<Modal>()
+      },
       global: {
         mocks,
         provide: mocks,
-        plugins: [...defaultPlugins(), store]
+        plugins: [...defaultPlugins()]
       }
     })
   }

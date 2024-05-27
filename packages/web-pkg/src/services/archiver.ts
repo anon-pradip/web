@@ -1,29 +1,21 @@
 // Workaround https://github.com/npm/node-semver/issues/381
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore
 import major from 'semver/functions/major'
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore
 import rcompare from 'semver/functions/rcompare'
 
 import { RuntimeError } from '../errors'
-import { HttpError } from '@ownclouders/web-client/src/errors'
+import { HttpError } from '@ownclouders/web-client'
 import { ClientService } from '../services'
-import { urlJoin } from '@ownclouders/web-client/src/utils'
-import { configurationManager } from '../configuration'
-import { triggerDownloadWithFilename } from '../../'
+import { urlJoin } from '@ownclouders/web-client'
+import { triggerDownloadWithFilename } from '../helpers/download'
 
 import { Ref, ref, computed, unref } from 'vue'
-
-/**
- * Archiver struct within the capabilities as defined in reva
- * @see https://github.com/cs3org/reva/blob/41d5a6858c2200a61736d2c165e551b9785000d1/internal/http/services/owncloud/ocs/data/capabilities.go#L105
- */
-export interface ArchiverCapability {
-  enabled: boolean
-  version: string // version is just a major version, e.g. `v2`
-  formats: string[]
-  // eslint-disable-next-line camelcase
-  archiver_url: string
-  max_num_files: string
-  max_size: string
-}
+import { ArchiverCapability } from '@ownclouders/web-client/ocs'
+import { UserStore } from '../composables'
+import { AxiosResponseHeaders, RawAxiosResponseHeaders } from 'axios'
 
 interface TriggerDownloadOptions {
   dir?: string
@@ -36,6 +28,7 @@ interface TriggerDownloadOptions {
 
 export class ArchiverService {
   clientService: ClientService
+  userStore: UserStore
   serverUrl: string
   capability: Ref<ArchiverCapability>
   available: Ref<boolean>
@@ -43,10 +36,12 @@ export class ArchiverService {
 
   constructor(
     clientService: ClientService,
+    userStore: UserStore,
     serverUrl: string,
     archiverCapabilities: Ref<ArchiverCapability[]> = ref([])
   ) {
     this.clientService = clientService
+    this.userStore = userStore
     this.serverUrl = serverUrl
     this.capability = computed(() => {
       const archivers = unref(archiverCapabilities)
@@ -80,7 +75,10 @@ export class ArchiverService {
 
     const url = options.publicToken
       ? downloadUrl
-      : await this.clientService.owncloudSdk.signUrl(downloadUrl)
+      : await this.clientService.ocsUserContext.signUrl(
+          downloadUrl,
+          this.userStore.user?.onPremisesSamAccountName
+        )
 
     try {
       const response = await this.clientService.httpUnAuthenticated.get<ArrayBuffer>(url, {
@@ -141,10 +139,10 @@ export class ArchiverService {
     if (/^https?:\/\//i.test(capability.archiver_url)) {
       return capability.archiver_url
     }
-    return urlJoin(configurationManager.serverUrl, capability.archiver_url)
+    return urlJoin(this.serverUrl, capability.archiver_url)
   }
 
-  private getFileNameFromResponseHeaders(headers) {
+  private getFileNameFromResponseHeaders(headers: RawAxiosResponseHeaders | AxiosResponseHeaders) {
     const fileName = headers['content-disposition']?.split('"')[1]
     return decodeURI(fileName)
   }

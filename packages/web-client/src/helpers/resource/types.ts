@@ -1,8 +1,8 @@
-import { DavFileInfoResponse } from '@ownclouders/web-client/src/webdav/constants'
-import { User } from '../user'
+import { DavFileInfoResponse } from '@ownclouders/web-client/webdav'
+import { Identity, User } from '../../graph/generated'
 import { MongoAbility, SubjectRawRule } from '@casl/ability'
 import { DAVResultResponseProps, FileStat } from 'webdav'
-import { Audio, GeoCoordinates } from '../../generated'
+import { Audio, GeoCoordinates } from '../../graph/generated'
 
 export type AbilityActions =
   | 'create'
@@ -32,15 +32,20 @@ export type AbilitySubjects =
 export type Ability = MongoAbility<[AbilityActions, AbilitySubjects]>
 export type AbilityRule = SubjectRawRule<AbilityActions, AbilitySubjects, any>
 
-export interface SpaceRole {
+export type ResourceIndicatorCategory = 'system' | 'sharing'
+
+export interface ResourceIndicator {
   id: string
-  displayName: string
-  expirationDate: string
-  kind: 'user' | 'group'
-  isMember(u: User): boolean
+  accessibleDescription: string
+  label: string
+  icon: string
+  fillType: 'fill' | 'line' | 'none'
+  type: string
+  category: ResourceIndicatorCategory
+  handler?: (resource: Resource) => void
 }
 
-// TODO: add more fields to the resource interface. Extend into different resource types: FileResource, FolderResource, ShareResource, IncomingShareResource, OutgoingShareResource, ...
+// FIXME: almost all of the properties are non-optional, the interface should reflect that
 export interface Resource {
   id: string
   fileId?: string
@@ -51,81 +56,49 @@ export interface Resource {
   tags?: string[]
   audio?: Audio
   location?: GeoCoordinates
-  disabled?: boolean
   path: string
   webDavPath?: string
   downloadURL?: string
   type?: string
   thumbnail?: string
-  status?: number
   processing?: boolean
   locked?: boolean
   lockOwnerName?: string
   lockTime?: string
-  spaceRoles?: {
-    [k: string]: SpaceRole[]
-  }
-  spaceQuota?: any
-  spaceImageData?: any
-  spaceReadmeData?: any
   mimeType?: string
   isFolder?: boolean
-  sdate?: string
   mdate?: string
-  indicators?: any[]
+  indicators?: ResourceIndicator[]
   size?: number | string // FIXME
   permissions?: string
   starred?: boolean
   etag?: string
-  sharePermissions?: number | string // FIXME
-  shareId?: string
-  shareRoot?: string
   shareTypes?: number[]
   privateLink?: string
-  description?: string
-  driveType?: 'mountpoint' | 'personal' | 'project' | 'share' | 'public' | (string & unknown)
-  driveAlias?: string
+  owner?: Identity
+  extension?: string
+  ddate?: string
+
+  // necessary for incoming share resources and resources inside shares
+  remoteItemId?: string
+  remoteItemPath?: string
 
   canCreate?(): boolean
   canUpload?({ user }: { user?: User }): boolean
   canDownload?(): boolean
-  canShare?({ user, ability }?: { user?: User; ability?: Ability }): boolean
-  canRename?({ user }?: { user?: User; ability?: Ability }): boolean
-  canBeDeleted?({ user }?: { user?: User; ability?: Ability }): boolean
+  canShare?(args?: { user?: User; ability?: Ability }): boolean
+  canRename?(args?: { user?: User; ability?: Ability }): boolean
+  canBeDeleted?(args?: { user?: User; ability?: Ability }): boolean
   canBeRestored?(): boolean
   canDeny?(): boolean
-  canEditDescription?({ user }: { user?: User; ability?: Ability }): boolean
-  canRestore?({ user }: { user?: User; ability?: any }): boolean
-  canDisable?({ user }: { user?: User; ability?: any }): boolean
-  canEditImage?({ user }: { user?: User }): boolean
-  canEditReadme?({ user }: { user?: User }): boolean
   canRemoveFromTrashbin?({ user }: { user?: User }): boolean
-
-  canEditSpaceQuota?(): boolean
   canEditTags?(): boolean
 
-  isReceivedShare?(): boolean
-
-  isShareRoot?(): boolean
-
-  isMounted?(): boolean
-
   getDomSelector?(): string
-  matchingSpace?: any
 
-  resourceOwner?: User
-  owner?: User[]
-  ownerDisplayName?: string
-  ownerId?: string
-  sharedWith?: string
-  shareOwner?: string
-  shareOwnerDisplayname?: string
-  hidden?: boolean
-
-  extension?: string
-  share?: any
-
-  ddate?: string
+  isReceivedShare?(): boolean
+  isShareRoot?(): boolean
+  isMounted?(): boolean
 }
 
 // These interfaces have empty (unused) __${type}SpaceResource properties which are only
@@ -155,4 +128,8 @@ export interface WebDavResponseResource extends Omit<FileStat, 'props'> {
   props?: Omit<DAVResultResponseProps, 'getcontentlength'> & DavFileInfoResponse
   processing?: boolean
   tusSupport?: WebDavResponseTusSupport
+}
+
+export interface SearchResource extends Resource {
+  highlights: string
 }

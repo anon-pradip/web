@@ -1,8 +1,8 @@
 import { Page } from '@playwright/test'
 import util from 'util'
 
-const accountMenuButton = '.oc-topbar-personal-avatar'
-const quotaValue = '.storage-wrapper-text .oc-text-small'
+const accountMenuButton = '.oc-topbar-avatar'
+const quotaValue = '.storage-wrapper-quota'
 const accountManageButton = '#oc-topbar-account-manage'
 const infoValue = '.account-page-info-%s dd'
 const requestExportButton = '[data-testid="request-export-btn"]'

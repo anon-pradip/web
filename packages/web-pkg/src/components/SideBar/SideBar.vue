@@ -64,7 +64,6 @@
               <component
                 :is="panel.component"
                 v-bind="panel.componentAttrs?.(panelContext) || {}"
-                @scroll-to-element="scrollToElement"
               />
             </slot>
           </div>
@@ -94,9 +93,8 @@
 
 <script lang="ts">
 import { VisibilityObserver } from '../../observer'
-import { computed, defineComponent, PropType, onBeforeUnmount, unref } from 'vue'
+import { computed, defineComponent, PropType, unref } from 'vue'
 import { SideBarPanel, SideBarPanelContext } from './types'
-import { SideBarEventTopics, useEventBus } from '../../composables'
 
 let visibilityObserver: VisibilityObserver
 let hiddenObserver: VisibilityObserver
@@ -127,15 +125,10 @@ export default defineComponent({
   },
   emits: ['close', 'selectPanel'],
   setup(props) {
-    const eventBus = useEventBus()
     const panels = computed(() =>
       props.availablePanels.filter((p) => p.isVisible(props.panelContext))
     )
     const subPanels = computed(() => unref(panels).filter((p) => !p.isRoot?.(props.panelContext)))
-
-    onBeforeUnmount(() => {
-      eventBus.publish(SideBarEventTopics.close)
-    })
 
     return {
       panels,
@@ -200,22 +193,6 @@ export default defineComponent({
     hiddenObserver.disconnect()
   },
   methods: {
-    scrollToElement({ element, panelName }) {
-      const sideBarPanelBodyEl = document.getElementsByClassName(
-        `sidebar-panel__body-${panelName}`
-      )[0]
-
-      const sideBarPanelPadding = Number(
-        window.getComputedStyle(sideBarPanelBodyEl).getPropertyValue('padding')?.split('px')[0]
-      )
-
-      sideBarPanelBodyEl.scrollTo(
-        0,
-        element.getBoundingClientRect().y -
-          sideBarPanelBodyEl.getBoundingClientRect().y -
-          sideBarPanelPadding
-      )
-    },
     setSidebarPanel(panel: string) {
       this.$emit('selectPanel', panel)
     },
@@ -269,7 +246,7 @@ export default defineComponent({
       this.oldPanelName = this.activePanelName
     },
 
-    openPanel(panel) {
+    openPanel(panel: string) {
       this.setOldPanelName()
       this.setSidebarPanel(panel)
     },

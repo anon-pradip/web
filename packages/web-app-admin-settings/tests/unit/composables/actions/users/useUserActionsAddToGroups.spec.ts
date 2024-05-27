@@ -1,32 +1,30 @@
 import { useUserActionsAddToGroups } from '../../../../../src/composables/actions/users/useUserActionsAddToGroups'
-import { mock } from 'jest-mock-extended'
+import { mock } from 'vitest-mock-extended'
 import { ref, unref } from 'vue'
-import { User } from '@ownclouders/web-client/src/generated'
-import { createStore, defaultStoreMockOptions, getComposableWrapper } from 'web-test-helpers'
+import { User } from '@ownclouders/web-client/graph/generated'
+import { getComposableWrapper, writable } from 'web-test-helpers'
+import { useCapabilityStore, useModals } from '@ownclouders/web-pkg'
 
 describe('useUserActionsAddToGroups', () => {
-  describe('method "isEnabled"', () => {
+  describe('method "isVisible"', () => {
     it.each([
-      { resources: [], isEnabled: false },
-      { resources: [mock<User>()], isEnabled: true },
-      { resources: [mock<User>(), mock<User>()], isEnabled: true }
-    ])('requires at least one user to be enabled', ({ resources, isEnabled }) => {
+      { resources: [], isVisible: false },
+      { resources: [mock<User>()], isVisible: true },
+      { resources: [mock<User>(), mock<User>()], isVisible: true }
+    ])('requires at least one user to be enabled', ({ resources, isVisible }) => {
       getWrapper({
         setup: ({ actions }) => {
-          expect(unref(actions)[0].isEnabled({ resources })).toEqual(isEnabled)
+          expect(unref(actions)[0].isVisible({ resources })).toEqual(isVisible)
         }
       })
     })
     it('returns false if included in capability readOnlyUserAttributes list', () => {
       getWrapper({
-        setup: ({ actions }, { storeOptions }) => {
-          storeOptions.getters.capabilities.mockReturnValue({
-            graph: {
-              users: { read_only_attributes: ['user.memberOf'] }
-            }
-          })
+        setup: ({ actions }) => {
+          const capabilityStore = useCapabilityStore()
+          writable(capabilityStore).graphUsersReadOnlyAttributes = ['user.memberOf']
 
-          expect(unref(actions)[0].isEnabled({ resources: [mock<User>()] })).toEqual(false)
+          expect(unref(actions)[0].isVisible({ resources: [mock<User>()] })).toEqual(false)
         }
       })
     })
@@ -34,9 +32,10 @@ describe('useUserActionsAddToGroups', () => {
   describe('method "handler"', () => {
     it('creates a modal', () => {
       getWrapper({
-        setup: async ({ actions }, { storeOptions }) => {
+        setup: async ({ actions }) => {
+          const { dispatchModal } = useModals()
           await unref(actions)[0].handler({ resources: [mock<User>()] })
-          expect(storeOptions.actions.createModal).toHaveBeenCalled()
+          expect(dispatchModal).toHaveBeenCalled()
         }
       })
     })
@@ -46,24 +45,12 @@ describe('useUserActionsAddToGroups', () => {
 function getWrapper({
   setup
 }: {
-  setup: (
-    instance: ReturnType<typeof useUserActionsAddToGroups>,
-    {
-      storeOptions
-    }: {
-      storeOptions: typeof defaultStoreMockOptions
-    }
-  ) => void
+  setup: (instance: ReturnType<typeof useUserActionsAddToGroups>) => void
 }) {
-  const storeOptions = defaultStoreMockOptions
-  const store = createStore(storeOptions)
   return {
-    wrapper: getComposableWrapper(
-      () => {
-        const instance = useUserActionsAddToGroups({ groups: ref([]) })
-        setup(instance, { storeOptions })
-      },
-      { store }
-    )
+    wrapper: getComposableWrapper(() => {
+      const instance = useUserActionsAddToGroups({ groups: ref([]) })
+      setup(instance)
+    })
   }
 }

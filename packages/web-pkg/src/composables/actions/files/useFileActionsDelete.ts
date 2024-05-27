@@ -1,25 +1,22 @@
 import { useFileActionsDeleteResources } from '../helpers'
-import { Store } from 'vuex'
 import {
   isLocationPublicActive,
   isLocationSpacesActive,
   isLocationTrashActive,
   isLocationCommonActive
 } from '../../../router'
-import { isProjectSpaceResource } from '@ownclouders/web-client/src/helpers'
-import { useCapabilityFilesPermanentDeletion, useCapabilitySpacesEnabled } from '../../capability'
+import { isProjectSpaceResource } from '@ownclouders/web-client'
 import { useRouter } from '../../router'
-import { useStore } from '../../store'
 import { useGettext } from 'vue3-gettext'
 import { FileAction, FileActionOptions } from '../types'
-import { computed, unref } from 'vue'
+import { computed } from 'vue'
+import { useUserStore, useCapabilityStore } from '../../piniaStores'
 
-export const useFileActionsDelete = ({ store }: { store?: Store<any> } = {}) => {
-  store = store || useStore()
+export const useFileActionsDelete = () => {
+  const userStore = useUserStore()
+  const capabilityStore = useCapabilityStore()
   const router = useRouter()
-  const hasSpaces = useCapabilitySpacesEnabled()
-  const hasPermanentDeletion = useCapabilityFilesPermanentDeletion()
-  const { displayDialog, filesList_delete } = useFileActionsDeleteResources({ store })
+  const { displayDialog, filesList_delete } = useFileActionsDeleteResources()
 
   const { $gettext } = useGettext()
 
@@ -30,8 +27,7 @@ export const useFileActionsDelete = ({ store }: { store?: Store<any> } = {}) => 
   }: FileActionOptions & { deletePermanent: boolean }) => {
     if (isLocationCommonActive(router, 'files-common-search')) {
       resources = resources.filter(
-        (r) =>
-          r.canBeDeleted() && (!unref(hasSpaces) || !r.isShareRoot()) && !isProjectSpaceResource(r)
+        (r) => r.canBeDeleted() && !r.isShareRoot() && !isProjectSpaceResource(r)
       )
     }
     if (deletePermanent) {
@@ -48,7 +44,7 @@ export const useFileActionsDelete = ({ store }: { store?: Store<any> } = {}) => 
       icon: 'delete-bin-5',
       label: () => $gettext('Delete'),
       handler: ({ space, resources }) => handler({ space, resources, deletePermanent: false }),
-      isEnabled: ({ space, resources }) => {
+      isVisible: ({ space, resources }) => {
         if (
           !isLocationSpacesActive(router, 'files-spaces-generic') &&
           !isLocationPublicActive(router, 'files-public-link') &&
@@ -75,10 +71,7 @@ export const useFileActionsDelete = ({ store }: { store?: Store<any> } = {}) => 
 
         if (isLocationCommonActive(router, 'files-common-search')) {
           return resources.some(
-            (r) =>
-              r.canBeDeleted() &&
-              (!unref(hasSpaces) || !r.isShareRoot()) &&
-              !isProjectSpaceResource(r)
+            (r) => r.canBeDeleted() && !r.isShareRoot() && !isProjectSpaceResource(r)
           )
         }
 
@@ -96,17 +89,17 @@ export const useFileActionsDelete = ({ store }: { store?: Store<any> } = {}) => 
       icon: 'delete-bin-5',
       label: () => $gettext('Delete'),
       handler: ({ space, resources }) => handler({ space, resources, deletePermanent: true }),
-      isEnabled: ({ space, resources }) => {
+      isVisible: ({ space, resources }) => {
         if (!isLocationTrashActive(router, 'files-trash-generic')) {
           return false
         }
-        if (!unref(hasPermanentDeletion)) {
+        if (!capabilityStore.filesPermanentDeletion) {
           return false
         }
 
         if (
           isProjectSpaceResource(space) &&
-          !space.canRemoveFromTrashbin({ user: store.getters.user })
+          !space.canRemoveFromTrashbin({ user: userStore.user })
         ) {
           return false
         }

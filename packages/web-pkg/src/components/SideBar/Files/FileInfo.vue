@@ -1,18 +1,15 @@
 <template>
   <div class="file_info oc-flex oc-flex-between oc-p-s">
     <div class="oc-flex oc-flex-middle">
-      <oc-resource-icon
+      <resource-icon
         v-if="isSubPanelActive"
         :resource="resource"
         size="large"
         class="file_info__icon oc-mr-s oc-position-relative"
       />
       <div class="file_info__body oc-text-overflow">
-        <h3
-          data-testid="files-info-name"
-          class="oc-font-semibold oc-flex oc-flex-center oc-flex-middle"
-        >
-          <oc-resource-name
+        <h3 data-testid="files-info-name" class="oc-font-semibold">
+          <resource-name
             :name="resource.name"
             :extension="resource.extension"
             :type="resource.type"
@@ -30,10 +27,13 @@
 <script lang="ts">
 import { computed, defineComponent, inject } from 'vue'
 import { Resource } from '@ownclouders/web-client'
-import { useStore } from '../../../composables'
+import { useResourcesStore } from '../../../composables'
+import ResourceIcon from '../../FilesList/ResourceIcon.vue'
+import ResourceName from '../../FilesList/ResourceName.vue'
 
 export default defineComponent({
   name: 'FileInfo',
+  components: { ResourceIcon, ResourceName },
   props: {
     isSubPanelActive: {
       type: Boolean,
@@ -41,9 +41,10 @@ export default defineComponent({
     }
   },
   setup() {
-    const store = useStore()
+    const resourcesStore = useResourcesStore()
+
     const resource = inject<Resource>('resource')
-    const areFileExtensionsShown = computed(() => store.state.Files.areFileExtensionsShown)
+    const areFileExtensionsShown = computed(() => resourcesStore.areFileExtensionsShown)
 
     return {
       resource,

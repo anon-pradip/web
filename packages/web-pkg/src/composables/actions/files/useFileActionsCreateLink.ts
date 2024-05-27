@@ -1,41 +1,46 @@
-import { Store } from 'vuex'
 import { computed, unref } from 'vue'
 import { useGettext } from 'vue3-gettext'
 import { FileAction, FileActionOptions } from '../../actions'
 import { CreateLinkModal } from '../../../components'
 import { useAbility } from '../../ability'
-import {
-  Share,
-  SharePermissionBit,
-  isProjectSpaceResource
-} from '@ownclouders/web-client/src/helpers'
-import { useCapabilityFilesSharingPublicPasswordEnforcedFor } from '../../capability'
-import { useCreateLink, useDefaultLinkPermissions } from '../../links'
+import { LinkShare, isProjectSpaceResource } from '@ownclouders/web-client'
+import { useLinkTypes } from '../../links'
 import { useLoadingService } from '../../loadingService'
+import {
+  useMessages,
+  useModals,
+  useUserStore,
+  useCapabilityStore,
+  useSharesStore
+} from '../../piniaStores'
 import { useClipboard } from '../../clipboard'
+import { useClientService } from '../../clientService'
+import { SharingLinkType } from '@ownclouders/web-client/graph/generated'
 
 export const useFileActionsCreateLink = ({
-  store,
   enforceModal = false,
   showMessages = true,
   onLinkCreatedCallback = undefined
 }: {
-  store?: Store<any>
   enforceModal?: boolean
   showMessages?: boolean
-  onLinkCreatedCallback?: (result: PromiseSettledResult<Share>[]) => Promise<void> | void
+  onLinkCreatedCallback?: (result: PromiseSettledResult<LinkShare>[]) => Promise<void> | void
 } = {}) => {
+  const clientService = useClientService()
+  const userStore = useUserStore()
+  const { showMessage, showErrorMessage } = useMessages()
   const { $gettext, $ngettext } = useGettext()
+  const capabilityStore = useCapabilityStore()
   const ability = useAbility()
   const loadingService = useLoadingService()
-  const passwordEnforcedCapabilities = useCapabilityFilesSharingPublicPasswordEnforcedFor()
-  const { defaultLinkPermissions } = useDefaultLinkPermissions()
-  const { createLink } = useCreateLink()
+  const { defaultLinkType } = useLinkTypes()
+  const { addLink } = useSharesStore()
+  const { dispatchModal } = useModals()
   const { copyToClipboard } = useClipboard()
 
-  const proceedResult = async (result: PromiseSettledResult<Share>[]) => {
+  const proceedResult = async (result: PromiseSettledResult<LinkShare>[]) => {
     const succeeded = result.filter(
-      (val): val is PromiseFulfilledResult<Share> => val.status === 'fulfilled'
+      (val): val is PromiseFulfilledResult<LinkShare> => val.status === 'fulfilled'
     )
 
     if (succeeded.length) {
@@ -44,7 +49,7 @@ export const useFileActionsCreateLink = ({
       if (result.length === 1) {
         // Only copy to clipboard if the user tries to create one single link
         try {
-          await copyToClipboard(succeeded[0].value.url)
+          await copyToClipboard(succeeded[0].value.webUrl)
           successMessage = $gettext('The link has been copied to your clipboard.')
         } catch (e) {
           console.warn('Unable to copy link to clipboard', e)
@@ -52,7 +57,7 @@ export const useFileActionsCreateLink = ({
       }
 
       if (showMessages) {
-        store.dispatch('showMessage', {
+        showMessage({
           title: $ngettext(
             successMessage,
             'Links have been created successfully.',
@@ -64,7 +69,7 @@ export const useFileActionsCreateLink = ({
 
     const failed = result.filter(({ status }) => status === 'rejected')
     if (failed.length) {
-      store.dispatch('showErrorMessage', {
+      showErrorMessage({
         errors: (failed as PromiseRejectedResult[]).map(({ reason }) => reason),
         title: $ngettext('Failed to create link', 'Failed to create links', failed.length)
       })
@@ -79,13 +84,9 @@ export const useFileActionsCreateLink = ({
     { space, resources }: FileActionOptions,
     { isQuickLink = false }: { isQuickLink?: boolean } = {}
   ) => {
-    const passwordEnforced = unref(passwordEnforcedCapabilities).read_only === true
-    if (
-      enforceModal ||
-      (passwordEnforced && unref(defaultLinkPermissions) > SharePermissionBit.Internal)
-    ) {
-      return store.dispatch('createModal', {
-        variation: 'passive',
+    const passwordEnforced = capabilityStore.sharingPublicPasswordEnforcedFor.read_only === true
+    if (enforceModal || (passwordEnforced && unref(defaultLinkType) !== SharingLinkType.Internal)) {
+      dispatchModal({
         title: $ngettext(
           'Create link for "%{resourceName}"',
           'Create links for the selected items',
@@ -101,23 +102,33 @@ export const useFileActionsCreateLink = ({
         }),
         hideActions: true
       })
+      return
     }
 
     const promises = resources.map((resource) =>
-      createLink({ space, resource, quicklink: isQuickLink })
+      addLink({
+        clientService,
+        space,
+        resource,
+        options: {
+          '@libre.graph.quickLink': isQuickLink,
+          displayName: $gettext('Link'),
+          type: unref(defaultLinkType)
+        }
+      })
     )
-    const result = await loadingService.addTask(() => Promise.allSettled<Share>(promises))
+    const result = await loadingService.addTask(() => Promise.allSettled<LinkShare>(promises))
 
     proceedResult(result)
   }
 
-  const isEnabled = ({ resources }: FileActionOptions) => {
+  const isVisible = ({ resources }: FileActionOptions) => {
     if (!resources.length) {
       return false
     }
 
     for (const resource of resources) {
-      if (!resource.canShare({ user: store.getters.user, ability })) {
+      if (!resource.canShare({ user: userStore.user, ability })) {
         return false
       }
 
@@ -138,7 +149,7 @@ export const useFileActionsCreateLink = ({
         label: () => {
           return $gettext('Create links')
         },
-        isEnabled,
+        isVisible,
         componentType: 'button',
         class: 'oc-files-actions-create-links'
       },
@@ -149,7 +160,7 @@ export const useFileActionsCreateLink = ({
         label: () => {
           return $gettext('Create links')
         },
-        isEnabled,
+        isVisible,
         componentType: 'button',
         class: 'oc-files-actions-create-quick-links'
       }

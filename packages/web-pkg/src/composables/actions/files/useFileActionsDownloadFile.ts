@@ -18,8 +18,8 @@ export const useFileActionsDownloadFile = () => {
   const isFilesAppActive = useIsFilesAppActive()
   const isSearchActive = useIsSearchActive()
   const { downloadFile } = useDownloadFile()
-  const handler = ({ resources }: FileActionOptions) => {
-    downloadFile(resources[0])
+  const handler = ({ space, resources }: FileActionOptions) => {
+    downloadFile(space, resources[0])
   }
 
   const actions = computed((): FileAction[] => [
@@ -30,7 +30,7 @@ export const useFileActionsDownloadFile = () => {
       label: () => {
         return $gettext('Download')
       },
-      isEnabled: ({ resources }) => {
+      isVisible: ({ resources }) => {
         if (
           unref(isFilesAppActive) &&
           !unref(isSearchActive) &&

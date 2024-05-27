@@ -1,18 +1,14 @@
-import {
-  createStore,
-  defaultPlugins,
-  defaultStoreMockOptions,
-  shallowMount
-} from 'web-test-helpers'
+import { defaultPlugins, shallowMount } from 'web-test-helpers'
 import EmbedActions from 'web-app-files/src/components/EmbedActions/EmbedActions.vue'
 import { FileAction, useEmbedMode, useFileActionsCreateLink } from '@ownclouders/web-pkg'
-import { mock } from 'jest-mock-extended'
+import { mock } from 'vitest-mock-extended'
 import { ref } from 'vue'
+import { Resource } from '@ownclouders/web-client'
 
-jest.mock('@ownclouders/web-pkg', () => ({
-  ...jest.requireActual('@ownclouders/web-pkg'),
-  useFileActionsCreateLink: jest.fn(),
-  useEmbedMode: jest.fn()
+vi.mock('@ownclouders/web-pkg', async (importOriginal) => ({
+  ...(await importOriginal<any>()),
+  useFileActionsCreateLink: vi.fn(),
+  useEmbedMode: vi.fn()
 }))
 
 const selectors = Object.freeze({
@@ -30,17 +26,17 @@ describe('EmbedActions', () => {
     })
 
     it('should enable select action when at least one resource is selected', () => {
-      const { wrapper } = getWrapper({ selectedFiles: [{ id: 1 }] })
+      const { wrapper } = getWrapper({ selectedIds: ['1'] })
 
       expect(wrapper.find(selectors.btnSelect).attributes()).not.toHaveProperty('disabled')
     })
 
     it('should emit select event when the select action is triggered', async () => {
-      const { wrapper, mocks } = getWrapper({ selectedFiles: [{ id: 1 }] })
+      const { wrapper, mocks } = getWrapper({ selectedIds: ['1'] })
 
       await wrapper.find(selectors.btnSelect).trigger('click')
 
-      expect(mocks.postMessageMock).toHaveBeenCalledWith('owncloud-embed:select', [{ id: 1 }])
+      expect(mocks.postMessageMock).toHaveBeenCalledWith('owncloud-embed:select', [{ id: '1' }])
     })
 
     it('should enable select action when embedTarget is set to location', () => {
@@ -51,19 +47,19 @@ describe('EmbedActions', () => {
 
     it('should emit select event with currentFolder as selected resource when select action is triggered', async () => {
       const { wrapper, mocks } = getWrapper({
-        currentFolder: { id: 1 },
+        currentFolder: { id: '1' } as Resource,
         isLocationPicker: true
       })
 
       await wrapper.find(selectors.btnSelect).trigger('click')
 
-      expect(mocks.postMessageMock).toHaveBeenCalledWith('owncloud-embed:select', [{ id: 1 }])
+      expect(mocks.postMessageMock).toHaveBeenCalledWith('owncloud-embed:select', [{ id: '1' }])
     })
   })
 
   describe('cancel action', () => {
     it('should emit cancel event when the cancel action is triggered', async () => {
-      const { wrapper, mocks } = getWrapper({ selectedFiles: [{ id: 1 }] })
+      const { wrapper, mocks } = getWrapper({ selectedIds: ['1'] })
 
       await wrapper.find(selectors.btnCancel).trigger('click')
 
@@ -80,14 +76,14 @@ describe('EmbedActions', () => {
 
     it('should disable share action when the "Create Link"-action is disabled', () => {
       const { wrapper } = getWrapper({
-        selectedFiles: [{ id: 1 }],
+        selectedIds: ['1'],
         createLinksActionEnabled: false
       })
       expect(wrapper.find(selectors.btnShare).attributes()).toHaveProperty('disabled')
     })
 
     it('should enable share action when at least one resource is selected and link creation is enabled', () => {
-      const { wrapper } = getWrapper({ selectedFiles: [{ id: 1 }] })
+      const { wrapper } = getWrapper({ selectedIds: ['1'] })
       expect(wrapper.find(selectors.btnShare).attributes()).not.toHaveProperty('disabled')
     })
 
@@ -98,7 +94,7 @@ describe('EmbedActions', () => {
     })
 
     it('should call the handler of the "Create Link"-action', async () => {
-      const { wrapper, mocks } = getWrapper({ selectedFiles: [{ id: 1 }] })
+      const { wrapper, mocks } = getWrapper({ selectedIds: ['1'] })
       await wrapper.find(selectors.btnShare).trigger('click')
       expect(mocks.createLinkHandlerMock).toHaveBeenCalledTimes(1)
     })
@@ -107,61 +103,51 @@ describe('EmbedActions', () => {
 
 function getWrapper(
   {
-    selectedFiles = [],
-    capabilities = jest.fn().mockReturnValue({}),
-    currentFolder = {},
+    selectedIds = [],
+    currentFolder = undefined,
     createLinksActionEnabled = true,
     isLocationPicker = false
+  }: {
+    selectedIds?: string[]
+    currentFolder?: Resource
+    createLinksActionEnabled?: boolean
+    isLocationPicker?: boolean
   } = {
-    selectedFiles: [],
-    capabilities: jest.fn().mockReturnValue({})
+    selectedIds: []
   }
 ) {
-  const postMessageMock = jest.fn()
-  jest.mocked(useEmbedMode).mockReturnValue(
+  const postMessageMock = vi.fn()
+  vi.mocked(useEmbedMode).mockReturnValue(
     mock<ReturnType<typeof useEmbedMode>>({
       isLocationPicker: ref(isLocationPicker),
       postMessage: postMessageMock
     })
   )
 
-  const createLinkHandlerMock = jest.fn()
-  jest.mocked(useFileActionsCreateLink).mockReturnValue(
+  const createLinkHandlerMock = vi.fn()
+  vi.mocked(useFileActionsCreateLink).mockReturnValue(
     mock<ReturnType<typeof useFileActionsCreateLink>>({
       actions: ref([
         mock<FileAction>({
-          isEnabled: () => createLinksActionEnabled,
+          isVisible: () => createLinksActionEnabled,
           handler: createLinkHandlerMock
         })
       ])
     })
   )
 
-  const storeOptions = {
-    ...defaultStoreMockOptions,
-    getters: {
-      ...defaultStoreMockOptions.getters,
-      capabilities
-    },
-    modules: {
-      ...defaultStoreMockOptions.modules,
-      Files: {
-        ...defaultStoreMockOptions.modules.Files,
-        getters: {
-          ...defaultStoreMockOptions.modules.Files.getters,
-          selectedFiles: jest.fn().mockReturnValue(selectedFiles),
-          currentFolder: jest.fn().mockReturnValue(currentFolder)
-        }
-      }
-    }
-  }
+  const resources = selectedIds.map((id) => ({ id })) as Resource[]
 
   return {
     mocks: { createLinkHandlerMock, postMessageMock },
     wrapper: shallowMount(EmbedActions, {
       global: {
         stubs: { OcButton: false },
-        plugins: [...defaultPlugins(), createStore(storeOptions)]
+        plugins: [
+          ...defaultPlugins({
+            piniaOptions: { resourcesStore: { currentFolder, selectedIds, resources } }
+          })
+        ]
       }
     })
   }

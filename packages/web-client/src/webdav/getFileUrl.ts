@@ -1,14 +1,14 @@
-import { unref } from 'vue'
 import { Resource, SpaceResource } from '../helpers'
 import { urlJoin } from '../utils'
 import { GetFileContentsFactory } from './getFileContents'
 import { WebDavOptions } from './types'
 import { DAV } from './client'
+import { ocs } from '../ocs'
 
 export const GetFileUrlFactory = (
   dav: DAV,
   getFileContentsFactory: ReturnType<typeof GetFileContentsFactory>,
-  { sdk, capabilities }: WebDavOptions
+  { axiosClient, baseUrl }: WebDavOptions
 ) => {
   return {
     async getFileUrl(
@@ -16,26 +16,40 @@ export const GetFileUrlFactory = (
       resource: Resource,
       {
         disposition = 'attachment',
-        signUrlTimeout = 86400
+        isUrlSigningEnabled = false,
+        signUrlTimeout = 86400,
+        version = null,
+        doHeadRequest = false,
+        username = ''
       }: {
         disposition?: 'inline' | 'attachment'
+        isUrlSigningEnabled?: boolean
         signUrlTimeout?: number
+        version?: string
+        doHeadRequest?: boolean
+        username?: string
       }
     ): Promise<string> {
       const inlineDisposition = disposition === 'inline'
-      const isUrlSigningEnabled = unref(capabilities)?.core['support-url-signing'] === true
       const { path } = resource
       let { downloadURL } = resource
 
       let signed = true
       if (!downloadURL && !inlineDisposition) {
         // compute unsigned url
-        const webDavPath = urlJoin(space.webDavPath, path)
-        downloadURL = dav.getFileUrl(webDavPath)
+        const webDavPath = space ? urlJoin(space.webDavPath, path) : resource.webDavPath
+        downloadURL = version
+          ? dav.getFileUrl(urlJoin('meta', resource.fileId, 'v', version))
+          : dav.getFileUrl(webDavPath)
+
+        if (username && doHeadRequest) {
+          await axiosClient.head(downloadURL)
+        }
 
         // sign url
-        if (isUrlSigningEnabled) {
-          downloadURL = await sdk.signUrl(downloadURL, signUrlTimeout)
+        if (isUrlSigningEnabled && username) {
+          const ocsClient = ocs(baseUrl, axiosClient)
+          downloadURL = await ocsClient.signUrl(downloadURL, username)
         } else {
           signed = false
         }

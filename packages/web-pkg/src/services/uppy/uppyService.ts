@@ -5,9 +5,14 @@ import XHRUpload, { XHRUploadOptions } from '@uppy/xhr-upload'
 import { Language } from 'vue3-gettext'
 import { eventBus } from '../eventBus'
 import DropTarget from '@uppy/drop-target'
+import { urlJoin } from '@ownclouders/web-client'
+import { UppyResource } from './types'
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore
 import getFileType from '@uppy/utils/lib/getFileType'
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore
 import generateFileID from '@uppy/utils/lib/generateFileID'
-import { urlJoin } from '@ownclouders/web-client/src/utils'
 
 type UppyServiceTopics =
   | 'uploadStarted'
@@ -27,9 +32,18 @@ export type uppyHeaders = {
   [name: string]: string | number
 }
 
+export type UploadResult = {
+  successful: UppyResource[]
+  failed: UppyResource[]
+  uploadID?: string
+}
+
 interface UppyServiceOptions {
   language: Language
 }
+
+// FIXME: tus error types seem to be wrong in Uppy, we need the type of the tus client lib
+type TusClientError = Error & { originalResponse: any }
 
 export class UppyService {
   uppy: Uppy
@@ -75,12 +89,11 @@ export class UppyService {
   }
 
   getRelativeFilePath = (file: UppyFile): string | undefined => {
-    const _file = file as any
     const relativePath =
-      _file.webkitRelativePath ||
-      _file.relativePath ||
-      _file.data.relativePath ||
-      _file.data.webkitRelativePath
+      file.webkitRelativePath ||
+      file.relativePath ||
+      file.data.relativePath ||
+      file.data.webkitRelativePath
     return relativePath ? urlJoin(relativePath) : undefined
   }
 
@@ -97,25 +110,16 @@ export class UppyService {
   }
 
   useTus({
-    tusMaxChunkSize,
-    tusHttpMethodOverride,
-    tusExtension,
+    chunkSize,
+    overridePatchMethod,
+    uploadDataDuringCreation,
     onBeforeRequest,
     headers
-  }: {
-    tusMaxChunkSize: number
-    tusHttpMethodOverride: boolean
-    tusExtension: string
-    onBeforeRequest: () => void
-    headers: () => uppyHeaders
-  }) {
-    const chunkSize = tusMaxChunkSize || Infinity
-    const uploadDataDuringCreation = tusExtension.includes('creation-with-upload')
-
-    const tusPluginOptions = {
-      chunkSize: chunkSize,
+  }: TusOptions) {
+    const tusPluginOptions: TusOptions = {
+      chunkSize,
       removeFingerprintOnSuccess: true,
-      overridePatchMethod: !!tusHttpMethodOverride,
+      overridePatchMethod,
       retryDelays: [0, 500, 1000],
       uploadDataDuringCreation,
       limit: 5,
@@ -123,10 +127,10 @@ export class UppyService {
       onBeforeRequest,
       onShouldRetry: (err, retryAttempt, options, next) => {
         // status code 5xx means the upload is gone on the server side
-        if (err?.originalResponse?.getStatus() >= 500) {
+        if ((err as TusClientError)?.originalResponse?.getStatus() >= 500) {
           return false
         }
-        if (err?.originalResponse?.getStatus() === 401) {
+        if ((err as TusClientError)?.originalResponse?.getStatus() === 401) {
           return true
         }
         return next(err)
@@ -144,16 +148,16 @@ export class UppyService {
       return
     }
 
-    this.uppy.use(Tus, tusPluginOptions as unknown as TusOptions)
+    this.uppy.use(Tus, tusPluginOptions)
   }
 
-  useXhr({ headers, xhrTimeout }: { headers: () => uppyHeaders; xhrTimeout: number }) {
+  useXhr({ headers, timeout, endpoint }: XHRUploadOptions) {
     const xhrPluginOptions: XHRUploadOptions = {
-      endpoint: '',
+      endpoint,
       method: 'put',
       headers,
       formData: false,
-      timeout: xhrTimeout,
+      timeout,
       getResponseData() {
         return {}
       }
@@ -202,7 +206,7 @@ export class UppyService {
     }
   }
 
-  subscribe(topic: UppyServiceTopics, callback: (data?: unknown) => void): string {
+  subscribe<T>(topic: UppyServiceTopics, callback: (data?: T) => void): string {
     return eventBus.subscribe(topic, callback)
   }
 
@@ -227,7 +231,7 @@ export class UppyService {
     })
     this.uppy.on('complete', (result) => {
       this.publish('uploadCompleted', result)
-      result.successful.forEach((file) => {
+      result.successful.forEach((file: any) => {
         this.uppy.removeFile(file.id)
       })
       this.clearInputs()
@@ -295,7 +299,7 @@ export class UppyService {
   }
 
   isRemoteUploadInProgress(): boolean {
-    return this.uppy.getFiles().some((f) => f.isRemote && !(f as any).error)
+    return this.uppy.getFiles().some((f) => f.isRemote && !f.error)
   }
 
   clearInputs() {

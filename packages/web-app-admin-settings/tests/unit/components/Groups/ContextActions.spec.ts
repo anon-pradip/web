@@ -1,6 +1,6 @@
-import { defaultPlugins, defaultStoreMockOptions, mount } from 'web-test-helpers'
-import { mock } from 'jest-mock-extended'
-import { Resource } from '@ownclouders/web-client/src/helpers'
+import { defaultPlugins, mount } from 'web-test-helpers'
+import { mock } from 'vitest-mock-extended'
+import { Resource } from '@ownclouders/web-client'
 import ContextActions from '../../../../src/components/Groups/ContextActions.vue'
 import {
   useGroupActionsDelete,
@@ -9,30 +9,32 @@ import {
 import { computed, ref } from 'vue'
 import { Action } from '@ownclouders/web-pkg'
 
-function createMockActionComposables(module) {
+function createMockActionComposables(module: Record<string, unknown>) {
   const mockModule: Record<string, any> = {}
   for (const m of Object.keys(module)) {
-    mockModule[m] = jest.fn(() => ({ actions: ref([]) }))
+    mockModule[m] = vi.fn(() => ({ actions: ref([]) }))
   }
   return mockModule
 }
 
-jest.mock('@ownclouders/web-pkg', () =>
-  createMockActionComposables(jest.requireActual('@ownclouders/web-pkg'))
-)
+vi.mock('@ownclouders/web-pkg', async (importOriginal) => {
+  const original = await importOriginal<any>()
+  return createMockActionComposables(original)
+})
 
-jest.mock('web-app-admin-settings/src/composables/actions/groups/useGroupActionsDelete', () =>
-  createMockActionComposables(
-    jest.requireActual(
-      'web-app-admin-settings/src/composables/actions/groups/useGroupActionsDelete'
-    )
-  )
+vi.mock(
+  'web-app-admin-settings/src/composables/actions/groups/useGroupActionsDelete',
+  async (importOriginal) => {
+    const original = await importOriginal<any>()
+    return createMockActionComposables(original)
+  }
 )
-
-jest.mock('web-app-admin-settings/src/composables/actions/groups/useGroupActionsEdit', () =>
-  createMockActionComposables(
-    jest.requireActual('web-app-admin-settings/src/composables/actions/groups/useGroupActionsEdit')
-  )
+vi.mock(
+  'web-app-admin-settings/src/composables/actions/groups/useGroupActionsEdit',
+  async (importOriginal) => {
+    const original = await importOriginal<any>()
+    return createMockActionComposables(original)
+  }
 )
 
 const selectors = {
@@ -48,12 +50,12 @@ describe.skip('ContextActions', () => {
 
     it('render enabled actions', () => {
       const enabledComposables = [useGroupActionsDelete, useGroupActionsEdit]
-      jest.mocked(useGroupActionsDelete).mockImplementation(() => ({
-        actions: computed(() => [mock<Action>({ isEnabled: () => true })]),
+      vi.mocked(useGroupActionsDelete).mockImplementation(() => ({
+        actions: computed(() => [mock<Action>({ isVisible: () => true })]),
         deleteGroups: null
       }))
-      jest.mocked(useGroupActionsEdit).mockImplementation(() => ({
-        actions: computed(() => [mock<Action>({ isEnabled: () => true })])
+      vi.mocked(useGroupActionsEdit).mockImplementation(() => ({
+        actions: computed(() => [mock<Action>({ isVisible: () => true })])
       }))
       const { wrapper } = getWrapper()
       expect(wrapper.findAll(selectors.actionMenuItemStub).length).toBe(enabledComposables.length)
@@ -62,12 +64,12 @@ describe.skip('ContextActions', () => {
 })
 
 function getWrapper() {
-  const storeOptions = { ...defaultStoreMockOptions }
   return {
-    storeOptions,
     wrapper: mount(ContextActions, {
       props: {
-        items: [mock<Resource>()]
+        actionOptions: {
+          resources: [mock<Resource>()]
+        }
       },
       global: {
         stubs: { 'action-menu-item': true },

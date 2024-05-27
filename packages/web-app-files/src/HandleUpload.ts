@@ -1,29 +1,35 @@
-import Uppy, { UppyFile } from '@uppy/core'
-import BasePlugin from '@uppy/core/lib/BasePlugin.js'
-import filesize from 'filesize'
+import Uppy, { BasePlugin, UppyFile } from '@uppy/core'
+import { filesize } from 'filesize'
 import { basename, dirname, join } from 'path'
 import * as uuid from 'uuid'
 import { Language } from 'vue3-gettext'
 import { Ref, unref } from 'vue'
-import { Store } from 'vuex'
 import { RouteLocationNormalizedLoaded } from 'vue-router'
-import { Resource, SpaceResource } from '@ownclouders/web-client/src'
-import { urlJoin } from '@ownclouders/web-client/src/utils'
-import { ResourceConflict } from './helpers/resource'
-import { locationPublicLink } from '@ownclouders/web-pkg'
+import { SpaceResource } from '@ownclouders/web-client'
+import { urlJoin } from '@ownclouders/web-client'
+import { UploadResourceConflict } from './helpers/resource'
+import {
+  MessageStore,
+  ResourcesStore,
+  SpacesStore,
+  UserStore,
+  locationPublicLink
+} from '@ownclouders/web-pkg'
 import { locationSpacesGeneric, UppyService, UppyResource } from '@ownclouders/web-pkg'
-import { isPersonalSpaceResource, isShareSpaceResource } from '@ownclouders/web-client/src/helpers'
+import { isPersonalSpaceResource, isShareSpaceResource } from '@ownclouders/web-client'
 import { ClientService, queryItemAsString } from '@ownclouders/web-pkg'
 
 export interface HandleUploadOptions {
   clientService: ClientService
-  hasSpaces: Ref<boolean>
   language: Language
   route: Ref<RouteLocationNormalizedLoaded>
-  store: Store<any>
+  userStore: UserStore
+  messageStore: MessageStore
+  spacesStore: SpacesStore
+  resourcesStore: ResourcesStore
   uppyService: UppyService
   id?: string
-  space?: SpaceResource
+  space?: Ref<SpaceResource>
   quotaCheckEnabled?: boolean
   directoryTreeCreateEnabled?: boolean
   conflictHandlingEnabled?: boolean
@@ -39,16 +45,14 @@ export interface HandleUploadOptions {
  * 5. start upload
  */
 export class HandleUpload extends BasePlugin {
-  id: string
-  type: string
-  uppy: Uppy
-
   clientService: ClientService
-  hasSpaces: Ref<boolean>
   language: Language
   route: Ref<RouteLocationNormalizedLoaded>
-  space: SpaceResource
-  store: Store<any>
+  space: Ref<SpaceResource>
+  userStore: UserStore
+  messageStore: MessageStore
+  spacesStore: SpacesStore
+  resourcesStore: ResourcesStore
   uppyService: UppyService
   quotaCheckEnabled: boolean
   directoryTreeCreateEnabled: boolean
@@ -61,11 +65,13 @@ export class HandleUpload extends BasePlugin {
     this.uppy = uppy
 
     this.clientService = opts.clientService
-    this.hasSpaces = opts.hasSpaces
     this.language = opts.language
     this.route = opts.route
     this.space = opts.space
-    this.store = opts.store
+    this.userStore = opts.userStore
+    this.messageStore = opts.messageStore
+    this.spacesStore = opts.spacesStore
+    this.resourcesStore = opts.resourcesStore
     this.uppyService = opts.uppyService
 
     this.quotaCheckEnabled = opts.quotaCheckEnabled ?? true
@@ -73,18 +79,6 @@ export class HandleUpload extends BasePlugin {
     this.conflictHandlingEnabled = opts.conflictHandlingEnabled ?? true
 
     this.handleUpload = this.handleUpload.bind(this)
-  }
-
-  get currentFolder(): Resource {
-    return this.store.getters['Files/currentFolder']
-  }
-
-  get files(): Resource[] {
-    return this.store.getters['Files/files']
-  }
-
-  get spaces(): SpaceResource[] {
-    return this.store.getters['runtime/spaces/spaces']
   }
 
   removeFilesFromUpload(filesToUpload: UppyResource[]) {
@@ -103,11 +97,11 @@ export class HandleUpload extends BasePlugin {
   prepareFiles(files: UppyFile[]): UppyResource[] {
     const filesToUpload: Record<string, UppyResource> = {}
 
-    if (!this.currentFolder && unref(this.route)?.params?.token) {
+    if (!this.resourcesStore.currentFolder && unref(this.route)?.params?.token) {
       // public file drop
       const publicLinkToken = queryItemAsString(unref(this.route).params.token)
       let endpoint = urlJoin(
-        this.clientService.webdav.getPublicFileUrl(this.space, publicLinkToken),
+        this.clientService.webdav.getPublicFileUrl(unref(this.space), publicLinkToken),
         { trailingSlash: true }
       )
 
@@ -128,7 +122,7 @@ export class HandleUpload extends BasePlugin {
       this.uppy.setState({ files: { ...this.uppy.getState().files, ...filesToUpload } })
       return Object.values(filesToUpload)
     }
-    const { id: currentFolderId, path: currentFolderPath } = this.currentFolder
+    const { id: currentFolderId, path: currentFolderPath } = this.resourcesStore.currentFolder
 
     const { name, params, query } = unref(this.route)
     const topLevelFolderIds: Record<string, string> = {}
@@ -148,7 +142,7 @@ export class HandleUpload extends BasePlugin {
         topLevelFolderId = topLevelFolderIds[topLevelDirectory]
       }
 
-      const webDavUrl = this.space.getWebDavUrl({
+      const webDavUrl = unref(this.space).getWebDavUrl({
         path: currentFolderPath.split('/').map(encodeURIComponent).join('/')
       })
 
@@ -162,24 +156,24 @@ export class HandleUpload extends BasePlugin {
         ...file.meta,
         // file data
         name: file.name,
-        mtime: (file.data as any).lastModified / 1000,
+        mtime: file.data.lastModified / 1000,
         // current path & space
-        spaceId: this.space.id,
-        spaceName: this.space.name,
-        driveAlias: this.space.driveAlias,
-        driveType: this.space.driveType,
+        spaceId: unref(this.space).id,
+        spaceName: unref(this.space).name,
+        driveAlias: unref(this.space).driveAlias,
+        driveType: unref(this.space).driveType,
         currentFolder: currentFolderPath,
         currentFolderId,
         // upload data
-        uppyId: this.uppyService.generateUploadId(file as any),
+        uppyId: this.uppyService.generateUploadId(file),
         relativeFolder: directory,
         tusEndpoint: endpoint,
         uploadId: uuid.v4(),
         topLevelFolderId,
         // route data
         routeName: name as string,
-        routeDriveAliasAndItem: (params as any)?.driveAliasAndItem || '',
-        routeShareId: (query as any)?.shareId || ''
+        routeDriveAliasAndItem: queryItemAsString(params?.driveAliasAndItem) || '',
+        routeShareId: queryItemAsString(query?.shareId) || ''
       }
 
       filesToUpload[file.id] = file as unknown as UppyResource
@@ -200,19 +194,21 @@ export class HandleUpload extends BasePlugin {
       }
 
       if (uppyResource.meta.routeName === locationSpacesGeneric.name) {
-        targetUploadSpace = this.spaces.find((space) => space.id === uppyResource.meta.spaceId)
+        targetUploadSpace = this.spacesStore.spaces.find(
+          ({ id }) => id === uppyResource.meta.spaceId
+        )
       }
 
       if (
         !targetUploadSpace ||
         isShareSpaceResource(targetUploadSpace) ||
         (isPersonalSpaceResource(targetUploadSpace) &&
-          !targetUploadSpace.isOwner(this.store.getters.user))
+          !targetUploadSpace.isOwner(this.userStore.user))
       ) {
         return acc
       }
 
-      const existingFile = this.files.find(
+      const existingFile = this.resourcesStore.resources.find(
         (c) => !uppyResource.meta.relativeFolder && c.name === uppyResource.name
       )
       const existingFileSize = existingFile ? Number(existingFile.size) : 0
@@ -243,7 +239,7 @@ export class HandleUpload extends BasePlugin {
           spaceName = $gettext('Personal')
         }
 
-        this.store.dispatch('showErrorMessage', {
+        this.messageStore.showErrorMessage({
           title: $gettext('Not enough quota'),
           desc: $gettext(
             'There is not enough quota on %{spaceName}, you need additional %{missingSpace} to upload these files',
@@ -266,8 +262,8 @@ export class HandleUpload extends BasePlugin {
    */
   async createDirectoryTree(filesToUpload: UppyResource[]): Promise<UppyResource[]> {
     const { webdav } = this.clientService
-    const space = this.space
-    const { id: currentFolderId, path: currentFolderPath } = this.currentFolder
+    const space = unref(this.space)
+    const { id: currentFolderId, path: currentFolderPath } = this.resourcesStore.currentFolder
 
     const routeName = filesToUpload[0].meta.routeName
     const routeDriveAliasAndItem = filesToUpload[0].meta.routeDriveAliasAndItem
@@ -342,7 +338,7 @@ export class HandleUpload extends BasePlugin {
       }
 
       const foldersToBeCreated = Object.keys(current)
-      const promises = []
+      const promises: Promise<unknown>[] = []
       for (const folder of foldersToBeCreated) {
         promises.push(createDirectoryLevel(current[folder], join(path, folder)))
       }
@@ -377,7 +373,7 @@ export class HandleUpload extends BasePlugin {
     let filesToUpload = this.prepareFiles(files)
 
     // quota check
-    if (this.quotaCheckEnabled && unref(this.hasSpaces)) {
+    if (this.quotaCheckEnabled) {
       const quotaExceeded = this.checkQuotaExceeded(filesToUpload)
       if (quotaExceeded) {
         this.removeFilesFromUpload(filesToUpload)
@@ -387,7 +383,7 @@ export class HandleUpload extends BasePlugin {
 
     // name conflict handling
     if (this.conflictHandlingEnabled) {
-      const conflictHandler = new ResourceConflict(this.store, this.language)
+      const conflictHandler = new UploadResourceConflict(this.resourcesStore, this.language)
       const conflicts = conflictHandler.getConflicts(filesToUpload)
       if (conflicts.length) {
         const dashboard = document.getElementsByClassName('uppy-Dashboard')

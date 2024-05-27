@@ -1,42 +1,36 @@
-import {
-  Share,
-  ShareStatus,
-  ShareTypes,
-  buildShare
-} from '@ownclouders/web-client/src/helpers/share'
-import { isLocationSharesActive } from '../../../router'
+import { LinkShare } from '@ownclouders/web-client'
 import { computed, unref } from 'vue'
 import { useClientService } from '../../clientService'
-import { useRouter } from '../../router'
-import { useStore } from '../../store'
 import { useGettext } from 'vue3-gettext'
-import { Store } from 'vuex'
 import { FileAction, FileActionOptions } from '../types'
 import { useCanShare } from '../../shares'
 import { useClipboard } from '../../clipboard'
-import { Resource } from '@ownclouders/web-client'
+import { Resource, SpaceResource } from '@ownclouders/web-client'
 import { useFileActionsCreateLink } from './useFileActionsCreateLink'
+import { useMessages, useUserStore } from '../../piniaStores'
+import { buildLinkShare } from '@ownclouders/web-client'
+import { isSpaceResource } from '@ownclouders/web-client'
+import { CollectionOfPermissionsWithAllowedValues } from '@ownclouders/web-client/graph/generated'
 
-export const useFileActionsCopyQuickLink = ({ store }: { store?: Store<any> } = {}) => {
-  store = store || useStore()
-  const router = useRouter()
+export const useFileActionsCopyQuickLink = () => {
+  const { showMessage, showErrorMessage } = useMessages()
   const language = useGettext()
   const { $gettext } = language
   const clientService = useClientService()
   const { canShare } = useCanShare()
   const { copyToClipboard } = useClipboard()
+  const userStore = useUserStore()
 
-  const onLinkCreatedCallback = async (result: PromiseSettledResult<Share>[]) => {
+  const onLinkCreatedCallback = async (result: PromiseSettledResult<LinkShare>[]) => {
     const link = result.find(
-      (val): val is PromiseFulfilledResult<Share> => val.status === 'fulfilled'
+      (val): val is PromiseFulfilledResult<LinkShare> => val.status === 'fulfilled'
     )
     if (link?.value) {
-      await copyQuickLinkToClipboard(link.value.url)
+      await copyQuickLinkToClipboard(link.value.webUrl)
     }
   }
 
   const { actions: createLinkActions } = useFileActionsCreateLink({
-    store,
     onLinkCreatedCallback,
     showMessages: false
   })
@@ -47,36 +41,47 @@ export const useFileActionsCopyQuickLink = ({ store }: { store?: Store<any> } = 
   const copyQuickLinkToClipboard = async (url: string) => {
     try {
       await copyToClipboard(url)
-      return store.dispatch('showMessage', {
-        title: $gettext('The link has been copied to your clipboard.')
-      })
+      showMessage({ title: $gettext('The link has been copied to your clipboard.') })
     } catch (e) {
       console.error(e)
-      return store.dispatch('showErrorMessage', {
+      showErrorMessage({
         title: $gettext('Copy link failed'),
-        error: e
+        errors: [e]
       })
     }
   }
 
-  const getExistingQuickLink = async ({ fileId, path }: Resource): Promise<Share> => {
-    const linkSharesForResource = await clientService.owncloudSdk.shares.getShares(path, {
-      share_types: ShareTypes?.link?.value?.toString(),
-      spaceRef: fileId,
-      include_tags: false
-    })
+  const getExistingQuickLink = async ({
+    space,
+    resource
+  }: {
+    space: SpaceResource
+    resource: Resource
+  }): Promise<LinkShare> => {
+    const client = clientService.graphAuthenticated.permissions
+    let data: CollectionOfPermissionsWithAllowedValues
 
-    return linkSharesForResource
-      .map((share: any) => buildShare(share.shareInfo, null, null))
-      .find((share: Share) => share.quicklink === true)
+    if (isSpaceResource(resource)) {
+      const response = await client.listPermissionsSpaceRoot(space.id)
+      data = response.data
+    } else {
+      const response = await client.listPermissions(space.id, resource.id)
+      data = response.data
+    }
+
+    const permissions = data.value || []
+    const graphPermission = permissions.find((p) => p.link?.['@libre.graph.quickLink'])
+    return graphPermission
+      ? buildLinkShare({ graphPermission, user: userStore.user, resourceId: resource.id })
+      : null
   }
 
   const handler = async ({ space, resources }: FileActionOptions) => {
     const [resource] = resources
 
-    const existingQuickLink = await getExistingQuickLink(resource)
+    const existingQuickLink = await getExistingQuickLink({ space, resource })
     if (existingQuickLink) {
-      return copyQuickLinkToClipboard(existingQuickLink.url)
+      return copyQuickLinkToClipboard(existingQuickLink.webUrl)
     }
 
     return unref(createQuicklinkAction).handler({ space, resources })
@@ -88,16 +93,12 @@ export const useFileActionsCopyQuickLink = ({ store }: { store?: Store<any> } = 
       icon: 'link',
       label: () => $gettext('Copy link'),
       handler,
-      isEnabled: ({ resources }) => {
+      isVisible: ({ space, resources }) => {
         if (resources.length !== 1) {
           return false
         }
-        if (isLocationSharesActive(router, 'files-shares-with-me')) {
-          if (resources[0].status !== ShareStatus.accepted) {
-            return false
-          }
-        }
-        return canShare(resources[0])
+
+        return canShare({ space, resource: resources[0] })
       },
       componentType: 'button',
       class: 'oc-files-actions-copy-quicklink-trigger'

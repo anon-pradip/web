@@ -1,7 +1,6 @@
 import {
   buildDeletedResource,
   buildResource,
-  buildWebDavFilesTrashPath,
   Resource,
   WebDavResponseResource
 } from '../helpers/resource'
@@ -13,35 +12,35 @@ import {
   SpaceResource
 } from '../helpers'
 import { urlJoin } from '../utils'
-import { DAV, buildAuthHeader } from './client'
+import { DAV } from './client'
 import { GetPathForFileIdFactory } from './getPathForFileId'
 import { WebDavOptions } from './types'
-import { unref } from 'vue'
+import { Headers } from 'webdav'
 
 export type ListFilesOptions = {
   depth?: number
   davProperties?: DavPropertyValue[]
   isTrash?: boolean
+  headers?: Headers
 }
 
 export const ListFilesFactory = (
   dav: DAV,
   pathForFileIdFactory: ReturnType<typeof GetPathForFileIdFactory>,
-  { accessToken, capabilities }: WebDavOptions
+  options: WebDavOptions
 ) => {
   return {
     async listFiles(
       space: SpaceResource,
       { path, fileId }: { path?: string; fileId?: string | number } = {},
-      { depth = 1, davProperties, isTrash = false }: ListFilesOptions = {}
+      { depth = 1, davProperties, isTrash = false, headers }: ListFilesOptions = {}
     ): Promise<ListFilesResult> {
       let webDavResources: WebDavResponseResource[]
-      const headers = buildAuthHeader(unref(accessToken), space)
       if (isPublicSpaceResource(space)) {
         webDavResources = await dav.propfind(urlJoin(space.webDavPath, path), {
           depth,
-          headers,
-          properties: davProperties || DavProperties.PublicLink
+          properties: davProperties || DavProperties.PublicLink,
+          headers
         })
 
         // FIXME: strip out token, ooof
@@ -52,7 +51,7 @@ export const ListFilesFactory = (
         // FIXME: This is a workaround for https://github.com/owncloud/ocis/issues/4758
         if (webDavResources.length === 1) {
           webDavResources[0].filename = urlJoin(space.id, path, {
-            leadingSlashes: true
+            leadingSlash: true
           })
         }
 
@@ -105,15 +104,13 @@ export const ListFilesFactory = (
       try {
         let webDavPath = urlJoin(space.webDavPath, path)
         if (isTrash) {
-          webDavPath = unref(capabilities).spaces?.share_jail
-            ? buildWebDavSpacesTrashPath(space.id.toString())
-            : buildWebDavFilesTrashPath(space.id.toString())
+          webDavPath = buildWebDavSpacesTrashPath(space.id.toString())
         }
 
         webDavResources = await dav.propfind(webDavPath, {
           depth,
-          headers,
-          properties: davProperties || DavProperties.Default
+          properties: davProperties || DavProperties.Default,
+          headers
         })
         if (isTrash) {
           return {

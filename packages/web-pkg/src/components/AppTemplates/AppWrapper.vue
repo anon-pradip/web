@@ -49,14 +49,20 @@ import {
   useRoute,
   useRouteParam,
   useRouteQuery,
-  useStore,
   useSelectedResources,
-  useSideBar
+  useSideBar,
+  useModals,
+  useMessages,
+  useSpacesStore,
+  useAppsStore,
+  useConfigStore,
+  useResourcesStore,
+  FileContentOptions
 } from '../../composables'
 import {
   Action,
   ActionOptions,
-  ModifierKey,
+  Modifier,
   Key,
   useAppMeta,
   useGetResourceContext,
@@ -65,11 +71,13 @@ import {
 import {
   Resource,
   SpaceResource,
+  call,
   isPersonalSpaceResource,
-  isProjectSpaceResource
-} from '@ownclouders/web-client/src/helpers'
-import { DavPermission } from '@ownclouders/web-client/src/webdav/constants'
-import { HttpError } from '@ownclouders/web-client/src/errors'
+  isProjectSpaceResource,
+  isShareSpaceResource
+} from '@ownclouders/web-client'
+import { DavPermission } from '@ownclouders/web-client/webdav'
+import { HttpError } from '@ownclouders/web-client'
 import { dirname } from 'path'
 
 export default defineComponent({
@@ -88,7 +96,12 @@ export default defineComponent({
     },
     urlForResourceOptions: {
       type: Object as PropType<UrlForResourceOptions>,
-      default: () => null,
+      default: (): UrlForResourceOptions => null,
+      required: false
+    },
+    fileContentOptions: {
+      type: Object as PropType<FileContentOptions>,
+      default: (): FileContentOptions => null,
       required: false
     },
     wrappedComponent: {
@@ -96,18 +109,23 @@ export default defineComponent({
       default: null
     },
     importResourceWithExtension: {
-      type: Function as PropType<(Resource) => string>,
-      default: () => null
+      type: Function as PropType<(resource: Resource) => string>,
+      default: (): Resource => null
     }
   },
   setup(props) {
     const { $gettext } = useGettext()
-    const store = useStore()
+    const appsStore = useAppsStore()
+    const { showMessage, showErrorMessage } = useMessages()
     const router = useRouter()
     const currentRoute = useRoute()
     const clientService = useClientService()
     const { getResourceContext } = useGetResourceContext()
-    const { selectedResources } = useSelectedResources({ store })
+    const { selectedResources } = useSelectedResources()
+    const { dispatchModal } = useModals()
+    const spacesStore = useSpacesStore()
+    const configStore = useConfigStore()
+    const resourcesStore = useResourcesStore()
 
     const applicationName = ref('')
     const resource: Ref<Resource> = ref()
@@ -132,9 +150,8 @@ export default defineComponent({
       return unref(currentContent) !== unref(serverContent)
     })
 
-    const preventUnload = (e) => {
+    const preventUnload = (e: Event) => {
       e.preventDefault()
-      e.returnValue = ''
     }
 
     watch(isDirty, (dirty) => {
@@ -160,7 +177,7 @@ export default defineComponent({
       applicationId: props.applicationId
     })
 
-    const { applicationMeta } = useAppMeta({ applicationId: props.applicationId, store })
+    const { applicationMeta } = useAppMeta({ applicationId: props.applicationId, appsStore })
 
     const pageTitle = computed(() => {
       const { name: appName } = unref(applicationMeta)
@@ -205,13 +222,13 @@ export default defineComponent({
         query: {
           ...unref(currentRoute).query,
           fileId: id,
-          shareId: space.shareId,
           contextRouteName: path === '/' ? 'files-shares-with-me' : 'files-spaces-generic',
+          ...(isShareSpaceResource(space) && { shareId: space.id }),
           contextRouteParams: {
             driveAliasAndItem: dirname(driveAliasAndItem)
           } as any,
           contextRouteQuery: {
-            shareId: space.shareId
+            ...(isShareSpaceResource(space) && { shareId: space.id })
           } as any
         }
       })
@@ -225,7 +242,7 @@ export default defineComponent({
 
         space.value = unref(unref(currentFileContext).space)
         resource.value = yield getFileInfo(currentFileContext)
-        store.commit('Files/LOAD_FILES', { currentFolder: null, files: [unref(resource)] })
+        resourcesStore.initResourceList({ currentFolder: null, resources: [unref(resource)] })
         selectedResources.value = [unref(resource)]
 
         const newExtension = props.importResourceWithExtension(unref(resource))
@@ -252,7 +269,9 @@ export default defineComponent({
         )
 
         if (unref(hasProp('currentContent'))) {
-          const fileContentsResponse = yield getFileContents(currentFileContext)
+          const fileContentsResponse = yield* call(
+            getFileContents(currentFileContext, props.fileContentOptions)
+          )
           serverContent.value = currentContent.value = fileContentsResponse.body
           currentETag.value = fileContentsResponse.headers['OC-ETag']
         }
@@ -288,17 +307,15 @@ export default defineComponent({
 
     const errorPopup = (error: HttpError) => {
       console.error(error)
-      store.dispatch('showErrorMessage', {
+      showErrorMessage({
         title: $gettext('An error occurred'),
         desc: error.message,
-        error
+        errors: [error]
       })
     }
 
     const autosavePopup = () => {
-      store.dispatch('showMessage', {
-        title: $gettext('File autosaved')
-      })
+      showMessage({ title: $gettext('File autosaved') })
     }
 
     const saveFileTask = useTask(function* () {
@@ -310,7 +327,7 @@ export default defineComponent({
         })
         serverContent.value = newContent
         currentETag.value = putFileContentsResponse.etag
-        store.commit('Files/UPSERT_RESOURCE', putFileContentsResponse)
+        resourcesStore.upsertResource(putFileContentsResponse)
       } catch (e) {
         switch (e.statusCode) {
           case 401:
@@ -331,7 +348,7 @@ export default defineComponent({
             )
             break
           case 507:
-            const space = store.getters['runtime/spaces/spaces'].find(
+            const space = spacesStore.spaces.find(
               (space) => space.id === unref(resource).storageId && isProjectSpaceResource(space)
             )
             if (space) {
@@ -359,12 +376,12 @@ export default defineComponent({
       await saveFileTask.perform()
     }
 
-    let autosaveIntervalId = null
+    let autosaveIntervalId: ReturnType<typeof setInterval> = null
     onMounted(() => {
       if (!unref(isEditor)) {
         return
       }
-      const editorOptions = store.getters.configuration.options.editor
+      const editorOptions = configStore.options.editor
       if (editorOptions.autosaveEnabled) {
         autosaveIntervalId = setInterval(
           async () => {
@@ -387,7 +404,7 @@ export default defineComponent({
     })
 
     const { bindKeyAction } = useKeyboardActions({ skipDisabledKeyBindingsCheck: true })
-    bindKeyAction({ modifier: ModifierKey.Ctrl, primary: Key.S }, () => {
+    bindKeyAction({ modifier: Modifier.Ctrl, primary: Key.S }, () => {
       if (!unref(isDirty)) {
         return
       }
@@ -398,7 +415,7 @@ export default defineComponent({
       {
         name: 'save-file',
         disabledTooltip: () => '',
-        isEnabled: () => unref(isEditor),
+        isVisible: () => unref(isEditor),
         isDisabled: () => isReadOnly.value || !isDirty.value,
         componentType: 'button',
         icon: 'save',
@@ -412,7 +429,7 @@ export default defineComponent({
 
     onBeforeRouteLeave((_to, _from, next) => {
       if (unref(isDirty)) {
-        const modal = {
+        dispatchModal({
           variation: 'danger',
           icon: 'warning',
           title: $gettext('Unsaved changes'),
@@ -420,16 +437,13 @@ export default defineComponent({
           cancelText: $gettext("Don't Save"),
           confirmText: $gettext('Save'),
           onCancel() {
-            store.dispatch('hideModal')
             next()
           },
           async onConfirm() {
             await save()
-            store.dispatch('hideModal')
             next()
           }
-        }
-        store.dispatch('createModal', modal)
+        })
       } else {
         next()
       }
@@ -445,10 +459,10 @@ export default defineComponent({
       currentFileContext: unref(currentFileContext),
       currentContent: unref(currentContent),
 
-      'onUpdate:currentContent': (value) => {
+      'onUpdate:currentContent': (value: unknown) => {
         currentContent.value = value
       },
-      'onUpdate:applicationName': (value) => {
+      'onUpdate:applicationName': (value: string) => {
         applicationName.value = value
       },
 

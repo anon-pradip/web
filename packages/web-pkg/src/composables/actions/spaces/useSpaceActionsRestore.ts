@@ -1,26 +1,28 @@
 import { SpaceResource } from '@ownclouders/web-client'
 import { computed, unref } from 'vue'
-import { Store } from 'vuex'
 import { SpaceAction, SpaceActionOptions } from '../types'
 import { useRoute } from '../../router'
 import { useAbility } from '../../ability'
 import { useClientService } from '../../clientService'
 import { useLoadingService } from '../../loadingService'
-import { useStore } from '../../store'
 import { useGettext } from 'vue3-gettext'
-import { isProjectSpaceResource } from '@ownclouders/web-client/src/helpers'
+import { isProjectSpaceResource } from '@ownclouders/web-client'
+import { useMessages, useModals, useSpacesStore, useUserStore } from '../../piniaStores'
 
-export const useSpaceActionsRestore = ({ store }: { store?: Store<any> } = {}) => {
-  store = store || useStore()
+export const useSpaceActionsRestore = () => {
+  const { showMessage, showErrorMessage } = useMessages()
+  const userStore = useUserStore()
   const { $gettext, $ngettext } = useGettext()
   const ability = useAbility()
   const clientService = useClientService()
   const loadingService = useLoadingService()
   const route = useRoute()
+  const { dispatchModal } = useModals()
+  const spacesStore = useSpacesStore()
 
-  const filterResourcesToRestore = (resources): SpaceResource[] => {
+  const filterResourcesToRestore = (resources: SpaceResource[]): SpaceResource[] => {
     return resources.filter(
-      (r) => isProjectSpaceResource(r) && r.canRestore({ user: store.getters.user, ability })
+      (r) => isProjectSpaceResource(r) && r.canRestore({ user: userStore.user, ability })
     )
   }
 
@@ -38,11 +40,7 @@ export const useSpaceActionsRestore = ({ store }: { store?: Store<any> } = {}) =
             space.disabled = false
             space.spaceQuota = updatedSpace.data.quota
           }
-          store.commit('runtime/spaces/UPDATE_SPACE_FIELD', {
-            id: space.id,
-            field: 'disabled',
-            value: false
-          })
+          spacesStore.updateSpaceField({ id: space.id, field: 'disabled', value: false })
           return true
         })
     )
@@ -61,7 +59,7 @@ export const useSpaceActionsRestore = ({ store }: { store?: Store<any> } = {}) =
               { spaceCount: succeeded.length.toString() },
               true
             )
-      store.dispatch('showMessage', { title })
+      showMessage({ title })
     }
 
     const failed = results.filter((r) => r.status === 'rejected')
@@ -78,13 +76,11 @@ export const useSpaceActionsRestore = ({ store }: { store?: Store<any> } = {}) =
               { spaceCount: failed.length.toString() },
               true
             )
-      store.dispatch('showErrorMessage', {
+      showErrorMessage({
         title,
         errors: (failed as PromiseRejectedResult[]).map((f) => f.reason)
       })
     }
-
-    store.dispatch('hideModal')
   }
 
   const handler = ({ resources }: SpaceActionOptions) => {
@@ -100,8 +96,7 @@ export const useSpaceActionsRestore = ({ store }: { store?: Store<any> } = {}) =
     )
     const confirmText = $gettext('Enable')
 
-    const modal = {
-      variation: 'passive',
+    dispatchModal({
       title: $ngettext(
         'Enable Space "%{space}"?',
         'Enable %{spaceCount} Spaces?',
@@ -111,16 +106,12 @@ export const useSpaceActionsRestore = ({ store }: { store?: Store<any> } = {}) =
           spaceCount: allowedResources.length.toString()
         }
       ),
-      cancelText: $gettext('Cancel'),
       confirmText,
       icon: 'alert',
       message,
       hasInput: false,
-      onCancel: () => store.dispatch('hideModal'),
       onConfirm: () => restoreSpaces(allowedResources)
-    }
-
-    store.dispatch('createModal', modal)
+    })
   }
 
   const actions = computed((): SpaceAction[] => [
@@ -129,7 +120,7 @@ export const useSpaceActionsRestore = ({ store }: { store?: Store<any> } = {}) =
       icon: 'play-circle',
       label: () => $gettext('Enable'),
       handler,
-      isEnabled: ({ resources }) => {
+      isVisible: ({ resources }) => {
         return !!filterResourcesToRestore(resources).length
       },
       componentType: 'button',

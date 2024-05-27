@@ -1,7 +1,7 @@
-import { Download, Locator, Page, expect } from '@playwright/test'
+import { Download, Locator, Page, Response, expect } from '@playwright/test'
 import util from 'util'
 import path from 'path'
-import { resourceExists, waitForResources, resourceNameSelector } from './utils'
+import { resourceExists, waitForResources } from './utils'
 import { editor, sidebar } from '../utils'
 import { File, Space } from '../../../types'
 import { dragDropFiles } from '../../../utils/dragDrop'
@@ -26,6 +26,8 @@ const checkBoxForTrashbin = `//*[@data-test-resource-path="%s"]//ancestor::tr//i
 const filesSelector = '//*[@data-test-resource-name="%s"]'
 export const fileRow =
   '//ancestor::*[(contains(@class, "oc-tile-card") or contains(@class, "oc-tbody-tr"))]'
+export const resourceNameSelector =
+  ':is(#files-files-table, .oc-tiles-item, #files-shared-with-me-accepted-section, .files-table) [data-test-resource-name="%s"]'
 // following breadcrumb selectors is passed to buildXpathLiteral function as the content to be inserted might contain quotes
 const breadcrumbResourceNameSelector =
   '//span[contains(@class, "oc-breadcrumb-item-text") and text()=%s]'
@@ -40,7 +42,9 @@ const createNewOfficeDocumentFileBUtton = '//ul[@id="create-list"]//span[text()=
 const createNewShortcutButton = '#new-shortcut-btn'
 const shortcutResorceInput = '#create-shortcut-modal-url-input'
 const saveTextFileInEditorButton = '#app-save-action:visible'
-const textEditorInput = '#text-editor-input'
+const textEditor = '#text-editor #text-editor-container'
+const textEditorPlainTextInput = '#text-editor #text-editor-container .ww-mode .ProseMirror'
+const textEditorMarkdownInput = '#text-editor #text-editor-container .md-mode .ProseMirror'
 const resourceNameInput = '.oc-modal input'
 const resourceUploadButton = '#upload-menu-btn'
 const fileUploadInput = '#files-file-upload-input'
@@ -89,6 +93,7 @@ const tagInInputForm =
 const tagFormInput = '//*[@data-testid="tags"]//input'
 const resourcesAsTiles = '#files-view .oc-tiles'
 const fileVersionSidebar = '#oc-file-versions-sidebar'
+const versionsPanelSelect = '//*[@data-testid="sidebar-panel-versions-select"]'
 const noLinkMessage = '#web .oc-link-resolve-error-message'
 const listItemPageSelector = '//*[contains(@class,"oc-pagination-list-item-page") and text()="%s"]'
 const itemsPerPageDropDownOptionSelector =
@@ -113,12 +118,11 @@ const collaboraWelcomeModalIframe = '.iframe-welcome-modal'
 const onlyOfficeCanvasEditorSelector = '#id_viewer_overlay'
 const onlyOfficeCanvasCursorSelector = '#id_target_cursor'
 const collaboraCanvasEditorSelector = '.leaflet-layer'
-const textEditorTextArea = '#text-editor-input'
 const filesContextMenuAction = 'div[id^="context-menu-drop"] button.oc-files-actions-%s-trigger'
 const highlightedFileRowSelector = '#files-space-table tr.oc-table-highlighted'
 const emptyTrashbinButtonSelector = '.oc-files-actions-empty-trash-bin-trigger'
 const resourceLockIcon =
-  '//*[@data-test-resource-name="%s"]/ancestor::tr//td//span[contains(@class, "oc-resource-icon-status-badge")]'
+  '//*[@data-test-resource-name="%s"]/ancestor::tr//td//span[@data-test-indicator-type="resource-locked"]'
 const sharesNavigationButtonSelector = '.oc-sidebar-nav [data-nav-name="files-shares"]'
 const keepBothButton = '.oc-modal-body-actions-confirm'
 const mediaNavigationButton = `//button[contains(@class, "preview-controls-%s")]`
@@ -141,15 +145,19 @@ export const clickResource = async ({
 
     const resource = page.locator(util.format(resourceNameSelector, folder))
     await Promise.all([
-      page.waitForResponse(
-        (resp) => resp.status() === 207 && resp.request().method() === 'PROPFIND'
-      ),
+      page.waitForResponse((resp) => resp.request().method() === 'PROPFIND'),
       resource.click()
     ])
   }
 }
 
-export const clickResourceFromBreadcrumb = async ({ page, resource }): Promise<void> => {
+export const clickResourceFromBreadcrumb = async ({
+  page,
+  resource
+}: {
+  page: Page
+  resource: string
+}): Promise<void> => {
   const folder = buildXpathLiteral(resource)
   const itemId = await page
     .locator(util.format(breadcrumbResourceSelector, folder))
@@ -202,7 +210,7 @@ export const createSpaceFromFolder = async ({
       (resp) =>
         resp.status() === 201 &&
         resp.request().method() === 'POST' &&
-        resp.url().endsWith('/drives')
+        resp.url().endsWith('/drives?template=default')
     ),
     page.locator(util.format(actionConfirmationButton, 'Create')).click()
   ])
@@ -222,7 +230,7 @@ export const createSpaceFromSelection = async ({
 }): Promise<Space> => {
   await selectOrDeselectResources({
     page,
-    resources: resources.map((r) => ({ name: r }) as resourceArgs), // prettier-ignore
+    resources: resources.map((r) => ({name: r}) as resourceArgs), // prettier-ignore
     select: true
   })
   await page.locator(util.format(resourceNameSelector, resources[0])).click({ button: 'right' })
@@ -234,7 +242,7 @@ export const createSpaceFromSelection = async ({
       (resp) =>
         resp.status() === 201 &&
         resp.request().method() === 'POST' &&
-        resp.url().endsWith('/drives')
+        resp.url().endsWith('/drives?template=default')
     ),
     page.locator(util.format(actionConfirmationButton, 'Create')).click()
   ])
@@ -382,7 +390,17 @@ export const fillContentOfDocument = async ({
   const editorMainFrame = page.frameLocator(externalEditorIframe)
   switch (editorToOpen) {
     case 'TextEditor':
-      await page.locator(textEditorTextArea).fill(text)
+      await page.locator(textEditorPlainTextInput).fill(text)
+      break
+    case 'Collabora':
+      await editorMainFrame.locator(collaboraDocTextAreaSelector).focus()
+      await page.keyboard.press('Control+A')
+      await editorMainFrame.locator(collaboraDocTextAreaSelector).fill(text)
+      break
+    case 'OnlyOffice':
+      const innerIframe = editorMainFrame.frameLocator(onlyOfficeInnerFrameSelector)
+      await page.keyboard.press('Control+A')
+      await innerIframe.locator(onlyofficeDocTextAreaSelector).fill(text)
       break
     case 'Collabora':
       await editorMainFrame.locator(collaboraDocTextAreaSelector).focus()
@@ -436,7 +454,7 @@ export const openAndGetContentOfDocument = async ({
   return await page.evaluate(() => navigator.clipboard.readText())
 }
 
-const isAppProviderServiceForOfficeSuitesReadyInWebUI = async (page, type) => {
+const isAppProviderServiceForOfficeSuitesReadyInWebUI = async (page: Page, type: string) => {
   let retry = 1
   let isCreateNewOfficeDocumentFileButtonVisible
   while (retry <= 5) {
@@ -483,7 +501,11 @@ export const editTextDocument = async ({
   name: string
   content: string
 }): Promise<void> => {
-  await page.locator(textEditorInput).fill(content)
+  const isMarkdownMode = await page.locator(textEditor).getAttribute('data-markdown-mode')
+  const inputLocator =
+    isMarkdownMode === 'true' ? textEditorMarkdownInput : textEditorPlainTextInput
+
+  await page.locator(inputLocator).fill(content)
   await Promise.all([
     page.waitForResponse((resp) => resp.status() === 204 && resp.request().method() === 'PUT'),
     page.waitForResponse((resp) => resp.status() === 207 && resp.request().method() === 'PROPFIND'),
@@ -584,6 +606,8 @@ export const tryToUploadResource = async (args: uploadResourceArgs): Promise<voi
 export const dropUploadFiles = async (args: uploadResourceArgs): Promise<void> => {
   const { page, resources } = args
 
+  // waiting to files view
+  await page.locator(addNewResourceButton).waitFor()
   await dragDropFiles(page, resources, filesView)
 
   await page.locator(uploadInfoCloseButton).click()
@@ -603,7 +627,13 @@ const pauseResumeUpload = (page: Page): Promise<void> => {
   return page.locator(pauseResumeUploadButton).click()
 }
 
-export const navigateMediaFile = async ({ page, navigationType }): Promise<void> => {
+export const navigateMediaFile = async ({
+  page,
+  navigationType
+}: {
+  page: Page
+  navigationType: string
+}): Promise<void> => {
   const oldFileInMediaViewer = await page
     .locator(topbarFilenameSelector)
     .getAttribute('data-test-resource-name')
@@ -744,22 +774,12 @@ export const selectOrDeselectResources = async (args: selectResourcesArgs): Prom
   if (folder) {
     await clickResource({ page, path: folder })
   }
-
   for (const resource of resources) {
-    const exists = await resourceExists({
-      page,
-      name: resource.name
-    })
-    if (exists) {
-      const resourceCheckbox = page.locator(util.format(checkBox, resource.name))
-
-      if (!(await resourceCheckbox.isChecked()) && select) {
-        await resourceCheckbox.check()
-      } else if (await resourceCheckbox.isChecked()) {
-        await resourceCheckbox.uncheck()
-      }
-    } else {
-      throw new Error(`The resource ${resource.name} you are trying to select does not exist`)
+    const resourceCheckbox = page.locator(util.format(checkBox, resource.name))
+    if (!(await resourceCheckbox.isChecked()) && select) {
+      await resourceCheckbox.check()
+    } else if (await resourceCheckbox.isChecked()) {
+      await resourceCheckbox.uncheck()
     }
   }
 }
@@ -1150,12 +1170,10 @@ export interface downloadResourceVersionArgs {
   folder?: string
 }
 
-export const downloadResourceVersion = async (
-  args: downloadResourceVersionArgs
-): Promise<Download[]> => {
+export const downloadResourceVersion = async (args: downloadResourceVersionArgs) => {
   const { page, files, folder } = args
   const fileName = files.map((file) => path.basename(file.name))
-  const downloads = []
+  const downloads: Response[] = []
   await clickResource({ page, path: folder })
   await sidebar.open({ page, resource: fileName[0] })
   await sidebar.openPanel({ page, name: 'versions' })
@@ -1220,7 +1238,7 @@ export const deleteTrashbinMultipleResources = async (
   }
 }
 
-export const emptyTrashbin = async ({ page }): Promise<void> => {
+export const emptyTrashbin = async ({ page }: { page: Page }): Promise<void> => {
   await page.locator(emptyTrashbinButtonSelector).click()
   await Promise.all([
     page.waitForResponse((resp) => resp.status() === 204 && resp.request().method() === 'DELETE'),
@@ -1472,18 +1490,18 @@ export interface getDisplayedResourcesArgs {
   page: Page
 }
 
-export const getDisplayedResourcesFromSearch = async (page): Promise<string[]> => {
+export const getDisplayedResourcesFromSearch = async (page: Page): Promise<string[]> => {
   const result = await page.locator(searchList).allInnerTexts()
   // the result has values like `test\n.txt` so remove new line
   return result.map((result) => result.replace('\n', ''))
 }
 
-export const getDisplayedResourcesFromFilesList = async (page): Promise<string[]> => {
+export const getDisplayedResourcesFromFilesList = async (page: Page): Promise<string[]> => {
   const files = []
   await page.locator('[data-test-resource-path]').first().waitFor()
   // wait for tika indexing
   await new Promise((resolve) => setTimeout(resolve, 1000))
-  const result = await page.locator('[data-test-resource-path]')
+  const result = page.locator('[data-test-resource-path]')
 
   const count = await result.count()
   for (let i = 0; i < count; i++) {
@@ -1493,10 +1511,10 @@ export const getDisplayedResourcesFromFilesList = async (page): Promise<string[]
   return files
 }
 
-export const getDisplayedResourcesFromShares = async (page): Promise<string[]> => {
+export const getDisplayedResourcesFromShares = async (page: Page): Promise<string[]> => {
   const files = []
   await page.locator(sharesNavigationButtonSelector).click()
-  const result = await page.locator('[data-test-resource-path]')
+  const result = page.locator('[data-test-resource-path]')
 
   const count = await result.count()
   for (let i = 0; i < count; i++) {
@@ -1506,9 +1524,9 @@ export const getDisplayedResourcesFromShares = async (page): Promise<string[]> =
   return files
 }
 
-export const getDisplayedResourcesFromTrashbin = async (page): Promise<string[]> => {
+export const getDisplayedResourcesFromTrashbin = async (page: Page): Promise<string[]> => {
   const files = []
-  const result = await page.locator('[data-test-resource-path]')
+  const result = page.locator('[data-test-resource-path]')
 
   const count = await result.count()
   for (let i = 0; i < count; i++) {
@@ -1528,13 +1546,13 @@ export const clickViewModeToggle = async (args: switchViewModeArgs): Promise<voi
   await page.locator(`.viewmode-switch-buttons .${target}`).click()
 }
 
-export const expectThatResourcesAreTiles = async (args): Promise<void> => {
+export const expectThatResourcesAreTiles = async (args: { page: Page }): Promise<void> => {
   const { page } = args
   const tiles = page.locator(resourcesAsTiles)
   await expect(tiles).toBeVisible()
 }
 
-export const showHiddenResources = async (page): Promise<void> => {
+export const showHiddenResources = async (page: Page): Promise<void> => {
   await page.locator(filesViewOptionButton).click()
   await page.locator(hiddenFilesToggleButton).click()
   // close the files view option
@@ -1698,7 +1716,13 @@ export const openFileInViewer = async (args: openFileInViewerArgs): Promise<void
   }
 }
 
-export const previewMediaFromSidebarPanel = async ({ page, resource }): Promise<void> => {
+export const previewMediaFromSidebarPanel = async ({
+  page,
+  resource
+}: {
+  page: Page
+  resource: string
+}): Promise<void> => {
   await sidebar.open({ page, resource })
   await sidebar.openPanel({ page, name: 'actions' })
   await page.locator(util.format(sideBarActionButton, 'Preview')).first().click()
@@ -1725,7 +1749,21 @@ export const checkThatFileVersionIsNotAvailable = async (
   await expect(page.locator(fileVersionSidebar)).toHaveText('No Versions available for this file')
 }
 
-export const expectThatPublicLinkIsDeleted = async (args): Promise<void> => {
+export const checkThatFileVersionPanelIsNotAvailable = async (
+  args: resourceVersionArgs
+): Promise<void> => {
+  const { page, files, folder } = args
+  const fileName = files.map((file) => path.basename(file.name))
+  await clickResource({ page, path: folder })
+  await sidebar.open({ page, resource: fileName[0] })
+
+  await expect(page.locator(versionsPanelSelect)).not.toBeVisible()
+}
+
+export const expectThatPublicLinkIsDeleted = async (args: {
+  page: Page
+  url: string
+}): Promise<void> => {
   const { page, url } = args
   await Promise.all([
     page.waitForResponse((resp) => resp.status() === 404 && resp.request().method() === 'PROPFIND'),
@@ -1760,7 +1798,7 @@ export const changeItemsPerPage = async (args: changeItemsPerPageArgs): Promise<
   await page.locator(filesViewOptionButton).click()
 }
 
-export const getFileListFooterText = ({ page }): Promise<string> => {
+export const getFileListFooterText = ({ page }: { page: Page }): Promise<string> => {
   return page.locator(footerTextSelector).textContent()
 }
 
@@ -1769,7 +1807,7 @@ export interface expectNumberOfResourcesInThePageToBeArgs {
   numberOfResources: number
 }
 
-export const countNumberOfResourcesInThePage = ({ page }): Promise<number> => {
+export const countNumberOfResourcesInThePage = ({ page }: { page: Page }): Promise<number> => {
   // playwright's default count function is not used here because count only counts
   // elements that are visible in the page but in this case we want to get
   // all the elements present
@@ -1781,7 +1819,7 @@ export const countNumberOfResourcesInThePage = ({ page }): Promise<number> => {
   )
 }
 
-export const expectPageNumberNotToBeVisible = async ({ page }): Promise<void> => {
+export const expectPageNumberNotToBeVisible = async ({ page }: { page: Page }): Promise<void> => {
   await expect(page.locator(filesPaginationNavSelector)).not.toBeVisible()
 }
 
@@ -1790,7 +1828,13 @@ export interface expectFileToBeSelectedArgs {
   fileName: string
 }
 
-export const expectFileToBeSelected = async ({ page, fileName }): Promise<void> => {
+export const expectFileToBeSelected = async ({
+  page,
+  fileName
+}: {
+  page: Page
+  fileName: string
+}): Promise<void> => {
   await expect(page.locator(util.format(checkBox, fileName))).toBeChecked()
 }
 
@@ -1877,6 +1921,26 @@ export const getLockLocator = (args: expectFileToBeLockedArgs): Locator => {
   return page.locator(util.format(resourceLockIcon, resource))
 }
 
+export interface canManageResourceArgs {
+  resource: string
+  page: Page
+}
+
+export const canManageResource = async (args: canManageResourceArgs): Promise<boolean> => {
+  const { resource, page } = args
+  const notExpectedActions = ['move', 'rename', 'delete']
+  await sidebar.open({ page: page, resource })
+  await sidebar.openPanel({ page: page, name: 'actions' })
+  const presentActions = await page.locator(sideBarActions).allTextContents()
+  const presentActionsToLower = presentActions.map((actions) => actions.toLowerCase())
+  for (const actions of notExpectedActions) {
+    if (presentActionsToLower.includes(actions)) {
+      return true
+    }
+  }
+  return false
+}
+
 export const canEditContent = async ({
   page,
   type
@@ -1911,24 +1975,4 @@ export const canEditContent = async ({
       // title appears as "MicrosoftWord.docx (read only)"
       return !onlyOfficeDocTitle.endsWith('(read only)')
   }
-}
-
-export interface canManageResourceArgs {
-  resource: string
-  page: Page
-}
-
-export const canManageResource = async (args: canManageResourceArgs): Promise<boolean> => {
-  const { resource, page } = args
-  const notExpectedActions = ['move', 'rename', 'delete']
-  await sidebar.open({ page: page, resource })
-  await sidebar.openPanel({ page: page, name: 'actions' })
-  const presentActions = await page.locator(sideBarActions).allTextContents()
-  const presentActionsToLower = presentActions.map((actions) => actions.toLowerCase())
-  for (const actions of notExpectedActions) {
-    if (presentActionsToLower.includes(actions)) {
-      return true
-    }
-  }
-  return false
 }

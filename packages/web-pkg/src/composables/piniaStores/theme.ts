@@ -1,9 +1,10 @@
 import merge from 'deepmerge'
 import { defineStore } from 'pinia'
-import { ref, computed, unref } from 'vue'
+import { computed, ref, unref } from 'vue'
 import { useLocalStorage, usePreferredDark } from '@vueuse/core'
 import { z } from 'zod'
 import { applyCustomProp } from 'design-system/src/'
+import { ShareRole } from '@ownclouders/web-client'
 
 const AppBanner = z.object({
   title: z.string().optional(),
@@ -22,7 +23,13 @@ const CommonSection = z.object({
     accessDeniedHelp: z.string(),
     imprint: z.string(),
     privacy: z.string()
-  })
+  }),
+  shareRoles: z.record(
+    z.string(),
+    z.object({
+      iconName: z.string()
+    })
+  )
 })
 
 const DesignTokens = z.object({
@@ -35,7 +42,6 @@ const DesignTokens = z.object({
 })
 
 const LoginPage = z.object({
-  autoRedirect: z.boolean(),
   backgroundImg: z.string()
 })
 
@@ -76,13 +82,12 @@ export const ThemingConfig = z.object({
   })
 })
 
-type WebThemeType = z.infer<typeof WebTheme>
+export type WebThemeType = z.infer<typeof WebTheme>
 export type WebThemeConfigType = z.infer<typeof WebThemeConfig>
 
 const themeStorageKey = 'oc_currentThemeName'
 
 export const useThemeStore = defineStore('theme', () => {
-  const currentThemeName = useLocalStorage(themeStorageKey, null) // null as default to make fallback possible
   const currentLocalStorageThemeName = useLocalStorage(themeStorageKey, null)
 
   const isDark = usePreferredDark()
@@ -91,33 +96,36 @@ export const useThemeStore = defineStore('theme', () => {
 
   const availableThemes = ref<WebThemeType[]>([])
 
-  const hasOnlyOneTheme = computed(() => unref(availableThemes).length === 1)
-
-  const hasOnlyTwoThemesForLightDarkMode = computed(
-    () =>
-      unref(availableThemes).length === 2 &&
-      unref(availableThemes).some((t) => t.isDark === true) &&
-      unref(availableThemes).some((t) => t.isDark !== true)
-  )
-
   const initializeThemes = (themeConfig: WebThemeConfigType) => {
     availableThemes.value = themeConfig.themes.map((theme) => merge(themeConfig.defaults, theme))
+    setThemeFromStorageOrSystem()
+  }
 
-    if (unref(currentThemeName) === null) {
-      const theme =
-        unref(availableThemes).find((t) => t.isDark === unref(isDark)) || unref(availableThemes)[0]
-      currentThemeName.value = theme.name
-    }
-
+  const setThemeFromStorageOrSystem = () => {
+    const firstLightTheme = unref(availableThemes).find((theme) => !theme.isDark)
+    const firstDarkTheme = unref(availableThemes).find((theme) => theme.isDark)
     setAndApplyTheme(
-      unref(availableThemes).find((t) => t.name === unref(currentThemeName)) ||
-        availableThemes.value[0]
+      unref(availableThemes).find((t) => t.name === unref(currentLocalStorageThemeName)) ||
+        (unref(isDark) ? firstDarkTheme : firstLightTheme) ||
+        unref(availableThemes)[0],
+      false
     )
   }
 
-  const setAndApplyTheme = (theme: WebThemeType) => {
+  const setAutoSystemTheme = () => {
+    currentLocalStorageThemeName.value = null
+    setThemeFromStorageOrSystem()
+  }
+
+  const isCurrentThemeAutoSystem = computed(() => {
+    return currentLocalStorageThemeName.value === null
+  })
+
+  const setAndApplyTheme = (theme: WebThemeType, updateStorage = true) => {
     currentTheme.value = theme
-    currentLocalStorageThemeName.value = unref(currentTheme).name
+    if (updateStorage) {
+      currentLocalStorageThemeName.value = unref(currentTheme).name
+    }
 
     const customizableDesignTokens = [
       { name: 'breakpoints', prefix: 'breakpoint' },
@@ -125,7 +133,7 @@ export const useThemeStore = defineStore('theme', () => {
       { name: 'fontSizes', prefix: 'font-size' },
       { name: 'sizes', prefix: 'size' },
       { name: 'spacing', prefix: 'spacing' }
-    ]
+    ] as const
 
     applyCustomProp('font-family', unref(currentTheme).designTokens.fontFamily)
 
@@ -139,18 +147,17 @@ export const useThemeStore = defineStore('theme', () => {
     })
   }
 
-  // This should only be used with hasOnlyTwoThemesForLightDarkMode - we know there's exactly two themes, one with darkMode and one without
-  const toggleTheme = () => {
-    setAndApplyTheme(unref(availableThemes).find((t) => t.isDark !== unref(currentTheme).isDark))
+  const getRoleIcon = (role: ShareRole) => {
+    return unref(currentTheme).common?.shareRoles[role.id]?.iconName || 'user'
   }
 
   return {
     availableThemes,
     currentTheme,
-    hasOnlyOneTheme,
-    hasOnlyTwoThemesForLightDarkMode,
     initializeThemes,
     setAndApplyTheme,
-    toggleTheme
+    setAutoSystemTheme,
+    isCurrentThemeAutoSystem,
+    getRoleIcon
   }
 })

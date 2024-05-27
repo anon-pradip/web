@@ -1,5 +1,5 @@
 <template>
-  <div v-if="isLoading" id="oc-loading-indicator">
+  <div v-if="isLoading" id="oc-loading-indicator" class="oc-width-1-1">
     <oc-progress
       :max="100"
       :indeterminate="currentProgress === null"
@@ -18,9 +18,9 @@ export default defineComponent({
   name: 'LoadingIndicator',
   setup() {
     const loadingService = useLoadingService()
-    let addLoadingEventToken
-    let removeLoadingEventToken
-    let setProgressToken
+    let addLoadingEventToken: string
+    let removeLoadingEventToken: string
+    let setProgressToken: string
 
     const isLoading = ref(loadingService.isLoading)
     const currentProgress = ref(loadingService.currentProgress)
@@ -51,17 +51,12 @@ export default defineComponent({
 </script>
 <style lang="scss">
 #oc-loading-indicator {
-  z-index: 10;
-  position: absolute;
-  top: 0;
-  width: 100%;
-
   .oc-progress {
     background-color: transparent;
-    height: 2px;
+    height: 4px;
 
     &-primary div {
-      background-color: var(--oc-color-swatch-primary-contrast);
+      background-color: var(--oc-color-swatch-primary-gradient);
     }
 
     &-indeterminate-first {

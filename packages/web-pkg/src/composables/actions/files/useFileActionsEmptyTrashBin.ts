@@ -1,61 +1,57 @@
-import { Store } from 'vuex'
 import { isLocationTrashActive } from '../../../router'
-import { SpaceResource } from '@ownclouders/web-client/src/helpers'
-import { isProjectSpaceResource } from '@ownclouders/web-client/src/helpers'
-import { computed, unref } from 'vue'
-import { useCapabilityFilesPermanentDeletion } from '../../capability'
+import { SpaceResource } from '@ownclouders/web-client'
+import { isProjectSpaceResource } from '@ownclouders/web-client'
+import { computed } from 'vue'
 import { useClientService } from '../../clientService'
 import { useRouter } from '../../router'
-import { useStore } from '../../store'
-
 import { useGettext } from 'vue3-gettext'
 import { FileAction, FileActionOptions } from '../types'
-import { useLoadingService } from '../../loadingService'
+import {
+  useMessages,
+  useModals,
+  useUserStore,
+  useCapabilityStore,
+  useResourcesStore
+} from '../../piniaStores'
 
-export const useFileActionsEmptyTrashBin = ({ store }: { store?: Store<any> } = {}) => {
-  store = store || useStore()
+export const useFileActionsEmptyTrashBin = () => {
+  const { showMessage, showErrorMessage } = useMessages()
+  const userStore = useUserStore()
+  const capabilityStore = useCapabilityStore()
   const router = useRouter()
   const { $gettext } = useGettext()
   const clientService = useClientService()
-  const loadingService = useLoadingService()
-  const hasPermanentDeletion = useCapabilityFilesPermanentDeletion()
+  const { dispatchModal } = useModals()
+  const resourcesStore = useResourcesStore()
 
   const emptyTrashBin = ({ space }: { space: SpaceResource }) => {
     return clientService.webdav
       .clearTrashBin(space)
       .then(() => {
-        store.dispatch('showMessage', {
-          title: $gettext('All deleted files were removed')
-        })
-        store.dispatch('Files/clearTrashBin')
+        showMessage({ title: $gettext('All deleted files were removed') })
+        resourcesStore.clearResources()
+        resourcesStore.resetSelection()
       })
       .catch((error) => {
         console.error(error)
-        store.dispatch('showErrorMessage', {
+        showErrorMessage({
           title: $gettext('Failed to empty trash bin'),
-          error
+          errors: [error]
         })
-      })
-      .finally(() => {
-        store.dispatch('hideModal')
       })
   }
 
   const handler = ({ space }: FileActionOptions) => {
-    const modal = {
+    dispatchModal({
       variation: 'danger',
       title: $gettext('Empty trash bin'),
-      cancelText: $gettext('Cancel'),
       confirmText: $gettext('Delete'),
       message: $gettext(
         'Are you sure you want to permanently delete the listed items? You can’t undo this action.'
       ),
       hasInput: false,
-      onCancel: () => store.dispatch('hideModal'),
-      onConfirm: () => loadingService.addTask(() => emptyTrashBin({ space }))
-    }
-
-    store.dispatch('createModal', modal)
+      onConfirm: () => emptyTrashBin({ space })
+    })
   }
 
   const actions = computed((): FileAction[] => [
@@ -64,17 +60,17 @@ export const useFileActionsEmptyTrashBin = ({ store }: { store?: Store<any> } = 
       icon: 'delete-bin-5',
       label: () => $gettext('Empty trash bin'),
       handler,
-      isEnabled: ({ space, resources }) => {
+      isVisible: ({ space }) => {
         if (!isLocationTrashActive(router, 'files-trash-generic')) {
           return false
         }
-        if (!unref(hasPermanentDeletion)) {
+        if (!capabilityStore.filesPermanentDeletion) {
           return false
         }
 
         if (
           isProjectSpaceResource(space) &&
-          !space.canRemoveFromTrashbin({ user: store.getters.user })
+          !space.canRemoveFromTrashbin({ user: userStore.user })
         ) {
           return false
         }
@@ -82,7 +78,7 @@ export const useFileActionsEmptyTrashBin = ({ store }: { store?: Store<any> } = 
         return true
       },
       isDisabled: () => {
-        return store.getters['Files/activeFiles'].length === 0
+        return resourcesStore.activeResources.length === 0
       },
       componentType: 'button',
       class: 'oc-files-actions-empty-trash-bin-trigger',

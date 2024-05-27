@@ -9,24 +9,23 @@
         v-if="appMenuItems.length && !isEmbedModeEnabled"
         :applications-list="appMenuItems"
       />
-      <router-link
-        ref="navigationSidebarLogo"
-        v-oc-tooltip="$gettext('Back to home')"
-        to="/"
-        class="oc-width-1-1"
-      >
-        <oc-img :src="currentTheme.logo.topbar" :alt="sidebarLogoAlt" class="oc-logo-image" />
+      <router-link ref="navigationSidebarLogo" :to="homeLink" class="oc-width-1-1">
+        <oc-img
+          v-oc-tooltip="$gettext('Back to home')"
+          :src="currentTheme.logo.topbar"
+          :alt="sidebarLogoAlt"
+          class="oc-logo-image"
+        />
       </router-link>
     </div>
     <div v-if="!contentOnLeftPortal" class="oc-topbar-center">
-      <portal-target name="app.runtime.header" multiple />
+      <custom-component-target :extension-point="topBarCenterExtensionPoint" />
     </div>
     <div class="oc-topbar-right oc-flex oc-flex-middle">
       <portal-target name="app.runtime.header.right" multiple />
     </div>
     <template v-if="!isEmbedModeEnabled">
       <portal to="app.runtime.header.right" :order="50">
-        <theme-switcher />
         <feedback-link v-if="isFeedbackLinkEnabled" v-bind="feedbackLinkOptions" />
       </portal>
       <portal to="app.runtime.header.right" :order="100">
@@ -43,110 +42,116 @@
 import { storeToRefs } from 'pinia'
 import { computed, unref, PropType, ref } from 'vue'
 import { useGettext } from 'vue3-gettext'
-import { mapGetters } from 'vuex'
 
 import ApplicationsMenu from './ApplicationsMenu.vue'
 import UserMenu from './UserMenu.vue'
 import Notifications from './Notifications.vue'
 import FeedbackLink from './FeedbackLink.vue'
 import SideBarToggle from './SideBarToggle.vue'
-import ThemeSwitcher from './ThemeSwitcher.vue'
 import {
-  useAbility,
-  useCapabilityNotifications,
+  ApplicationInformation,
+  CustomComponentTarget,
+  useAuthStore,
+  useCapabilityStore,
+  useConfigStore,
   useEmbedMode,
-  usePublicLinkContext,
   useRouter,
-  useStore,
-  useThemeStore,
-  useUserContext
+  useThemeStore
 } from '@ownclouders/web-pkg'
 import { isRuntimeRoute } from '../../router'
+import { MenuItem } from '../../helpers/menuItems'
+import { topBarCenterExtensionPoint } from '../../extensionPoints'
+
+type Menus = 'apps' | 'appSwitcher' | 'user'
 
 export default {
   components: {
     ApplicationsMenu,
+    CustomComponentTarget,
     FeedbackLink,
     Notifications,
     SideBarToggle,
-    ThemeSwitcher,
     UserMenu
   },
   props: {
     applicationsList: {
-      type: Array as PropType<any[]>,
+      type: Array as PropType<ApplicationInformation[]>,
       required: false,
-      default: () => []
+      default: (): ApplicationInformation[] => []
     }
   },
   setup(props) {
-    const store = useStore()
+    const capabilityStore = useCapabilityStore()
     const themeStore = useThemeStore()
     const { currentTheme } = storeToRefs(themeStore)
+    const configStore = useConfigStore()
+    const { options: configOptions } = storeToRefs(configStore)
 
-    const notificationsSupport = useCapabilityNotifications()
-    const isUserContext = useUserContext({ store })
-    const isPublicLinkContext = usePublicLinkContext({ store })
+    const authStore = useAuthStore()
     const language = useGettext()
     const router = useRouter()
-    const ability = useAbility()
     const { isEnabled: isEmbedModeEnabled } = useEmbedMode()
 
     const logoWidth = ref('150px')
     const isNotificationBellEnabled = computed(() => {
-      return unref(isUserContext) && unref(notificationsSupport).includes('list')
+      return (
+        authStore.userContextReady && capabilityStore.notificationsOcsEndpoints.includes('list')
+      )
+    })
+
+    const homeLink = computed(() => {
+      if (authStore.publicLinkContextReady && !authStore.userContextReady) {
+        return {
+          name: 'resolvePublicLink',
+          params: { token: authStore.publicLinkToken }
+        }
+      }
+
+      return '/'
     })
 
     const isSideBarToggleVisible = computed(() => {
-      return unref(isUserContext) || unref(isPublicLinkContext)
+      return authStore.userContextReady || authStore.publicLinkContextReady
     })
     const isSideBarToggleDisabled = computed(() => {
       return isRuntimeRoute(unref(router.currentRoute))
     })
 
-    const isNavItemPermitted = (permittedMenus, navItem) => {
-      if (navItem.menu) {
-        return permittedMenus.includes(navItem.menu)
+    const isNavItemPermitted = (permittedMenus: Menus[], navItem: ApplicationInformation) => {
+      // FIXME: there is no menu...
+      if ((navItem as any).menu) {
+        return permittedMenus.includes((navItem as any).menu)
       }
       return permittedMenus.includes(null)
     }
 
     /**
-     * Returns well formed menuItem objects by a list of extensions.
+     * Returns well-formed menuItem objects by a list of extensions.
      * The following properties must be accessible in the wrapping code:
      * - applicationsList
      * - $language
-     *
-     * @param {Array} permittedMenus
-     * @param {String} activeRoutePath
-     * @returns {*}
      */
-    const getMenuItems = (permittedMenus, activeRoutePath) => {
+    const getMenuItems = (permittedMenus: Menus[], activeRoutePath: string) => {
       return props.applicationsList
         .filter((app) => {
           if (app.type === 'extension') {
-            // check if the extension has at least one navItem with a matching menuId
-            return (
-              store.getters
-                .getNavItemsByExtension(app.id)
-                .filter((navItem) => isNavItemPermitted(permittedMenus, navItem)).length > 0 ||
-              (app.applicationMenu.enabled instanceof Function &&
-                app.applicationMenu.enabled(store, ability) &&
-                !permittedMenus.includes('user'))
-            )
+            return app.applicationMenu?.enabled() && !permittedMenus.includes('user')
           }
           return isNavItemPermitted(permittedMenus, app)
         })
-        .map((item) => {
+        .map<MenuItem>((item) => {
+          // FIXME: types are a mess here
+          const _item = item as any
+
           const lang = language.current
           // TODO: move language resolution to a common function
           // FIXME: need to handle logic for variants like en_US vs en_GB
-          let title = item.title ? item.title.en : item.name
-          let color = item.color
-          let icon
-          let iconUrl
-          if (item.title && item.title[lang]) {
-            title = item.title[lang]
+          let title = _item.title ? _item.title.en : _item.name
+          let color = _item.color
+          let icon: string
+          let iconUrl: string
+          if (_item.title && _item.title[lang]) {
+            title = _item.title[lang]
           }
 
           if (!item.icon) {
@@ -158,26 +163,26 @@ export default {
             iconUrl = item.icon
           }
 
-          const app: any = {
-            id: item.id,
+          const app: MenuItem = {
+            id: _item.id,
             icon: icon,
             iconUrl: iconUrl,
             title: title,
             color: color,
-            applicationMenu: item.applicationMenu,
-            defaultExtension: item.defaultExtension
+            defaultExtension: _item.defaultExtension,
+            ..._item.applicationMenu
           }
 
-          if (item.url) {
-            app.url = item.url
-            app.target = ['_blank', '_self', '_parent', '_top'].includes(item.target)
-              ? item.target
+          if (_item.url) {
+            app.url = _item.url
+            app.target = ['_blank', '_self', '_parent', '_top'].includes(_item.target)
+              ? _item.target
               : '_blank'
-          } else if (item.path) {
-            app.path = item.path
+          } else if (_item.path) {
+            app.path = _item.path
             app.active = activeRoutePath?.startsWith(app.path)
           } else {
-            app.path = `/${item.id}`
+            app.path = `/${_item.id}`
             app.active = activeRoutePath?.startsWith(app.path)
           }
 
@@ -192,11 +197,12 @@ export default {
     )
 
     const contentOnLeftPortal = ref(false)
-    const updateLeftPortal = (newContent) => {
+    const updateLeftPortal = (newContent: { hasContent: boolean; sources: string[] }) => {
       contentOnLeftPortal.value = newContent.hasContent
     }
 
     return {
+      configOptions,
       contentOnLeftPortal,
       currentTheme,
       updateLeftPortal,
@@ -206,22 +212,22 @@ export default {
       logoWidth,
       isEmbedModeEnabled,
       isSideBarToggleVisible,
-      isSideBarToggleDisabled
+      isSideBarToggleDisabled,
+      homeLink,
+      topBarCenterExtensionPoint
     }
   },
   computed: {
-    ...mapGetters(['configuration', 'user']),
-
     sidebarLogoAlt() {
       return this.$gettext('Navigate to personal files page')
     },
 
     isFeedbackLinkEnabled() {
-      return !this.configuration?.options?.disableFeedbackLink
+      return !this.configOptions.disableFeedbackLink
     },
 
     feedbackLinkOptions() {
-      const feedback = this.configuration?.options?.feedbackLink
+      const feedback = this.configOptions.feedbackLink
       if (!this.isFeedbackLinkEnabled || !feedback) {
         return {}
       }

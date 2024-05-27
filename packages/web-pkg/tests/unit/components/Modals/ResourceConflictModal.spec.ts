@@ -1,14 +1,9 @@
 import ResourceConflictModal from '../../../../src/components/Modals/ResourceConflictModal.vue'
-import {
-  createStore,
-  defaultComponentMocks,
-  defaultPlugins,
-  defaultStoreMockOptions,
-  shallowMount
-} from 'web-test-helpers'
-import { mock } from 'jest-mock-extended'
+import { defaultComponentMocks, defaultPlugins, shallowMount } from 'web-test-helpers'
+import { mock } from 'vitest-mock-extended'
 import { Resource } from '@ownclouders/web-client'
 import { ResolveStrategy } from '../../../../src/helpers/resource'
+import { Modal } from '../../../../src/composables/piniaStores'
 
 describe('ResourceConflictModal', () => {
   describe('checkbox', () => {
@@ -21,45 +16,61 @@ describe('ResourceConflictModal', () => {
       expect(wrapper.find('oc-checkbox-stub').exists()).toBeFalsy()
     })
   })
+  describe('buttons', () => {
+    describe('confirmSecondary', () => {
+      describe('text', () => {
+        it('should equal "Replace" when no "confirmSecondaryTextOverwrite" property is given', () => {
+          const { wrapper } = getWrapper()
+          expect(wrapper.vm.confirmSecondaryText).toEqual('Replace')
+        })
+        it('should equal "confirmSecondaryTextOverwrite" when property is given', () => {
+          const { wrapper } = getWrapper({
+            props: { confirmSecondaryTextOverwrite: 'Merge' }
+          })
+          expect(wrapper.vm.confirmSecondaryText).toEqual('Merge')
+        })
+      })
+    })
+  })
   describe('onConfirm', () => {
     it('should call the callback', async () => {
-      const callbackFn = jest.fn()
+      const callbackFn = vi.fn()
       const { wrapper } = getWrapper({ props: { callbackFn } })
       await wrapper.vm.onConfirm()
       expect(callbackFn).toHaveBeenCalledWith({
         strategy: ResolveStrategy.KEEP_BOTH,
-        doForAllConflicts: undefined
+        doForAllConflicts: false
       })
     })
   })
   describe('onConfirmSecondary', () => {
     it('should call the callback with merge strategy if merge suggested', async () => {
-      const callbackFn = jest.fn()
+      const callbackFn = vi.fn()
       const { wrapper } = getWrapper({ props: { callbackFn, suggestMerge: true } })
       await wrapper.vm.onConfirmSecondary()
       expect(callbackFn).toHaveBeenCalledWith({
         strategy: ResolveStrategy.MERGE,
-        doForAllConflicts: undefined
+        doForAllConflicts: false
       })
     })
     it('should call the callback with replace strategy if merge not suggested', async () => {
-      const callbackFn = jest.fn()
+      const callbackFn = vi.fn()
       const { wrapper } = getWrapper({ props: { callbackFn, suggestMerge: false } })
       await wrapper.vm.onConfirmSecondary()
       expect(callbackFn).toHaveBeenCalledWith({
         strategy: ResolveStrategy.REPLACE,
-        doForAllConflicts: undefined
+        doForAllConflicts: false
       })
     })
   })
   describe('onCancel', () => {
     it('should call the callback', async () => {
-      const callbackFn = jest.fn()
+      const callbackFn = vi.fn()
       const { wrapper } = getWrapper({ props: { callbackFn } })
       await wrapper.vm.onCancel()
       expect(callbackFn).toHaveBeenCalledWith({
         strategy: ResolveStrategy.SKIP,
-        doForAllConflicts: undefined
+        doForAllConflicts: false
       })
     })
   })
@@ -67,20 +78,19 @@ describe('ResourceConflictModal', () => {
 
 function getWrapper({ props = {} } = {}) {
   const mocks = defaultComponentMocks()
-  const storeOptions = defaultStoreMockOptions
-  const store = createStore(storeOptions)
 
   return {
     mocks,
     wrapper: shallowMount(ResourceConflictModal, {
       props: {
-        resource: mock<Resource>,
+        modal: mock<Modal>(),
+        resource: mock<Resource>(),
         conflictCount: 1,
         callbackFn: () => ({}),
         ...props
       },
       global: {
-        plugins: [...defaultPlugins(), store],
+        plugins: [...defaultPlugins()],
         mocks,
         provide: mocks
       }

@@ -66,7 +66,7 @@
           <space-quota :space-quota="resource.spaceQuota" />
         </td>
       </tr>
-      <web-dav-details v-if="showWebDavDetails" />
+      <web-dav-details v-if="showWebDavDetails" :space="resource" />
       <portal-target
         name="app.files.sidebar.space.details.table"
         :slot-props="{ space: resource, resource }"
@@ -76,15 +76,18 @@
   </div>
 </template>
 <script lang="ts">
+import { storeToRefs } from 'pinia'
 import { defineComponent, inject, ref, Ref, computed, unref } from 'vue'
-import { mapGetters } from 'vuex'
 import { useTask } from 'vue-concurrency'
+import { getRelativeSpecialFolderSpacePath, SpaceResource } from '@ownclouders/web-client'
 import {
-  getRelativeSpecialFolderSpacePath,
-  SpaceResource
-} from '@ownclouders/web-client/src/helpers'
-import { spaceRoleManager } from '@ownclouders/web-client/src/helpers/share'
-import { useStore, usePreviewService, useClientService } from '../../../../composables'
+  usePreviewService,
+  useClientService,
+  useUserStore,
+  useSpacesStore,
+  useSharesStore,
+  useResourcesStore
+} from '../../../../composables'
 import SpaceQuota from '../../../SpaceQuota.vue'
 import WebDavDetails from '../../WebDavDetails.vue'
 import { formatDateFromISO } from '../../../../helpers'
@@ -109,11 +112,19 @@ export default defineComponent({
     }
   },
   setup(props) {
-    const store = useStore()
+    const userStore = useUserStore()
     const previewService = usePreviewService()
     const clientService = useClientService()
+    const spacesStore = useSpacesStore()
+    const resourcesStore = useResourcesStore()
+
+    const sharesStore = useSharesStore()
+    const { spaceMembers } = storeToRefs(spacesStore)
+
     const resource = inject<Ref<SpaceResource>>('resource')
     const spaceImage = ref('')
+
+    const { user } = storeToRefs(userStore)
 
     const loadImageTask = useTask(function* (signal, ref) {
       if (!ref.resource?.spaceImageData || !props.showSpaceImage) {
@@ -133,25 +144,20 @@ export default defineComponent({
       })
     })
 
-    const linkShareCount = computed(() => {
-      return store.getters['Files/outgoingLinks'].length
-    })
-
-    const showWebDavDetails = computed(() => {
-      return store.getters['Files/areWebDavDetailsShown']
-    })
+    const linkShareCount = computed(() => sharesStore.linkShares.length)
+    const showWebDavDetails = computed(() => resourcesStore.areWebDavDetailsShown)
 
     return {
       loadImageTask,
       spaceImage,
       resource,
       linkShareCount,
-      showWebDavDetails
+      showWebDavDetails,
+      user,
+      spaceMembers
     }
   },
   computed: {
-    ...mapGetters('runtime/spaces', ['spaceMembers']),
-    ...mapGetters(['user']),
     hasShares() {
       return this.hasMemberShares || this.hasLinkShares
     },
@@ -169,19 +175,19 @@ export default defineComponent({
             'This space has one member and %{linkShareCount} link.',
             'This space has one member and %{linkShareCount} links.',
             this.linkShareCount,
-            { linkShareCount: this.linkShareCount }
+            { linkShareCount: this.linkShareCount.toString() }
           )
         default:
           if (this.linkShareCount === 1) {
             return this.$gettext('This space has %{memberShareCount} members and one link.', {
-              memberShareCount: this.memberShareCount
+              memberShareCount: this.memberShareCount.toString()
             })
           }
           return this.$gettext(
             'This space has %{memberShareCount} members and %{linkShareCount} links.',
             {
-              memberShareCount: this.memberShareCount,
-              linkShareCount: this.linkShareCount
+              memberShareCount: this.memberShareCount.toString(),
+              linkShareCount: this.linkShareCount.toString()
             }
           )
       }
@@ -202,9 +208,9 @@ export default defineComponent({
       return formatDateFromISO(this.resource.mdate, this.$language.current)
     },
     ownerUsernames() {
-      return this.resource.spaceRoles[spaceRoleManager.name]
+      return this.resource.spaceRoles.manager
         .map((share) => {
-          if (share.id === this.user?.uuid) {
+          if (share.id === this.user?.id) {
             return this.$gettext('%{displayName} (me)', { displayName: share.displayName })
           }
           return share.displayName
@@ -225,7 +231,7 @@ export default defineComponent({
         'This space has %{memberShareCount} member.',
         'This space has %{memberShareCount} members.',
         this.memberShareCount,
-        { memberShareCount: this.memberShareCount }
+        { memberShareCount: this.memberShareCount.toString() }
       )
     },
     linkShareLabel() {
@@ -233,7 +239,7 @@ export default defineComponent({
         '%{linkShareCount} link giving access.',
         '%{linkShareCount} links giving access.',
         this.linkShareCount,
-        { linkShareCount: this.linkShareCount }
+        { linkShareCount: this.linkShareCount.toString() }
       )
     }
   },

@@ -4,8 +4,10 @@
     ref="drawIoEditor"
     :src="iframeSource"
     :title="$gettext('Draw.io editor')"
+    sandbox="allow-scripts allow-same-origin"
   />
 </template>
+
 <script lang="ts">
 import qs from 'qs'
 import {
@@ -20,7 +22,7 @@ import {
   watch,
   nextTick
 } from 'vue'
-import { Resource } from '@ownclouders/web-client/src'
+import { Resource } from '@ownclouders/web-client'
 import { AppConfigObject } from '@ownclouders/web-pkg'
 
 export default defineComponent({
@@ -120,7 +122,7 @@ export default defineComponent({
       }
     }
 
-    const handleMessage = async (event) => {
+    const handleMessage = async (event: MessageEvent) => {
       if (event.data.length > 0) {
         if (event.origin !== unref(config).url) {
           return

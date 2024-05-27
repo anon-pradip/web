@@ -4,24 +4,20 @@
 
 <script lang="ts">
 import ContextActionMenu from '../ContextActions/ContextActionMenu.vue'
-
-import {
-  useFileActionsOpenShortcut,
-  ActionExtension,
-  useExtensionRegistry,
-  useFileActionsToggleHideShare,
-  useStore
-} from '../../composables'
 import { computed, defineComponent, PropType, Ref, toRef, unref } from 'vue'
-
 import {
+  ActionExtension,
+  FileActionOptions,
+  useExtensionRegistry,
+  useFileActionsOpenShortcut,
+  useFileActionsToggleHideShare,
   useFileActionsCopyQuickLink,
   useFileActionsPaste,
   useFileActionsShowDetails,
   useFileActionsShowShares,
-  useFileActionsAcceptShare,
+  useFileActionsEnableSync,
   useFileActionsCopy,
-  useFileActionsDeclineShare,
+  useFileActionsDisableSync,
   useFileActionsDelete,
   useFileActionsDownloadArchive,
   useFileActionsEmptyTrashBin,
@@ -35,9 +31,8 @@ import {
   useFileActionsCreateSpaceFromResource,
   useFileActionsSetReadme,
   useFileActions
-} from '../../composables/actions/files'
-
-import { FileActionOptions } from '../../composables/actions'
+} from '../../composables'
+import { isNil } from 'lodash-es'
 
 export default defineComponent({
   name: 'ContextActions',
@@ -49,73 +44,90 @@ export default defineComponent({
     }
   },
   setup(props) {
-    const store = useStore()
+    const { editorActions } = useFileActions()
 
-    const { editorActions, loadExternalAppActions } = useFileActions()
-
-    const { actions: acceptShareActions } = useFileActionsAcceptShare({ store })
-    const { actions: hideShareActions } = useFileActionsToggleHideShare({ store })
-    const { actions: copyActions } = useFileActionsCopy({ store })
-    const { actions: createQuickLinkActions } = useFileActionsCopyQuickLink({ store })
-    const { actions: declineShareActions } = useFileActionsDeclineShare({ store })
-    const { actions: deleteActions } = useFileActionsDelete({ store })
-    const { actions: downloadArchiveActions } = useFileActionsDownloadArchive({ store })
+    const { actions: enableSyncActions } = useFileActionsEnableSync()
+    const { actions: hideShareActions } = useFileActionsToggleHideShare()
+    const { actions: copyActions } = useFileActionsCopy()
+    const { actions: createQuickLinkActions } = useFileActionsCopyQuickLink()
+    const { actions: disableSyncActions } = useFileActionsDisableSync()
+    const { actions: deleteActions } = useFileActionsDelete()
+    const { actions: downloadArchiveActions } = useFileActionsDownloadArchive()
     const { actions: downloadFileActions } = useFileActionsDownloadFile()
-    const { actions: favoriteActions } = useFileActionsFavorite({ store })
-    const { actions: emptyTrashBinActions } = useFileActionsEmptyTrashBin({ store })
-    const { actions: moveActions } = useFileActionsMove({ store })
-    const { actions: navigateActions } = useFileActionsNavigate({ store })
-    const { actions: pasteActions } = useFileActionsPaste({ store })
-    const { actions: renameActions } = useFileActionsRename({ store })
-    const { actions: restoreActions } = useFileActionsRestore({ store })
-    const { actions: setSpaceImageActions } = useFileActionsSetImage({ store })
-    const { actions: setSpaceReadmeActions } = useFileActionsSetReadme({ store })
-    const { actions: showDetailsActions } = useFileActionsShowDetails({ store })
-    const { actions: createSpaceFromResourceActions } = useFileActionsCreateSpaceFromResource({
-      store
-    })
-    const { actions: showSharesActions } = useFileActionsShowShares({ store })
-    const { actions: openShortcutActions } = useFileActionsOpenShortcut({ store })
+    const { actions: favoriteActions } = useFileActionsFavorite()
+    const { actions: emptyTrashBinActions } = useFileActionsEmptyTrashBin()
+    const { actions: moveActions } = useFileActionsMove()
+    const { actions: navigateActions } = useFileActionsNavigate()
+    const { actions: pasteActions } = useFileActionsPaste()
+    const { actions: renameActions } = useFileActionsRename()
+    const { actions: restoreActions } = useFileActionsRestore()
+    const { actions: setSpaceImageActions } = useFileActionsSetImage()
+    const { actions: setSpaceReadmeActions } = useFileActionsSetReadme()
+    const { actions: showDetailsActions } = useFileActionsShowDetails()
+    const { actions: createSpaceFromResourceActions } = useFileActionsCreateSpaceFromResource()
+    const { actions: showSharesActions } = useFileActionsShowShares()
+    const { actions: openShortcutActions } = useFileActionsOpenShortcut()
 
     const extensionRegistry = useExtensionRegistry()
-    const extensionContextActions = computed(() => {
+    const extensionsContextActions = computed(() => {
       return extensionRegistry
-        .requestExtensions<ActionExtension>('action', ['resource.context-menu'])
+        .requestExtensions<ActionExtension>({
+          id: 'global.files.context-actions',
+          extensionType: 'action'
+        })
+        .map((e) => e.action)
+    })
+    const extensionsBatchActions = computed(() => {
+      return extensionRegistry
+        .requestExtensions<ActionExtension>({
+          id: 'global.files.batch-actions',
+          extensionType: 'action'
+        })
         .map((e) => e.action)
     })
 
     // type cast to make vue-tsc aware of the type
     const actionOptions = toRef(props, 'actionOptions') as Ref<FileActionOptions>
+
     const menuItemsBatchActions = computed(() =>
       [
-        ...unref(acceptShareActions),
-        ...unref(declineShareActions),
+        ...unref(enableSyncActions),
+        ...unref(disableSyncActions),
         ...unref(downloadArchiveActions),
         ...unref(moveActions),
         ...unref(copyActions),
         ...unref(emptyTrashBinActions),
         ...unref(deleteActions),
         ...unref(restoreActions),
-        ...unref(createSpaceFromResourceActions)
-      ].filter((item) => item.isEnabled(unref(actionOptions)))
+        ...unref(createSpaceFromResourceActions),
+        ...unref(extensionsBatchActions).filter(
+          (a) => a.category === 'actions' || isNil(a.category)
+        )
+      ].filter((item) => item.isVisible(unref(actionOptions)))
+    )
+    const menuItemsBatchSideBar = computed(() =>
+      [
+        ...unref(showDetailsActions),
+        ...unref(extensionsBatchActions).filter((a) => a.category === 'sidebar')
+      ].filter((item) => item.isVisible(unref(actionOptions)))
     )
 
     const menuItemsContext = computed(() => {
-      const fileHandlers = [
+      return [
         ...unref(openShortcutActions),
         ...unref(editorActions),
-        ...loadExternalAppActions(unref(actionOptions))
+        ...unref(extensionsContextActions).filter((a) => a.category === 'context')
       ]
-
-      return [...fileHandlers]
-        .filter((item) => item.isEnabled(unref(actionOptions)))
+        .filter((item) => item.isVisible(unref(actionOptions)))
         .sort((x, y) => Number(y.hasPriority) - Number(x.hasPriority))
     })
 
     const menuItemsShare = computed(() => {
-      return [...unref(showSharesActions), ...unref(createQuickLinkActions)].filter((item) =>
-        item.isEnabled(unref(actionOptions))
-      )
+      return [
+        ...unref(showSharesActions),
+        ...unref(createQuickLinkActions),
+        ...unref(extensionsContextActions).filter((a) => a.category === 'share')
+      ].filter((item) => item.isVisible(unref(actionOptions)))
     })
 
     const menuItemsActions = computed(() => {
@@ -129,25 +141,27 @@ export default defineComponent({
         ...unref(renameActions),
         ...unref(createSpaceFromResourceActions),
         ...unref(restoreActions),
-        ...unref(acceptShareActions),
-        ...unref(declineShareActions),
+        ...unref(enableSyncActions),
+        ...unref(disableSyncActions),
         ...unref(hideShareActions),
         ...unref(setSpaceImageActions),
         ...unref(setSpaceReadmeActions),
-        ...unref(extensionContextActions)
-      ].filter((item) => item.isEnabled(unref(actionOptions)))
+        ...unref(extensionsContextActions).filter(
+          (a) => a.category === 'actions' || isNil(a.category)
+        )
+      ].filter((item) => item.isVisible(unref(actionOptions)))
     })
 
     const menuItemsSidebar = computed(() => {
-      const fileHandlers = [...unref(navigateActions)]
       return [
         ...unref(favoriteActions).map((action) => {
           action.keepOpen = true
           return action
         }),
-        ...fileHandlers,
-        ...unref(showDetailsActions)
-      ].filter((item) => item.isEnabled(unref(actionOptions)))
+        ...unref(navigateActions),
+        ...unref(showDetailsActions),
+        ...unref(extensionsContextActions).filter((a) => a.category === 'sidebar')
+      ].filter((item) => item.isVisible(unref(actionOptions)))
     })
 
     const menuSections = computed(() => {
@@ -161,7 +175,7 @@ export default defineComponent({
         }
         sections.push({
           name: 'batch-details',
-          items: [...unref(showDetailsActions)]
+          items: [...unref(menuItemsBatchSideBar)]
         })
         return sections
       }

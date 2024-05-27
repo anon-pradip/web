@@ -1,13 +1,15 @@
 import { Language } from 'vue3-gettext'
-import { Store } from 'vuex'
 import { Resource } from '@ownclouders/web-client'
-import { extractExtensionFromFile } from '@ownclouders/web-client/src/helpers'
+import { extractExtensionFromFile } from '@ownclouders/web-client'
 import {
   ConflictDialog,
   ResolveConflict,
   resolveFileNameDuplicate,
   ResolveStrategy,
-  UppyResource
+  ResourceConflictModal,
+  ResourcesStore,
+  UppyResource,
+  useModals
 } from '@ownclouders/web-pkg'
 
 interface ConflictedResource {
@@ -15,25 +17,46 @@ interface ConflictedResource {
   type: string
 }
 
-export class ResourceConflict extends ConflictDialog {
-  store: Store<any>
+export class UploadResourceConflict extends ConflictDialog {
+  resourcesStore: ResourcesStore
 
-  constructor(store: Store<any>, language: Language) {
+  constructor(resourcesStore: ResourcesStore, language: Language) {
     const { $gettext, $ngettext } = language
-    super(
-      (modal) => store.dispatch('createModal', modal),
-      () => store.dispatch('hideModal'),
-      (msg) => store.dispatch('showMessage', msg),
-      (msg) => store.dispatch('showErrorMessage', msg),
-      $gettext,
-      $ngettext
-    )
+    super($gettext, $ngettext)
 
-    this.store = store
+    this.resourcesStore = resourcesStore
   }
 
-  get files(): Resource[] {
-    return this.store.getters['Files/files']
+  resolveFileExists(
+    resource: Resource,
+    conflictCount: number,
+    suggestMerge = false,
+    separateSkipHandling = false // separate skip-handling between files and folders
+  ): Promise<ResolveConflict> {
+    const { dispatchModal } = useModals()
+
+    return new Promise<ResolveConflict>((resolve) => {
+      dispatchModal({
+        variation: 'danger',
+        title: resource.isFolder
+          ? this.$gettext('Folder already exists')
+          : this.$gettext('File already exists'),
+        hideActions: true,
+        customComponent: ResourceConflictModal,
+        customComponentAttrs: () => ({
+          confirmSecondaryTextOverwrite: resource.isFolder
+            ? this.$gettext('Merge')
+            : this.$gettext('Replace'),
+          resource,
+          conflictCount,
+          suggestMerge,
+          separateSkipHandling,
+          callbackFn: (conflict: ResolveConflict) => {
+            resolve(conflict)
+          }
+        })
+      })
+    })
   }
 
   getConflicts(files: UppyResource[]): ConflictedResource[] {
@@ -43,7 +66,7 @@ export class ResourceConflict extends ConflictDialog {
       if (relativeFilePath) {
         // Logic for folders, applies to all files inside folder and subfolders
         const rootFolder = relativeFilePath.replace(/^\/+/, '').split('/')[0]
-        const exists = this.files.find((f) => f.name === rootFolder)
+        const exists = this.resourcesStore.resources.find((f) => f.name === rootFolder)
         if (exists) {
           if (conflicts.some((conflict) => conflict.name === rootFolder)) {
             continue
@@ -53,7 +76,9 @@ export class ResourceConflict extends ConflictDialog {
         }
       }
       // Logic for files
-      const exists = this.files.find((f) => f.name === file.name && !file.meta.relativeFolder)
+      const exists = this.resourcesStore.resources.find(
+        (f) => f.name === file.name && !file.meta.relativeFolder
+      )
       if (exists) {
         conflicts.push({ name: file.name, type: 'file' })
       }
@@ -67,8 +92,8 @@ export class ResourceConflict extends ConflictDialog {
   ): Promise<UppyResource[]> {
     let fileCount = 0
     let folderCount = 0
-    const resolvedFileConflicts = []
-    const resolvedFolderConflicts = []
+    const resolvedFileConflicts: { name: string; strategy: ResolveStrategy }[] = []
+    const resolvedFolderConflicts: { name: string; strategy: ResolveStrategy }[] = []
     let doForAllConflicts = false
     let allConflictsStrategy
     let doForAllConflictsFolders = false
@@ -142,7 +167,7 @@ export class ResourceConflict extends ConflictDialog {
     for (const fileName of filesToKeepBoth) {
       const file = files.find((e) => e.name === fileName && !e.meta.relativeFolder)
       const extension = extractExtensionFromFile({ name: fileName } as Resource)
-      file.name = resolveFileNameDuplicate(fileName, extension, this.files)
+      file.name = resolveFileNameDuplicate(fileName, extension, this.resourcesStore.resources)
       file.meta.name = file.name
       if (file.xhrUpload?.endpoint) {
         file.xhrUpload.endpoint = file.xhrUpload.endpoint.replace(
@@ -154,7 +179,7 @@ export class ResourceConflict extends ConflictDialog {
     for (const folder of foldersToKeepBoth) {
       const filesInFolder = files.filter((e) => e.meta.relativeFolder.split('/')[1] === folder)
       for (const file of filesInFolder) {
-        const newFolderName = resolveFileNameDuplicate(folder, '', this.files)
+        const newFolderName = resolveFileNameDuplicate(folder, '', this.resourcesStore.resources)
         file.meta.relativeFolder = file.meta.relativeFolder.replace(
           new RegExp(`/${folder}`),
           `/${newFolderName}`

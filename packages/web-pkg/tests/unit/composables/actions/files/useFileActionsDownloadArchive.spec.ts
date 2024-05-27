@@ -1,18 +1,13 @@
-import { mock } from 'jest-mock-extended'
+import { mock } from 'vitest-mock-extended'
 import { unref } from 'vue'
 import { useFileActionsDownloadArchive } from '../../../../../src/composables/actions'
-import { Resource } from '@ownclouders/web-client'
+import { Resource, SpaceResource } from '@ownclouders/web-client'
+import { defaultComponentMocks, RouteLocation, getComposableWrapper } from 'web-test-helpers'
+import { useArchiverService } from '../../../../../src/composables'
+import { ArchiverService } from '../../../../../src'
+import { ref } from 'vue'
 
-import {
-  createStore,
-  defaultComponentMocks,
-  defaultStoreMockOptions,
-  RouteLocation,
-  getComposableWrapper
-} from 'web-test-helpers'
-import { useArchiverService, useStore } from '../../../../../src/composables'
-
-jest.mock('../../../../../src/composables/archiverService/useArchiverService')
+vi.mock('../../../../../src/composables/archiverService/useArchiverService')
 
 describe('downloadArchive', () => {
   describe('search context', () => {
@@ -37,13 +32,12 @@ describe('downloadArchive', () => {
             downloadableResourceIds: ['1', '2', '3']
           }
         ])('should filter non downloadable resources', ({ resources, downloadableResourceIds }) => {
-          const triggerDownloadMock = jest.fn().mockResolvedValue(true)
-          const { wrapper } = getWrapper({
+          const triggerDownloadMock = vi.fn().mockResolvedValue(true)
+          getWrapper({
             searchLocation: true,
             triggerDownloadMock,
             setup: () => {
-              const store = useStore()
-              const { actions } = useFileActionsDownloadArchive({ store })
+              const { actions } = useFileActionsDownloadArchive()
 
               unref(actions)[0].handler({ space: null, resources })
 
@@ -58,32 +52,30 @@ describe('downloadArchive', () => {
 
 function getWrapper({
   searchLocation = false,
-  triggerDownloadMock = jest.fn() as any,
+  triggerDownloadMock = vi.fn() as (...args: unknown[]) => unknown,
   setup = () => undefined
 } = {}) {
   const routeName = searchLocation ? 'files-common-search' : 'files-spaces-generic'
 
-  jest.mocked(useArchiverService).mockImplementation(
-    () =>
-      ({
-        ...jest.requireActual('../../../../..//src/composables/archiverService/useArchiverService'),
-        triggerDownload: triggerDownloadMock,
-        fileIdsSupported: true
-      }) as any
-  )
+  vi.mocked(useArchiverService).mockImplementation(() => {
+    return {
+      triggerDownload: triggerDownloadMock,
+      fileIdsSupported: ref(true)
+    } as ArchiverService
+  })
 
   const mocks = {
     ...defaultComponentMocks({ currentRoute: mock<RouteLocation>({ name: routeName }) }),
-    space: { driveType: 'personal', spaceRoles: { viewer: [], editor: [], manager: [] } }
+    space: {
+      driveType: 'personal',
+      spaceRoles: { viewer: [], editor: [], manager: [] }
+    } as unknown as SpaceResource
   }
-  const storeOptions = { ...defaultStoreMockOptions }
-  storeOptions.getters.capabilities.mockImplementation(() => ({ spaces: { enabled: true } }))
-  const store = createStore(storeOptions)
+
   return {
     wrapper: getComposableWrapper(setup, {
       mocks,
-      provide: mocks,
-      store
+      provide: mocks
     })
   }
 }

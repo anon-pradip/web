@@ -2,28 +2,28 @@ import { ActionExtension, useEmbedMode } from '@ownclouders/web-pkg'
 import QuickActions from '../../../../src/components/FilesList/QuickActions.vue'
 import { defaultComponentMocks, defaultPlugins, shallowMount } from 'web-test-helpers'
 import { useExtensionRegistry } from '@ownclouders/web-pkg'
-import { mock } from 'jest-mock-extended'
+import { mock } from 'vitest-mock-extended'
 import { ref } from 'vue'
-import { useExtensionRegistryMock } from 'web-test-helpers/src/mocks/useExtensionRegistryMock'
+import { Resource } from '@ownclouders/web-client'
+import { quickActionsExtensionPoint } from '../../../../src/extensionPoints'
 
-jest.mock('@ownclouders/web-pkg', () => ({
-  ...jest.requireActual('@ownclouders/web-pkg'),
-  useEmbedMode: jest.fn(),
-  useExtensionRegistry: jest.fn()
+vi.mock('@ownclouders/web-pkg', async (importOriginal) => ({
+  ...(await importOriginal<any>()),
+  useEmbedMode: vi.fn()
 }))
 
 const collaboratorAction = {
-  isEnabled: jest.fn(() => true),
-  handler: jest.fn(),
+  isVisible: vi.fn(() => true),
+  handler: vi.fn(),
   icon: 'group-add',
   id: 'collaborators',
   name: 'show-shares',
   label: () => 'Add people'
 }
 
-const quicklinkAction = {
-  isEnabled: jest.fn(() => false),
-  handler: jest.fn(),
+const quickLinkAction = {
+  isVisible: vi.fn(() => false),
+  handler: vi.fn(),
   icon: 'link-add',
   id: 'quicklink',
   name: 'copy-quicklink',
@@ -31,11 +31,12 @@ const quicklinkAction = {
 }
 
 const testItem = {
+  id: '1',
   icon: 'file',
   name: 'lorem.txt',
   path: '/lorem.txt',
   size: '12220'
-}
+} as Resource
 
 describe('QuickActions', () => {
   describe('when multiple actions are provided', () => {
@@ -66,7 +67,7 @@ describe('QuickActions', () => {
   describe('action handler', () => {
     it('should call action handler on click', async () => {
       const { wrapper } = getWrapper()
-      const handlerAction = collaboratorAction.handler.mockImplementation()
+      const handlerAction = collaboratorAction.handler.mockImplementation(() => undefined)
 
       const actionButton = wrapper.find('.oc-button')
       await actionButton.trigger('click')
@@ -81,19 +82,23 @@ describe('QuickActions', () => {
 })
 
 function getWrapper({ embedModeEnabled = false } = {}) {
-  jest
-    .mocked(useEmbedMode)
-    .mockReturnValue(mock<ReturnType<typeof useEmbedMode>>({ isEnabled: ref(embedModeEnabled) }))
+  const plugins = defaultPlugins()
 
-  jest.mocked(useExtensionRegistry).mockImplementation(() =>
-    useExtensionRegistryMock({
-      requestExtensions: () =>
-        [
-          mock<ActionExtension>({ scopes: ['resource.quick-action'], action: collaboratorAction }),
-          mock<ActionExtension>({ scopes: ['resource.quick-action'], action: quicklinkAction })
-        ] as any
-    })
+  vi.mocked(useEmbedMode).mockReturnValue(
+    mock<ReturnType<typeof useEmbedMode>>({ isEnabled: ref(embedModeEnabled) })
   )
+
+  const { requestExtensions } = useExtensionRegistry()
+  vi.mocked(requestExtensions).mockReturnValue([
+    mock<ActionExtension>({
+      extensionPointIds: [quickActionsExtensionPoint.id],
+      action: collaboratorAction
+    }),
+    mock<ActionExtension>({
+      extensionPointIds: [quickActionsExtensionPoint.id],
+      action: quickLinkAction
+    })
+  ])
 
   return {
     wrapper: shallowMount(QuickActions, {
@@ -103,7 +108,7 @@ function getWrapper({ embedModeEnabled = false } = {}) {
       global: {
         stubs: { OcButton: false },
         mocks: { ...defaultComponentMocks() },
-        plugins: [...defaultPlugins()]
+        plugins
       }
     })
   }

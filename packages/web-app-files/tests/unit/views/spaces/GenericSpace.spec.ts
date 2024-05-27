@@ -1,44 +1,47 @@
 import { computed, ref } from 'vue'
-import { mock, mockDeep } from 'jest-mock-extended'
-import { Resource, SpaceResource } from '@ownclouders/web-client/src/helpers'
+import { mock, mockDeep } from 'vitest-mock-extended'
+import { Resource, SpaceResource } from '@ownclouders/web-client'
 import GenericSpace from 'web-app-files/src/views/spaces/GenericSpace.vue'
 import { useResourcesViewDefaults } from 'web-app-files/src/composables/resourcesViewDefaults'
 import { useResourcesViewDefaultsMock } from 'web-app-files/tests/mocks/useResourcesViewDefaultsMock'
 import {
-  createStore,
   defaultPlugins,
   mount,
-  defaultStoreMockOptions,
   defaultComponentMocks,
   defaultStubs,
-  RouteLocation
+  RouteLocation,
+  ComponentProps,
+  PartialComponentProps
 } from 'web-test-helpers'
-import { ConfigurationManager, useBreadcrumbsFromPath } from '@ownclouders/web-pkg'
+import {
+  AppBar,
+  FolderViewExtension,
+  useBreadcrumbsFromPath,
+  useExtensionRegistry
+} from '@ownclouders/web-pkg'
 import { useBreadcrumbsFromPathMock } from '../../../mocks/useBreadcrumbsFromPathMock'
-import { createMockThemeStore } from 'web-test-helpers/src/mocks/pinia'
+import { h } from 'vue'
+import { BreadcrumbItem } from 'design-system/src/components/OcBreadcrumb/types'
+import {
+  folderViewsFavoritesExtensionPoint,
+  folderViewsFolderExtensionPoint,
+  folderViewsProjectSpacesExtensionPoint
+} from '../../../../src/extensionPoints'
 
-const mockCreateFolder = jest.fn()
-const mockUseEmbedMode = jest.fn().mockReturnValue({ isEnabled: computed(() => false) })
+const mockCreateFolder = vi.fn()
+const mockUseEmbedMode = vi.fn().mockReturnValue({ isEnabled: computed(() => false) })
 
-jest.mock('web-app-files/src/composables/resourcesViewDefaults')
-jest.mock('web-app-files/src/composables/keyboardActions')
-jest.mock('@ownclouders/web-pkg', () => ({
-  ...jest.requireActual('@ownclouders/web-pkg'),
-  useBreadcrumbsFromPath: jest.fn(),
-  useConfigurationManager: () =>
-    mockDeep<ConfigurationManager>({
-      options: {
-        routing: {
-          fullShareOwnerPaths: false
-        }
-      }
-    }),
+vi.mock('web-app-files/src/composables/resourcesViewDefaults')
+vi.mock('web-app-files/src/composables/keyboardActions')
+vi.mock('@ownclouders/web-pkg', async (importOriginal) => ({
+  ...(await importOriginal<any>()),
+  useBreadcrumbsFromPath: vi.fn(),
   useFileActionsCreateNewFolder: () => ({
     actions: [{ handler: mockCreateFolder }]
   }),
-  useEmbedMode: jest.fn().mockImplementation(() => mockUseEmbedMode()),
-  useFileActions: jest.fn(() => ({})),
-  useOpenWithDefaultApp: jest.fn(() => ({}))
+  useEmbedMode: vi.fn().mockImplementation(() => mockUseEmbedMode()),
+  useFileActions: vi.fn(() => ({})),
+  useOpenWithDefaultApp: vi.fn(() => ({}))
 }))
 
 const selectors = Object.freeze({
@@ -91,7 +94,7 @@ describe('GenericSpace view', () => {
     it('shows the files table when files are available', () => {
       const { wrapper } = getMountedWrapper({ files: [mock<Resource>()] })
       expect(wrapper.find('.no-content-message').exists()).toBeFalsy()
-      expect(wrapper.find('resource-table-stub').exists()).toBeTruthy()
+      expect(wrapper.find('.resource-table').exists()).toBeTruthy()
     })
   })
   describe('breadcrumbs', () => {
@@ -100,14 +103,14 @@ describe('GenericSpace view', () => {
       { driveType: 'project', expectedItems: 2 },
       { driveType: 'share', expectedItems: 3 }
     ])('include root item(s)', ({ driveType, expectedItems }) => {
-      const space = {
-        id: 1,
-        getDriveAliasAndItem: jest.fn(),
+      const space = mock<SpaceResource>({
+        id: '1',
+        getDriveAliasAndItem: vi.fn(),
         driveType,
         isOwner: () => driveType === 'personal'
-      }
+      })
       const { wrapper } = getMountedWrapper({ files: [mockDeep<Resource>()], props: { space } })
-      expect(wrapper.findComponent<any>('app-bar-stub').props().breadcrumbs.length).toBe(
+      expect(wrapper.findComponent<typeof AppBar>('app-bar-stub').props().breadcrumbs.length).toBe(
         expectedItems
       )
     })
@@ -118,10 +121,12 @@ describe('GenericSpace view', () => {
         props: { item: `/${folderName}` },
         breadcrumbsFromPath: [{ text: folderName }]
       })
-      expect(wrapper.findComponent<any>('app-bar-stub').props().breadcrumbs.length).toBe(2)
-      expect(wrapper.findComponent<any>('app-bar-stub').props().breadcrumbs[1].text).toEqual(
-        folderName
+      expect(wrapper.findComponent<typeof AppBar>('app-bar-stub').props().breadcrumbs.length).toBe(
+        2
       )
+      expect(
+        wrapper.findComponent<typeof AppBar>('app-bar-stub').props().breadcrumbs[1].text
+      ).toEqual(folderName)
     })
     it('omit the "page"-query of the current route', () => {
       const currentRoute = { name: 'files-spaces-generic', path: '/', query: { page: '2' } }
@@ -130,8 +135,9 @@ describe('GenericSpace view', () => {
         props: { item: 'someFolder' },
         currentRoute
       })
-      const breadCrumbItem = wrapper.findComponent<any>('app-bar-stub').props().breadcrumbs[0]
-      expect(breadCrumbItem.to.query.page).toBeUndefined()
+      const breadCrumbItem = wrapper.findComponent<typeof AppBar>('app-bar-stub').props()
+        .breadcrumbs[0]
+      expect((breadCrumbItem.to as RouteLocation).query.page).toBeUndefined()
     })
   })
   describe('loader task', () => {
@@ -179,7 +185,7 @@ describe('GenericSpace view', () => {
     describe('on EOS for single shared resources', () => {
       it('renders the ResourceDetails component if no currentFolder id is present', () => {
         const { wrapper } = getMountedWrapper({
-          currentFolder: {},
+          currentFolder: mock<Resource>({ fileId: '' }),
           files: [mock<Resource>({ isFolder: false })],
           runningOnEos: true
         })
@@ -205,12 +211,12 @@ describe('GenericSpace view', () => {
             ...mock<Resource>()
           },
           files: [{ ...mock<Resource>(), isFolder: false }],
-          space: {
-            id: 1,
-            getDriveAliasAndItem: jest.fn(),
+          space: mock<SpaceResource>({
+            id: '1',
+            getDriveAliasAndItem: vi.fn(),
             name: 'Personal space',
             driveType: 'public'
-          }
+          })
         })
         expect(wrapper.find('resource-details-stub').exists()).toBeTruthy()
       })
@@ -282,59 +288,85 @@ function getMountedWrapper({
   files = [],
   loading = false,
   currentRoute = { name: 'files-spaces-generic', path: '/' },
-  currentFolder = mock<Resource>() || {},
+  currentFolder = mock<Resource>(),
   runningOnEos = false,
-  space = { id: 1, getDriveAliasAndItem: jest.fn(), name: 'Personal space', driveType: '' },
+  space = mock<SpaceResource>({
+    id: '1',
+    getDriveAliasAndItem: vi.fn(),
+    name: 'Personal space',
+    driveType: ''
+  }),
   breadcrumbsFromPath = [],
   stubs = {}
+}: {
+  mocks?: Record<string, unknown>
+  props?: PartialComponentProps<typeof GenericSpace>
+  files?: Resource[]
+  loading?: boolean
+  currentRoute?: Partial<RouteLocation>
+  currentFolder?: Resource
+  runningOnEos?: boolean
+  space?: SpaceResource
+  breadcrumbsFromPath?: BreadcrumbItem[]
+  stubs?: any
 } = {}) {
+  const plugins = defaultPlugins({
+    piniaOptions: {
+      configState: { options: { runningOnEos } },
+      resourcesStore: { currentFolder }
+    }
+  })
+
   const resourcesViewDetailsMock = useResourcesViewDefaultsMock({
     paginatedResources: ref(files),
     areResourcesLoading: ref(loading)
   })
-  jest.mocked(useResourcesViewDefaults).mockImplementation(() => resourcesViewDetailsMock)
-  jest
-    .mocked(useBreadcrumbsFromPath)
-    .mockImplementation(() =>
-      useBreadcrumbsFromPathMock({ breadcrumbsFromPath: jest.fn(() => breadcrumbsFromPath) })
-    )
+  vi.mocked(useResourcesViewDefaults).mockImplementation(() => resourcesViewDetailsMock)
+  vi.mocked(useBreadcrumbsFromPath).mockImplementation(() =>
+    useBreadcrumbsFromPathMock({ breadcrumbsFromPath: vi.fn(() => breadcrumbsFromPath) })
+  )
+
+  const extensions = [
+    {
+      id: 'com.github.owncloud.web.files.folder-view.resource-table',
+      type: 'folderView',
+      extensionPointIds: [
+        folderViewsFolderExtensionPoint.id,
+        folderViewsProjectSpacesExtensionPoint.id,
+        folderViewsFavoritesExtensionPoint.id
+      ],
+      folderView: {
+        name: 'resource-table',
+        label: 'Switch to default view',
+        icon: {
+          name: 'menu-line',
+          fillType: 'none'
+        },
+        component: h('div', { class: 'resource-table' })
+      }
+    }
+  ] satisfies FolderViewExtension[]
+  const { requestExtensions } = useExtensionRegistry()
+  vi.mocked(requestExtensions).mockReturnValue(extensions)
+
   const defaultMocks = {
     ...defaultComponentMocks({ currentRoute: mock<RouteLocation>(currentRoute) }),
     ...(mocks && mocks)
   }
 
-  const storeOptions = {
-    ...defaultStoreMockOptions,
-    getters: {
-      ...defaultStoreMockOptions.getters,
-      configuration: function () {
-        return {
-          options: {
-            runningOnEos
-          }
-        }
-      }
-    }
-  }
-  storeOptions.modules.Files.getters.currentFolder.mockReturnValue(currentFolder)
-  storeOptions.getters.capabilities.mockReturnValue({
-    spaces: {
-      share_jail: true
-    }
-  })
-  const propsData = {
+  const propsData: ComponentProps<typeof GenericSpace> = {
     space,
     item: '/',
+    itemId: undefined,
     ...props
   }
-  const store = createStore(storeOptions)
+
   return {
     mocks: { ...defaultMocks, ...resourcesViewDetailsMock },
-    storeOptions,
     wrapper: mount(GenericSpace, {
       props: propsData,
       global: {
-        plugins: [...defaultPlugins(), store, createMockThemeStore()],
+        plugins,
         mocks: defaultMocks,
         provide: defaultMocks,
         stubs: { ...defaultStubs, 'resource-details': true, portal: true, ...stubs }

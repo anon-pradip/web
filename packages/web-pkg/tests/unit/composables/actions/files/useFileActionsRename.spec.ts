@@ -1,24 +1,13 @@
-import { ConfigurationManager, useFileActionsRename, useStore } from '../../../../../src'
-import { mockDeep } from 'jest-mock-extended'
-import { Resource, SpaceResource } from '@ownclouders/web-client/src/helpers'
+import { useFileActionsRename } from '../../../../../src/composables/actions'
 import {
-  createStore,
-  defaultStoreMockOptions,
-  defaultComponentMocks,
-  getComposableWrapper
-} from 'web-test-helpers'
-import { nextTick, unref } from 'vue'
-
-jest.mock('../../../../../src/composables/configuration/useConfigurationManager', () => ({
-  useConfigurationManager: () =>
-    mockDeep<ConfigurationManager>({
-      options: {
-        routing: {
-          fullShareOwnerPaths: false
-        }
-      }
-    })
-}))
+  useMessages,
+  useModals,
+  useResourcesStore
+} from '../../../../../src/composables/piniaStores'
+import { mock, mockDeep } from 'vitest-mock-extended'
+import { Resource, SpaceResource } from '@ownclouders/web-client'
+import { defaultComponentMocks, getComposableWrapper } from 'web-test-helpers'
+import { unref } from 'vue'
 
 const currentFolder = {
   id: '1',
@@ -27,7 +16,7 @@ const currentFolder = {
 
 describe('rename', () => {
   describe('computed property "actions"', () => {
-    describe('isEnabled property of returned element', () => {
+    describe('isVisible property of returned element', () => {
       it.each([
         { resources: [{ canRename: () => true }] as Resource[], expectedStatus: true },
         { resources: [{ canRename: () => false }] as Resource[], expectedStatus: false },
@@ -40,10 +29,10 @@ describe('rename', () => {
           expectedStatus: false
         }
       ])('should be set correctly', (inputData) => {
-        const { wrapper } = getWrapper({
+        getWrapper({
           setup: ({ actions }, { space }) => {
             const resources = inputData.resources
-            expect(unref(actions)[0].isEnabled({ space, resources })).toBe(inputData.expectedStatus)
+            expect(unref(actions)[0].isVisible({ space, resources })).toBe(inputData.expectedStatus)
           }
         })
       })
@@ -51,44 +40,44 @@ describe('rename', () => {
   })
 
   describe('rename action handler', () => {
-    it('should trigger the rename modal window', async () => {
-      const { wrapper } = getWrapper({
-        setup: async ({ actions }, { space, storeOptions }) => {
+    it('should trigger the rename modal window', () => {
+      getWrapper({
+        setup: async ({ actions }, { space }) => {
+          const { dispatchModal } = useModals()
           const resources = [currentFolder]
           await unref(actions)[0].handler({ space, resources })
-          expect(storeOptions.actions.createModal).toHaveBeenCalledTimes(1)
+          expect(dispatchModal).toHaveBeenCalledTimes(1)
         }
       })
     })
   })
 
-  describe('method "checkNewName"', () => {
+  describe('method "getNameErrorMsg"', () => {
     it('should not show an error if new name not taken', () => {
-      const { wrapper } = getWrapper({
-        setup: ({ checkNewName }, { storeOptions }) => {
-          storeOptions.modules.Files.getters.files.mockReturnValue([
-            { name: 'file1', path: '/file1' }
-          ])
-          checkNewName({ name: 'currentName', path: '/currentName' } as Resource, 'newName')
-          expect(storeOptions.actions.setModalInputErrorMessage).toHaveBeenCalledWith(
-            expect.anything(),
-            null
+      getWrapper({
+        setup: ({ getNameErrorMsg }) => {
+          const resourcesStore = useResourcesStore()
+          resourcesStore.resources = [{ name: 'file1', path: '/file1' }] as Resource[]
+          const message = getNameErrorMsg(
+            { name: 'currentName', path: '/currentName' } as Resource,
+            'newName'
           )
+          expect(message).toEqual(null)
         }
       })
     })
 
     it('should not show an error if new name already exists but in different folder', () => {
-      const { wrapper } = getWrapper({
-        setup: ({ checkNewName }, { storeOptions }) => {
-          storeOptions.modules.Files.getters.files.mockReturnValue([
-            { name: 'file1', path: '/file1' }
-          ])
-          checkNewName({ name: 'currentName', path: '/favorites/currentName' }, 'file1')
-          expect(storeOptions.actions.setModalInputErrorMessage).toHaveBeenCalledWith(
-            expect.anything(),
-            null
+      getWrapper({
+        setup: ({ getNameErrorMsg }) => {
+          const resourcesStore = useResourcesStore()
+          resourcesStore.resources = [{ name: 'file1', path: '/file1' }] as Resource[]
+
+          const message = getNameErrorMsg(
+            mock<Resource>({ name: 'currentName', path: '/favorites/currentName' }),
+            'file1'
           )
+          expect(message).toEqual(null)
         }
       })
     })
@@ -111,60 +100,60 @@ describe('rename', () => {
       {
         currentName: 'currentName',
         newName: 'newname',
-        parentResources: [{ name: 'newname', path: '/newname' }],
+        parentResources: [{ name: 'newname', path: '/newname' } as Resource],
         message: 'The name "newname" is already taken'
       }
     ])('should detect name errors and display error messages accordingly', (inputData) => {
-      const { wrapper } = getWrapper({
-        setup: ({ checkNewName }, { storeOptions }) => {
-          checkNewName(
-            { name: inputData.currentName, path: `/${inputData.currentName}` },
+      getWrapper({
+        setup: ({ getNameErrorMsg }) => {
+          const resourcesStore = useResourcesStore()
+          resourcesStore.resources = [{ name: 'file1', path: '/file1' }] as Resource[]
+
+          const message = getNameErrorMsg(
+            mock<Resource>({ name: inputData.currentName, path: `/${inputData.currentName}` }),
             inputData.newName,
             inputData.parentResources
           )
-          expect(storeOptions.actions.setModalInputErrorMessage).toHaveBeenCalledWith(
-            expect.anything(),
-            inputData.message
-          )
+          expect(message).toEqual(inputData.message)
         }
       })
     })
   })
 
   describe('method "renameResource"', () => {
-    it('should call the rename action on a resource in the file list', async () => {
-      const { wrapper } = getWrapper({
-        setup: async ({ renameResource }, { space, storeOptions }) => {
+    it('should call the rename action on a resource in the file list', () => {
+      getWrapper({
+        setup: async ({ renameResource }, { space }) => {
           const resource = { id: '2', path: '/folder', webDavPath: '/files/admin/folder' }
-          renameResource(space, resource, 'new name')
-          await nextTick()
-          expect(storeOptions.actions.hideModal).toHaveBeenCalledTimes(1)
+          await renameResource(space, resource, 'new name')
+
+          const { upsertResource } = useResourcesStore()
+          expect(upsertResource).toHaveBeenCalledTimes(1)
         }
       })
     })
 
-    it('should call the rename action on the current folder', async () => {
-      const { wrapper } = getWrapper({
-        setup: async ({ renameResource }, { space, storeOptions }) => {
-          renameResource(space, currentFolder, 'new name')
-          await nextTick()
-          expect(storeOptions.actions.hideModal).toHaveBeenCalledTimes(1)
+    it('should call the rename action on the current folder', () => {
+      getWrapper({
+        setup: async ({ renameResource }, { space }) => {
+          await renameResource(space, currentFolder, 'new name')
+
+          const { upsertResource } = useResourcesStore()
+          expect(upsertResource).toHaveBeenCalledTimes(1)
         }
       })
     })
 
-    it('should handle errors properly', async () => {
-      jest.spyOn(console, 'error').mockImplementation(() => undefined)
+    it('should handle errors properly', () => {
+      vi.spyOn(console, 'error').mockImplementation(() => undefined)
 
-      const { wrapper } = getWrapper({
-        setup: async ({ renameResource }, { space, storeOptions, clientService }) => {
+      getWrapper({
+        setup: async ({ renameResource }, { space, clientService }) => {
           clientService.webdav.moveFiles.mockRejectedValueOnce(new Error())
 
-          renameResource(space, currentFolder, 'new name')
-          await nextTick()
-          await nextTick()
-          expect(storeOptions.actions.hideModal).toHaveBeenCalledTimes(0)
-          expect(storeOptions.actions.showErrorMessage).toHaveBeenCalledTimes(1)
+          await renameResource(space, currentFolder, 'new name')
+          const { showErrorMessage } = useMessages()
+          expect(showErrorMessage).toHaveBeenCalledTimes(1)
         }
       })
     })
@@ -178,11 +167,9 @@ function getWrapper({
     instance: ReturnType<typeof useFileActionsRename>,
     {
       space,
-      storeOptions,
       clientService
     }: {
       space: SpaceResource
-      storeOptions: typeof defaultStoreMockOptions
       clientService: ReturnType<typeof defaultComponentMocks>['$clientService']
     }
   ) => void
@@ -194,21 +181,16 @@ function getWrapper({
     })
   }
 
-  const storeOptions = defaultStoreMockOptions
-  const store = createStore(storeOptions)
   return {
     mocks,
-    storeOptions,
     wrapper: getComposableWrapper(
       () => {
-        const store = useStore()
-        const instance = useFileActionsRename({ store })
-        setup(instance, { space: mocks.space, storeOptions, clientService: mocks.$clientService })
+        const instance = useFileActionsRename()
+        setup(instance, { space: mocks.space, clientService: mocks.$clientService })
       },
       {
         mocks,
-        provide: mocks,
-        store
+        provide: mocks
       }
     )
   }

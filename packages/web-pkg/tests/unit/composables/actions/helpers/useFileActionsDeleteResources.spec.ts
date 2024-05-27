@@ -1,25 +1,10 @@
-import { useStore, useFileActionsDeleteResources } from '../../../../../src'
-import { ConfigurationManager } from '../../../../../src/configuration'
-import { mockDeep } from 'jest-mock-extended'
-import { FolderResource, SpaceResource } from '@ownclouders/web-client/src/helpers'
-import {
-  createStore,
-  defaultStoreMockOptions,
-  defaultComponentMocks,
-  getComposableWrapper
-} from 'web-test-helpers'
-import { nextTick } from 'vue'
+import { useFileActionsDeleteResources } from '../../../../../src/composables/actions'
+import { mockDeep } from 'vitest-mock-extended'
+import { FolderResource, Resource, SpaceResource } from '@ownclouders/web-client'
+import { defaultComponentMocks, getComposableWrapper } from 'web-test-helpers'
+import { useDeleteWorker } from '../../../../../src/composables/webWorkers/deleteWorker'
 
-jest.mock('../../../../../src/composables/configuration', () => ({
-  useConfigurationManager: () =>
-    mockDeep<ConfigurationManager>({
-      options: {
-        concurrentRequests: {
-          resourceBatchActions: 1
-        }
-      }
-    })
-}))
+vi.mock('../../../../../src/composables/webWorkers/deleteWorker')
 
 const currentFolder = {
   id: '1',
@@ -28,24 +13,27 @@ const currentFolder = {
 
 describe('deleteResources', () => {
   describe('method "filesList_delete"', () => {
-    it('should call the delete action on a resource in the file list', async () => {
-      const { wrapper } = getWrapper({
+    it('should call the delete action on a resource in the file list', () => {
+      const filesToDelete = [{ id: '2', path: '/folder/fileToDelete.txt' }]
+
+      getWrapper({
         currentFolder,
-        setup: async ({ displayDialog, filesList_delete }, { space, router, storeOptions }) => {
-          await filesList_delete([{ id: '2', path: '/folder/fileToDelete.txt' }])
-          await nextTick()
+        result: filesToDelete,
+        setup: ({ filesList_delete }, { router }) => {
+          filesList_delete(filesToDelete)
+
           expect(router.push).toHaveBeenCalledTimes(0)
         }
       })
     })
 
-    it('should call the delete action on the current folder', async () => {
+    it('should call the delete action on the current folder', () => {
       const resourcesToDelete = [currentFolder]
-      const { wrapper } = getWrapper({
+      getWrapper({
         currentFolder,
-        setup: async ({ displayDialog, filesList_delete }, { space, router, storeOptions }) => {
-          await filesList_delete(resourcesToDelete)
-          await nextTick()
+        setup: ({ filesList_delete }, { router }) => {
+          filesList_delete(resourcesToDelete)
+
           expect(router.push).toHaveBeenCalledTimes(1)
         }
       })
@@ -55,47 +43,45 @@ describe('deleteResources', () => {
 
 function getWrapper({
   currentFolder,
-  setup
+  setup,
+  result = []
 }: {
   currentFolder: FolderResource
   setup: (
     instance: ReturnType<typeof useFileActionsDeleteResources>,
     {
       space,
-      router,
-      storeOptions
+      router
     }: {
       space: SpaceResource
       router: ReturnType<typeof defaultComponentMocks>['$router']
-      storeOptions: typeof defaultStoreMockOptions
     }
   ) => void
+  result?: Resource[]
 }) {
   const mocks = {
     ...defaultComponentMocks(),
     space: mockDeep<SpaceResource>()
   }
+  mocks.$clientService.webdav.deleteFile.mockResolvedValue(undefined)
 
-  const storeOptions = {
-    ...defaultStoreMockOptions
-  }
-  storeOptions.modules.Files.getters.currentFolder.mockReturnValue(currentFolder)
-  storeOptions.modules.Files.getters.activeFiles.mockReturnValue([])
+  vi.mocked(useDeleteWorker).mockReturnValue({
+    startWorker: vi.fn().mockImplementation((_, callback) => {
+      callback({ successful: result, failed: [] })
+    })
+  })
 
-  const store = createStore(storeOptions)
   return {
     mocks,
-    storeOptions,
     wrapper: getComposableWrapper(
       () => {
-        const store = useStore()
-        const instance = useFileActionsDeleteResources({ store })
-        setup(instance, { space: mocks.space, storeOptions, router: mocks.$router })
+        const instance = useFileActionsDeleteResources()
+        setup(instance, { space: mocks.space, router: mocks.$router })
       },
       {
         mocks,
         provide: mocks,
-        store
+        pluginOptions: { piniaOptions: { resourcesStore: { currentFolder } } }
       }
     )
   }

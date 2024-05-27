@@ -1,124 +1,119 @@
-import { Resource, SpaceResource } from '@ownclouders/web-client/src/helpers'
-import { Store } from 'vuex'
-import { computed, nextTick, unref } from 'vue'
+import { SpaceResource, isShareSpaceResource } from '@ownclouders/web-client'
+import { computed, nextTick, Ref, unref } from 'vue'
 import { useClientService } from '../../clientService'
 import { useRouter } from '../../router'
-import { useStore } from '../../store'
 import { FileAction } from '../../../'
 import { useGettext } from 'vue3-gettext'
 import { resolveFileNameDuplicate } from '../../../helpers/resource'
 import { join } from 'path'
-import { WebDAV } from '@ownclouders/web-client/src/webdav'
 import { isLocationSpacesActive } from '../../../router'
 import { getIndicators } from '../../../helpers/statusIndicators'
 import { useScrollTo } from '../../scrollTo'
-import { AncestorMetaData } from '../../../types'
+import {
+  useMessages,
+  useModals,
+  useResourcesStore,
+  useUserStore
+} from '../../../composables/piniaStores'
+import { storeToRefs } from 'pinia'
 
-export const useFileActionsCreateNewFolder = ({
-  store,
-  space
-}: { store?: Store<any>; space?: SpaceResource } = {}) => {
-  store = store || useStore()
+export const useFileActionsCreateNewFolder = ({ space }: { space?: Ref<SpaceResource> } = {}) => {
+  const { showMessage, showErrorMessage } = useMessages()
   const router = useRouter()
+  const { dispatchModal } = useModals()
   const { $gettext } = useGettext()
   const { scrollToResource } = useScrollTo()
+  const userRoleStore = useUserStore()
+
+  const resourcesStore = useResourcesStore()
+  const { resources, currentFolder, ancestorMetaData } = storeToRefs(resourcesStore)
 
   const clientService = useClientService()
-  const currentFolder = computed((): Resource => store.getters['Files/currentFolder'])
-  const files = computed((): Array<Resource> => store.getters['Files/files'])
-  const ancestorMetaData = computed<AncestorMetaData>(
-    () => store.getters['runtime/ancestorMetaData/ancestorMetaData']
-  )
 
-  const checkNewFolderName = (folderName) => {
+  const checkNewFolderName = (folderName: string, setError: (error: string) => void) => {
     if (folderName.trim() === '') {
-      return $gettext('Folder name cannot be empty')
+      return setError($gettext('Folder name cannot be empty'))
     }
 
     if (/[/]/.test(folderName)) {
-      return $gettext('Folder name cannot contain "/"')
+      return setError($gettext('Folder name cannot contain "/"'))
     }
 
     if (folderName === '.') {
-      return $gettext('Folder name cannot be equal to "."')
+      return setError($gettext('Folder name cannot be equal to "."'))
     }
 
     if (folderName === '..') {
-      return $gettext('Folder name cannot be equal to ".."')
+      return setError($gettext('Folder name cannot be equal to ".."'))
     }
 
-    const exists = unref(files).find((file) => file.name === folderName)
+    const exists = unref(resources).find((file) => file.name === folderName)
 
     if (exists) {
-      return $gettext('%{name} already exists', { name: folderName }, true)
+      return setError($gettext('%{name} already exists', { name: folderName }, true))
     }
 
-    return null
+    return setError(null)
   }
 
   const loadIndicatorsForNewFile = computed(() => {
-    return isLocationSpacesActive(router, 'files-spaces-generic') && space.driveType !== 'share'
+    return (
+      isLocationSpacesActive(router, 'files-spaces-generic') && unref(space).driveType !== 'share'
+    )
   })
 
-  const addNewFolder = async (folderName) => {
+  const addNewFolder = async (folderName: string) => {
     folderName = folderName.trimEnd()
 
     try {
       const path = join(unref(currentFolder).path, folderName)
-      const resource = await (clientService.webdav as WebDAV).createFolder(space, {
-        path
-      })
+      const resource = await clientService.webdav.createFolder(unref(space), { path })
 
       if (unref(loadIndicatorsForNewFile)) {
-        resource.indicators = getIndicators({ resource, ancestorMetaData: unref(ancestorMetaData) })
+        resource.indicators = getIndicators({
+          space: unref(space),
+          resource,
+          ancestorMetaData: unref(ancestorMetaData),
+          user: userRoleStore.user
+        })
       }
 
-      store.commit('Files/UPSERT_RESOURCE', resource)
-      store.dispatch('hideModal')
+      // FIXME: move to buildResource as soon as it has space context
+      if (isShareSpaceResource(unref(space))) {
+        resource.remoteItemId = unref(space).id
+      }
 
-      store.dispatch('showMessage', {
-        title: $gettext('"%{folderName}" was created successfully', { folderName })
-      })
+      resourcesStore.upsertResource(resource)
+
+      showMessage({ title: $gettext('"%{folderName}" was created successfully', { folderName }) })
 
       await nextTick()
       scrollToResource(resource.id, { forceScroll: true, topbarElement: 'files-app-bar' })
     } catch (error) {
       console.error(error)
-      store.dispatch('showErrorMessage', {
+      showErrorMessage({
         title: $gettext('Failed to create folder'),
-        error
+        errors: [error]
       })
     }
   }
 
   const handler = () => {
-    const checkInputValue = (value) => {
-      store.dispatch('setModalInputErrorMessage', checkNewFolderName(value))
-    }
     let defaultName = $gettext('New folder')
 
-    if (unref(files).some((f) => f.name === defaultName)) {
-      defaultName = resolveFileNameDuplicate(defaultName, '', unref(files))
+    if (unref(resources).some((f) => f.name === defaultName)) {
+      defaultName = resolveFileNameDuplicate(defaultName, '', unref(resources))
     }
 
-    const inputSelectionRange = null
-
-    const modal = {
-      variation: 'passive',
+    dispatchModal({
       title: $gettext('Create a new folder'),
-      cancelText: $gettext('Cancel'),
       confirmText: $gettext('Create'),
       hasInput: true,
       inputValue: defaultName,
       inputLabel: $gettext('Folder name'),
-      inputError: checkNewFolderName(defaultName),
-      inputSelectionRange,
-      onCancel: () => store.dispatch('hideModal'),
       onConfirm: addNewFolder,
-      onInput: checkInputValue
-    }
-
-    store.dispatch('createModal', modal)
+      onInput: checkNewFolderName
+    })
   }
 
   const actions = computed((): FileAction[] => {
@@ -130,7 +125,7 @@ export const useFileActionsCreateNewFolder = ({
         label: () => {
           return $gettext('New Folder')
         },
-        isEnabled: () => {
+        isVisible: () => {
           return unref(currentFolder)?.canCreate()
         },
         componentType: 'button',

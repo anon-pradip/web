@@ -17,9 +17,7 @@
     <resource-table
       v-else
       v-model:selectedIds="selectedResourcesIds"
-      :data-test-share-status="shareStatus"
-      class="files-table"
-      :class="{ 'files-table-squashed': isSideBarOpen }"
+      :is-side-bar-open="isSideBarOpen"
       :fields-displayed="displayedFields"
       sidebar-closed
       :are-thumbnails-displayed="displayThumbnails"
@@ -34,14 +32,15 @@
       @row-mounted="rowMounted"
       @sort="sortHandler"
     >
-      <template #status="{ resource }">
+      <template #syncEnabled="{ resource }">
         <div
-          :key="resource.getDomSelector() + resource.status"
+          :key="resource.getDomSelector()"
           class="oc-text-nowrap oc-flex oc-flex-middle oc-flex-right"
         >
           <oc-icon
-            v-if="getShowSynchedIcon(resource)"
+            v-if="resource.syncEnabled"
             v-oc-tooltip="$gettext('Synced with your devices')"
+            :accessible-label="$gettext('Synced with your devices')"
             name="loop-right"
             class="sync-enabled"
           />
@@ -90,21 +89,26 @@
 </template>
 
 <script lang="ts">
-import { ResourceTable, useFileActions, useFileActionsToggleHideShare } from '@ownclouders/web-pkg'
-import { computed, defineComponent, PropType, unref } from 'vue'
+import {
+  ResourceTable,
+  useCapabilityStore,
+  useConfigStore,
+  useFileActions,
+  useFileActionsToggleHideShare,
+  useResourcesStore
+} from '@ownclouders/web-pkg'
+import { ComponentPublicInstance, computed, defineComponent, PropType, unref } from 'vue'
 import { debounce } from 'lodash-es'
-import { ImageDimension, ImageType } from '@ownclouders/web-pkg'
+import { ImageDimension } from '@ownclouders/web-pkg'
 import { VisibilityObserver } from '@ownclouders/web-pkg'
-import { mapActions } from 'vuex'
-import { SortDir, useStore, useGetMatchingSpace } from '@ownclouders/web-pkg'
+import { SortDir, useGetMatchingSpace } from '@ownclouders/web-pkg'
 import { createLocationSpaces } from '@ownclouders/web-pkg'
 import ListInfo from '../../components/FilesList/ListInfo.vue'
-import { ShareStatus } from '@ownclouders/web-client/src/helpers/share'
+import { IncomingShareResource } from '@ownclouders/web-client'
 import { ContextActions } from '@ownclouders/web-pkg'
 import { NoContentMessage } from '@ownclouders/web-pkg'
 import { useSelectedResources } from '@ownclouders/web-pkg'
 import { RouteLocationNamedRaw } from 'vue-router'
-import { Resource } from '@ownclouders/web-client/src/helpers'
 import { CreateTargetRouteOptions } from '@ownclouders/web-pkg'
 import { createFileRouteOptions } from '@ownclouders/web-pkg'
 
@@ -129,12 +133,8 @@ export default defineComponent({
       default: ''
     },
     items: {
-      type: Array as PropType<Resource[]>,
+      type: Array as PropType<IncomingShareResource[]>,
       required: true
-    },
-    shareStatus: {
-      type: Number,
-      default: ShareStatus.accepted
     },
     sortBy: {
       type: String,
@@ -189,12 +189,15 @@ export default defineComponent({
     }
   },
   setup() {
-    const store = useStore()
+    const capabilityStore = useCapabilityStore()
+    const configStore = useConfigStore()
     const { getMatchingSpace } = useGetMatchingSpace()
 
     const { triggerDefaultAction } = useFileActions()
-    const { actions: hideShareActions } = useFileActionsToggleHideShare({ store })
+    const { actions: hideShareActions } = useFileActionsToggleHideShare()
     const hideShareAction = computed(() => unref(hideShareActions)[0])
+
+    const { updateResourceField } = useResourcesStore()
 
     const resourceTargetRouteCallback = ({
       path,
@@ -208,22 +211,24 @@ export default defineComponent({
     }
 
     return {
+      capabilityStore,
+      configStore,
       triggerDefaultAction,
       hideShareAction,
       resourceTargetRouteCallback,
-      ...useSelectedResources({ store }),
-      getMatchingSpace
+      ...useSelectedResources(),
+      getMatchingSpace,
+      updateResourceField
     }
   },
 
   data: () => ({
-    ShareStatus,
     showMore: false
   }),
 
   computed: {
     displayedFields() {
-      return ['name', 'status', 'owner', 'sdate', 'sharedWith']
+      return ['name', 'syncEnabled', 'sharedBy', 'sdate', 'sharedWith']
     },
     countFiles() {
       return this.items.filter((s) => s.type !== 'folder').length
@@ -248,39 +253,30 @@ export default defineComponent({
     visibilityObserver.disconnect()
   },
   methods: {
-    ...mapActions('Files', ['loadPreview', 'loadAvatars']),
+    rowMounted(resource: IncomingShareResource, component: ComponentPublicInstance<unknown>) {
+      const loadPreview = async () => {
+        const preview = await this.$previewService.loadPreview(
+          {
+            space: this.getMatchingSpace(resource),
+            resource,
+            dimensions: ImageDimension.Thumbnail
+          },
+          true
+        )
+        if (preview) {
+          this.updateResourceField({ id: resource.id, field: 'thumbnail', value: preview })
+        }
+      }
 
-    rowMounted(resource, component) {
       const debounced = debounce(({ unobserve }) => {
         unobserve()
-        this.loadAvatars({ resource, clientService: this.$clientService })
-
-        if (!this.displayThumbnails) {
-          return
-        }
-
-        this.loadPreview({
-          previewService: this.$previewService,
-          space: this.getMatchingSpace(resource),
-          resource,
-          dimensions: ImageDimension.Thumbnail,
-          type: ImageType.Thumbnail
-        })
+        loadPreview()
       }, 250)
 
       visibilityObserver.observe(component.$el, {
         onEnter: debounced,
         onExit: debounced.cancel
       })
-    },
-    getShowSynchedIcon(resource: Resource) {
-      return resource.status === ShareStatus.accepted
-    },
-    getShowAcceptButton(resource: Resource) {
-      return resource.status === ShareStatus.declined || resource.status === ShareStatus.pending
-    },
-    getShowDeclineButton(resource: Resource) {
-      return resource.status === ShareStatus.accepted || resource.status === ShareStatus.pending
     },
     toggleShowMore() {
       this.showMore = !this.showMore

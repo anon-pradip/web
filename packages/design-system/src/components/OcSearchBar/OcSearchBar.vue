@@ -238,7 +238,7 @@ export default defineComponent({
       }
     )
     const inputIconRightPadding = computed(() => {
-      if (slots.locationFilter().length > 0) {
+      if (slots.locationFilter?.().length > 0) {
         return '125px'
       }
       return '48px'
@@ -280,7 +280,7 @@ export default defineComponent({
        */
       this.$emit('search', this.query)
     },
-    onType(query) {
+    onType(query: string) {
       this.query = this.trimQuery ? query.trim() : query
       /**
        * Input event to support model directive

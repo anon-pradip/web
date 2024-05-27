@@ -1,20 +1,19 @@
-import { User } from '../user'
-import { extractDomSelector, extractNodeId, Resource, SpaceRole } from '../resource'
-import { SpacePeopleShareRoles, spaceRoleEditor, spaceRoleManager, spaceRoleViewer } from '../share'
+import { User } from '../../graph/generated'
+import { extractDomSelector, extractNodeId, Resource, ResourceIndicator } from '../resource'
 import {
   PublicSpaceResource,
   ShareSpaceResource,
   SpaceResource,
-  SHARE_JAIL_ID,
-  OCM_PROVIDER_ID
+  SpaceRoles,
+  SpaceRole
 } from './types'
 
 import { DavProperty } from '../../webdav/constants'
 import { buildWebDavPublicPath, buildWebDavOcmPath } from '../publicLink'
 import { urlJoin } from '../../utils'
-import { Drive, DriveItem } from '@ownclouders/web-client/src/generated'
+import { Drive, DriveItem } from '@ownclouders/web-client/graph/generated'
 
-export function buildWebDavSpacesPath(storageId: string | number, path?: string) {
+export function buildWebDavSpacesPath(storageId: string, path?: string) {
   return urlJoin('spaces', storageId, path, {
     leadingSlash: true
   })
@@ -27,9 +26,10 @@ export function buildWebDavSpacesTrashPath(storageId: string, path = '') {
 }
 
 export function getRelativeSpecialFolderSpacePath(space: SpaceResource, type: 'image' | 'readme') {
-  const typeMap = { image: 'spaceImageData', readme: 'spaceReadmeData' }
-  const webDavPathComponents = decodeURI(space[typeMap[type]].webDavUrl).split('/')
-  const idComponent = webDavPathComponents.find((c) => c.startsWith(space.id.toString()))
+  const typeMap = { image: 'spaceImageData', readme: 'spaceReadmeData' } as const
+  const specialProp = space[typeMap[type]]
+  const webDavPathComponents = decodeURI(specialProp.webDavUrl).split('/')
+  const idComponent = webDavPathComponents.find((c) => c.startsWith(space.id))
   if (!idComponent) {
     return ''
   }
@@ -80,28 +80,20 @@ export function buildPublicSpaceResource(
 
 export function buildShareSpaceResource({
   driveAliasPrefix,
-  shareId,
+  id,
   shareName,
   serverUrl
 }: {
   driveAliasPrefix: 'share' | 'ocm-share'
-  shareId: string | number
+  id: string
   shareName: string
   serverUrl: string
 }): ShareSpaceResource {
-  let id
-  if (driveAliasPrefix === 'ocm-share') {
-    id = `${OCM_PROVIDER_ID}$${shareId}!${shareId}`
-  } else {
-    id = [SHARE_JAIL_ID, shareId].join('!')
-  }
-
   const space = buildSpace({
     id,
     driveAlias: `${driveAliasPrefix}/${shareName}`,
     driveType: 'share',
     name: shareName,
-    shareId,
     serverUrl
   }) as ShareSpaceResource
   space.rename = (newName: string) => {
@@ -115,14 +107,13 @@ export function buildSpace(
   data: Drive & {
     path?: string
     serverUrl?: string
-    shareId?: string | number
     webDavPath?: string
     webDavTrashPath?: string
   }
 ): SpaceResource {
   let spaceImageData: DriveItem, spaceReadmeData: DriveItem
   let disabled = false
-  const spaceRoles = Object.fromEntries(SpacePeopleShareRoles.list().map((role) => [role.name, []]))
+  const spaceRoles: SpaceRoles = { viewer: [], editor: [], manager: [], 'secure-viewer': [] }
 
   if (data.special) {
     spaceImageData = data.special.find((el) => el.specialFolder.name === 'image')
@@ -139,24 +130,23 @@ export function buildSpace(
 
   if (data.root?.permissions) {
     for (const permission of data.root.permissions) {
-      spaceRoles[permission.roles[0]].push(
+      spaceRoles[permission.roles[0] as keyof SpaceRoles].push(
         ...permission.grantedToIdentities.reduce((acc, info) => {
           const kind = info.hasOwnProperty('group') ? 'group' : 'user'
           const spaceRole: SpaceRole = {
             kind,
             id: info[kind].id,
             displayName: info[kind].displayName,
-            expirationDate: permission.expirationDateTime,
-            isMember(u?: any): boolean {
+            isMember(u?: User): boolean {
               if (!u) {
                 return false
               }
 
               switch (this.kind) {
                 case 'user':
-                  return this.id == u.uuid
+                  return this.id == u.id
                 case 'group':
-                  return u.groups.map((g) => g.id).includes(this.id)
+                  return u.memberOf.map((g) => g.id).includes(this.id)
                 default:
                   return false
               }
@@ -198,20 +188,15 @@ export function buildSpace(
     isFolder: true,
     mdate: data.lastModifiedDateTime,
     size: data.quota?.used,
-    indicators: [],
-    tags: [],
+    indicators: [] as ResourceIndicator[],
+    tags: [] as string[],
     permissions: '',
     starred: false,
     etag: '',
-    shareId: data.shareId?.toString(),
-    sharePermissions: '',
-    shareTypes: (function () {
-      return []
-    })(),
+    shareTypes: [] as number[],
     privateLink: '',
     downloadURL: '',
-    ownerDisplayName: '',
-    ownerId: data.owner?.user?.id,
+    owner: data.owner?.user,
     disabled,
     root: data.root,
     spaceQuota: data.quota,
@@ -280,21 +265,24 @@ export function buildSpace(
       return urlJoin(webDavTrashUrl, path)
     },
     isViewer(user: User): boolean {
-      return this.spaceRoles[spaceRoleViewer.name].map((r) => r.isMember(user)).some(Boolean)
+      return this.spaceRoles.viewer.map((r) => r.isMember(user)).some(Boolean)
     },
     isEditor(user: User): boolean {
-      return this.spaceRoles[spaceRoleEditor.name].map((r) => r.isMember(user)).some(Boolean)
+      return this.spaceRoles.editor.map((r) => r.isMember(user)).some(Boolean)
     },
     isManager(user: User): boolean {
-      return this.spaceRoles[spaceRoleManager.name].map((r) => r.isMember(user)).some(Boolean)
+      return this.spaceRoles.manager.map((r) => r.isMember(user)).some(Boolean)
+    },
+    isSecureViewer(user: User): boolean {
+      return this.spaceRoles['secure-viewer'].map((r) => r.isMember(user)).some(Boolean)
     },
     isMember(user: User): boolean {
       return this.isViewer(user) || this.isEditor(user) || this.isManager(user)
     },
-    isOwner({ uuid }: User): boolean {
-      return uuid === this.ownerId
+    isOwner({ id }: User): boolean {
+      return id === this.owner?.id
     }
-  }
+  } satisfies SpaceResource
   Object.defineProperty(s, 'nodeId', {
     get() {
       return extractNodeId(this.id)

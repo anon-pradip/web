@@ -86,13 +86,15 @@
   </main>
 </template>
 <script lang="ts">
-import { computed, defineComponent, ref, unref } from 'vue'
+import { computed, defineComponent, ref, Ref, unref } from 'vue'
 import { RouteLocationRaw } from 'vue-router'
-import { Resource } from '@ownclouders/web-client/src'
+import { Resource } from '@ownclouders/web-client'
 import {
   AppTopBar,
   FileSideBar,
   ProcessorType,
+  SortDir,
+  useAppsStore,
   useSelectedResources,
   useSideBar
 } from '@ownclouders/web-pkg'
@@ -115,26 +117,10 @@ import { CachedFile } from './helpers/types'
 import AppBanner from '@ownclouders/web-pkg/src/components/AppBanner.vue'
 import { watch } from 'vue'
 import { getCurrentInstance } from 'vue'
+import { getMimeTypes } from './mimeTypes'
 import { PanzoomEventDetail } from '@panzoom/panzoom'
 
 export const appId = 'preview'
-
-export const mimeTypes = () => {
-  return [
-    'audio/flac',
-    'audio/mpeg',
-    'audio/ogg',
-    'audio/wav',
-    'audio/x-flac',
-    'audio/x-wav',
-    'image/gif',
-    'image/jpeg',
-    'image/png',
-    'video/mp4',
-    'video/webm',
-    ...((window as any).__$store?.getters.extensionConfigByAppId(appId).mimeTypes || [])
-  ]
-}
 
 export default defineComponent({
   name: 'Preview',
@@ -150,8 +136,11 @@ export default defineComponent({
   setup() {
     const router = useRouter()
     const route = useRoute()
+    const appsStore = useAppsStore()
     const appDefaults = useAppDefaults({ applicationId: 'preview' })
-    const contextRouteQuery = useRouteQuery('contextRouteQuery')
+    const contextRouteQuery = useRouteQuery('contextRouteQuery') as unknown as Ref<
+      Record<string, string>
+    >
     const { downloadFile } = useDownloadFile()
 
     const activeIndex = ref()
@@ -166,20 +155,27 @@ export default defineComponent({
     const currentImagePositionY = ref(0)
     const preloadImageCount = ref(10)
 
+    const mimeTypes = computed(() => {
+      return getMimeTypes(appsStore.externalAppConfig[appId]?.mimeTypes)
+    })
+
     const sortBy = computed(() => {
       if (!unref(contextRouteQuery)) {
         return 'name'
       }
       return unref(contextRouteQuery)['sort-by'] ?? 'name'
     })
-    const sortDir = computed(() => {
+    const sortDir = computed<SortDir>(() => {
       if (!unref(contextRouteQuery)) {
-        return 'desc'
+        return SortDir.Desc
       }
-      return unref(contextRouteQuery)['sort-dir'] ?? 'asc'
+      return (unref(contextRouteQuery)['sort-dir'] as SortDir) ?? SortDir.Asc
     })
 
     const { activeFiles, currentFileContext, closed } = appDefaults
+
+    const fileId = computed(() => unref(unref(currentFileContext).itemId))
+    const space = computed(() => unref(unref(currentFileContext).space))
 
     const isFullScreenModeActivated = ref(false)
     const toggleFullscreenMode = () => {
@@ -214,7 +210,7 @@ export default defineComponent({
       }
 
       const files = unref(activeFiles).filter((file) => {
-        return mimeTypes().includes(file.mimeType?.toLowerCase())
+        return unref(mimeTypes).includes(file.mimeType?.toLowerCase())
       })
 
       return sortHelper(files, [{ name: unref(sortBy) }], unref(sortBy), unref(sortDir))
@@ -246,16 +242,16 @@ export default defineComponent({
     const isFileContentLoading = ref(true)
 
     const triggerActiveFileDownload = () => {
-      if (isFileContentLoading.value) {
+      if (unref(isFileContentLoading)) {
         return
       }
-      downloadFile(activeFilteredFile.value)
+      downloadFile(unref(space), unref(activeFilteredFile))
     }
 
     const fileActions: Action<ActionOptions>[] = [
       {
         name: 'download-file',
-        isEnabled: () => true,
+        isVisible: () => true,
         componentType: 'button',
         icon: 'file-download',
         id: 'preview-download',
@@ -266,7 +262,7 @@ export default defineComponent({
       }
     ]
 
-    const instance = getCurrentInstance() as any
+    const instance = getCurrentInstance()
     watch(
       currentFileContext,
       async () => {
@@ -279,14 +275,12 @@ export default defineComponent({
           folderLoaded.value = true
         }
 
-        instance.proxy.setActiveFile(unref(unref(currentFileContext).driveAliasAndItem))
+        ;(instance.proxy as any).setActiveFile(unref(unref(currentFileContext).driveAliasAndItem))
       },
       { immediate: true }
     )
 
-    const fileId = computed(() => unref(unref(currentFileContext).itemId))
-    const space = computed(() => unref(unref(currentFileContext).space))
-    const { selectedResources } = useSelectedResources({})
+    const { selectedResources } = useSelectedResources()
     watch(activeFilteredFile, (file) => {
       selectedResources.value = [file]
     })
@@ -463,17 +457,17 @@ export default defineComponent({
       this.activeIndex--
       this.updateLocalHistory()
     },
-    isFileTypeImage(file) {
+    isFileTypeImage(file: Resource) {
       return !this.isFileTypeAudio(file) && !this.isFileTypeVideo(file)
     },
-    isFileTypeAudio(file) {
+    isFileTypeAudio(file: Resource) {
       return file.mimeType.toLowerCase().startsWith('audio')
     },
 
-    isFileTypeVideo(file) {
+    isFileTypeVideo(file: Resource) {
       return file.mimeType.toLowerCase().startsWith('video')
     },
-    addPreviewToCache(file, url) {
+    addPreviewToCache(file: Resource, url: string) {
       this.cachedFiles.push({
         id: file.id,
         name: file.name,
@@ -485,7 +479,7 @@ export default defineComponent({
         isAudio: this.isFileTypeAudio(file)
       })
     },
-    loadPreview(file) {
+    loadPreview(file: Resource) {
       return this.$previewService.loadPreview({
         space: unref(this.currentFileContext.space),
         resource: file,
@@ -494,7 +488,7 @@ export default defineComponent({
       })
     },
     preloadImages() {
-      const loadPreviewAsync = (file) => {
+      const loadPreviewAsync = (file: Resource) => {
         this.toPreloadImageIds.push(file.id)
         this.loadPreview(file)
 
@@ -507,7 +501,7 @@ export default defineComponent({
           })
       }
 
-      const preloadFile = (preloadFileIndex) => {
+      const preloadFile = (preloadFileIndex: number) => {
         let cycleIndex =
           (((this.activeIndex + preloadFileIndex) % this.filteredFiles.length) +
             this.filteredFiles.length) %

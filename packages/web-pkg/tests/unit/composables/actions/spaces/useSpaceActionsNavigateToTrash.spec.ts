@@ -1,21 +1,15 @@
 import { useSpaceActionsNavigateToTrash } from '../../../../../src'
-import { mock } from 'jest-mock-extended'
-import {
-  createStore,
-  defaultComponentMocks,
-  defaultStoreMockOptions,
-  RouteLocation,
-  getComposableWrapper
-} from 'web-test-helpers'
+import { mock } from 'vitest-mock-extended'
+import { defaultComponentMocks, RouteLocation, getComposableWrapper } from 'web-test-helpers'
 import { unref } from 'vue'
-import { SpaceResource } from '@ownclouders/web-client/src'
+import { SpaceResource } from '@ownclouders/web-client'
 
 describe('navigateToSpace', () => {
-  describe('isEnabled property', () => {
+  describe('isVisible property', () => {
     it('should be false when no resource given', () => {
       getWrapper({
         setup: ({ actions }) => {
-          expect(unref(actions)[0].isEnabled({ resources: [] })).toBe(false)
+          expect(unref(actions)[0].isVisible({ resources: [] })).toBe(false)
         }
       })
     })
@@ -23,7 +17,7 @@ describe('navigateToSpace', () => {
       getWrapper({
         setup: ({ actions }) => {
           expect(
-            unref(actions)[0].isEnabled({
+            unref(actions)[0].isVisible({
               resources: [
                 mock<SpaceResource>({
                   disabled: true,
@@ -39,7 +33,7 @@ describe('navigateToSpace', () => {
       getWrapper({
         setup: ({ actions }) => {
           expect(
-            unref(actions)[0].isEnabled({
+            unref(actions)[0].isVisible({
               resources: [
                 mock<SpaceResource>({
                   disabled: false,
@@ -53,7 +47,7 @@ describe('navigateToSpace', () => {
     })
   })
   describe('handler', () => {
-    it('should redirect to respective trash', async () => {
+    it('should redirect to respective trash', () => {
       const { mocks } = getWrapper({
         setup: async ({ actions }) => {
           await unref(actions)[0].handler({
@@ -69,20 +63,8 @@ describe('navigateToSpace', () => {
 function getWrapper({
   setup
 }: {
-  setup: (
-    instance: ReturnType<typeof useSpaceActionsNavigateToTrash>,
-    {
-      storeOptions
-    }: {
-      storeOptions: typeof defaultStoreMockOptions
-    }
-  ) => void
+  setup: (instance: ReturnType<typeof useSpaceActionsNavigateToTrash>) => void
 }) {
-  const storeOptions = {
-    ...defaultStoreMockOptions,
-    modules: { ...defaultStoreMockOptions.modules, user: { state: { id: 'alice', uuid: 1 } } }
-  }
-  const store = createStore(storeOptions)
   const mocks = defaultComponentMocks({
     currentRoute: mock<RouteLocation>({ name: 'files-spaces-projects' })
   })
@@ -91,10 +73,9 @@ function getWrapper({
     wrapper: getComposableWrapper(
       () => {
         const instance = useSpaceActionsNavigateToTrash()
-        setup(instance, { storeOptions })
+        setup(instance)
       },
       {
-        store,
         mocks,
         provide: mocks
       }

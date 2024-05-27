@@ -11,7 +11,7 @@
       :disabled="isRemoteUploadInProgress"
       @click="triggerUpload"
     >
-      <oc-resource-icon :resource="resource" size="medium" />
+      <resource-icon :resource="resource" size="medium" />
       <span :id="uploadLabelId">{{ buttonLabel }}</span>
     </oc-button>
     <input
@@ -29,11 +29,12 @@
 
 <script lang="ts">
 import { computed, defineComponent, onMounted, onBeforeUnmount, ref } from 'vue'
-import { Resource } from '@ownclouders/web-client/src'
-import { useService } from '@ownclouders/web-pkg'
+import { Resource } from '@ownclouders/web-client'
+import { useService, ResourceIcon } from '@ownclouders/web-pkg'
 import type { UppyService } from '@ownclouders/web-pkg'
 
 export default defineComponent({
+  components: { ResourceIcon },
   props: {
     btnLabel: {
       type: String,
@@ -55,8 +56,8 @@ export default defineComponent({
     const uppyService = useService<UppyService>('$uppyService')
     const isRemoteUploadInProgress = ref(uppyService.isRemoteUploadInProgress())
 
-    let uploadStartedSub
-    let uploadCompletedSub
+    let uploadStartedSub: string
+    let uploadCompletedSub: string
 
     const resource = computed(() => {
       return { extension: '', isFolder: props.isFolder } as Resource

@@ -1,7 +1,7 @@
 import { shallowMount, mount, defaultPlugins } from 'web-test-helpers'
 import OcTextInput from './OcTextInput.vue'
 import { PasswordPolicy } from '../../helpers'
-import { mock } from 'jest-mock-extended'
+import { mock } from 'vitest-mock-extended'
 
 const defaultProps = {
   label: 'label'
@@ -9,10 +9,12 @@ const defaultProps = {
 
 Object.assign(navigator, {
   clipboard: {
-    writeText: jest.fn(),
-    readText: jest.fn()
+    writeText: vi.fn(),
+    readText: vi.fn()
   }
 })
+
+// @vitest-environment jsdom
 describe('OcTextInput', () => {
   function getShallowWrapper(props = {}) {
     return shallowMount(OcTextInput, {
@@ -24,7 +26,10 @@ describe('OcTextInput', () => {
     })
   }
 
-  function getMountedWrapper(options = {} as any, passwordPolicy = { active: false, pass: false }) {
+  function getMountedWrapper(
+    options: { props?: Record<string, unknown>; attachTo?: HTMLElement } = { props: {} },
+    passwordPolicy = { active: false, pass: false }
+  ) {
     const passwordPolicyMock = mock<PasswordPolicy>()
     passwordPolicyMock.missing.mockReturnValueOnce({
       rules: [
@@ -144,13 +149,13 @@ describe('OcTextInput', () => {
       })
       it('should exist if type is "password" and prop "generatePasswordMethod" is provided', () => {
         const wrapper = getMountedWrapper({
-          props: { generatePasswordMethod: jest.fn(), type: 'password' }
+          props: { generatePasswordMethod: vi.fn(), type: 'password' }
         })
         expect(wrapper.find(selectors.generatePasswordBtn).exists()).toBeTruthy()
       })
       it('should fill input with generated password if clicked', async () => {
         const wrapper = getMountedWrapper({
-          props: { generatePasswordMethod: jest.fn(() => 'PAssword12#!'), type: 'password' }
+          props: { generatePasswordMethod: vi.fn(() => 'PAssword12#!'), type: 'password' }
         })
         await wrapper.find(selectors.generatePasswordBtn).trigger('click')
         expect((wrapper.find(selectors.inputField).element as HTMLInputElement).value).toEqual(
@@ -278,7 +283,7 @@ describe('OcTextInput', () => {
 
   describe('type prop', () => {
     it('should only allow text, number, email and password as type', () => {
-      expect((OcTextInput as any).props.type.validator('binary')).toBeFalsy()
+      expect(OcTextInput.props.type.validator('binary')).toBeFalsy()
     })
     it.each(['text', 'number', 'email', 'password'])(
       'should set the provided type for the input',

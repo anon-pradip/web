@@ -1,8 +1,12 @@
 import { UserManager } from './userManager'
 import { PublicLinkManager } from './publicLinkManager'
-import { Store } from 'vuex'
-import { ClientService } from '@ownclouders/web-pkg'
-import { ConfigurationManager } from '@ownclouders/web-pkg'
+import {
+  AuthStore,
+  ClientService,
+  UserStore,
+  CapabilityStore,
+  ConfigStore
+} from '@ownclouders/web-pkg'
 import { RouteLocation, Router } from 'vue-router'
 import {
   extractPublicLinkToken,
@@ -12,37 +16,47 @@ import {
   isUserContextRequired
 } from '../../router'
 import { unref } from 'vue'
-import { Ability } from '@ownclouders/web-client/src/helpers/resource/types'
+import { Ability } from '@ownclouders/web-client'
 import { Language } from 'vue3-gettext'
-import { PublicLinkType } from '@ownclouders/web-client/src/helpers'
+import { PublicLinkType } from '@ownclouders/web-client'
+import { WebWorkersStore } from '@ownclouders/web-pkg'
 
 export class AuthService {
   private clientService: ClientService
-  private configurationManager: ConfigurationManager
-  private store: Store<any>
+  private configStore: ConfigStore
   private router: Router
   private userManager: UserManager
   private publicLinkManager: PublicLinkManager
   private ability: Ability
   private language: Language
+  private userStore: UserStore
+  private authStore: AuthStore
+  private capabilityStore: CapabilityStore
+  private webWorkersStore: WebWorkersStore
 
   public hasAuthErrorOccurred: boolean
 
   public initialize(
-    configurationManager: ConfigurationManager,
+    configStore: ConfigStore,
     clientService: ClientService,
-    store: Store<any>,
     router: Router,
     ability: Ability,
-    language: Language
+    language: Language,
+    userStore: UserStore,
+    authStore: AuthStore,
+    capabilityStore: CapabilityStore,
+    webWorkersStore: WebWorkersStore
   ): void {
-    this.configurationManager = configurationManager
+    this.configStore = configStore
     this.clientService = clientService
-    this.store = store
     this.router = router
     this.hasAuthErrorOccurred = false
     this.ability = ability
     this.language = language
+    this.userStore = userStore
+    this.authStore = authStore
+    this.capabilityStore = capabilityStore
+    this.webWorkersStore = webWorkersStore
   }
 
   /**
@@ -60,8 +74,8 @@ export class AuthService {
     if (!this.publicLinkManager) {
       this.publicLinkManager = new PublicLinkManager({
         clientService: this.clientService,
-        configurationManager: this.configurationManager,
-        store: this.store
+        authStore: this.authStore,
+        capabilityStore: this.capabilityStore
       })
     }
 
@@ -77,10 +91,13 @@ export class AuthService {
     if (!this.userManager) {
       this.userManager = new UserManager({
         clientService: this.clientService,
-        configurationManager: this.configurationManager,
-        store: this.store,
+        configStore: this.configStore,
         ability: this.ability,
-        language: this.language
+        language: this.language,
+        userStore: this.userStore,
+        authStore: this.authStore,
+        capabilityStore: this.capabilityStore,
+        webWorkersStore: this.webWorkersStore
       })
     }
 
@@ -144,13 +161,12 @@ export class AuthService {
           }
 
           // handle redirect after logout
-          if (this.configurationManager.isOAuth2) {
-            const oAuth2 = this.configurationManager.oAuth2
+          if (this.configStore.isOAuth2) {
+            const oAuth2 = this.configStore.oAuth2
             if (oAuth2.logoutUrl) {
               return (window.location = oAuth2.logoutUrl as any)
             }
-            return (window.location =
-              `${this.configurationManager.serverUrl}/index.php/logout` as any)
+            return (window.location = `${this.configStore.serverUrl}/index.php/logout` as any)
           }
         })
         this.userManager.events.addSilentRenewError(async (error) => {
@@ -164,8 +180,8 @@ export class AuthService {
       // This is to prevent issues in embed mode when the expired token is still saved but already expired
       // If the following code gets executed, it would toggle errorOccurred var which would then lead to redirect to the access denied screen
       if (
-        this.configurationManager.options.embed?.enabled &&
-        this.configurationManager.options.embed.delegateAuthentication
+        this.configStore.options.embed?.enabled &&
+        this.configStore.options.embed.delegateAuthentication
       ) {
         return
       }
@@ -197,8 +213,8 @@ export class AuthService {
   public async signInCallback(accessToken?: string) {
     try {
       if (
-        this.configurationManager.options.embed.enabled &&
-        this.configurationManager.options.embed.delegateAuthentication &&
+        this.configStore.options.embed.enabled &&
+        this.configStore.options.embed.delegateAuthentication &&
         accessToken
       ) {
         console.debug('[authService:signInCallback] - setting access_token and fetching user')
@@ -290,20 +306,16 @@ export class AuthService {
     }
   }
 
-  private async resetStateAfterUserLogout() {
+  private resetStateAfterUserLogout() {
     // TODO: create UserUnloadTask interface and allow registering unload-tasks in the authService
-    await this.store.dispatch('runtime/auth/clearUserContext')
-    await this.store.dispatch('resetUserState')
-    await Promise.all([
-      this.store.dispatch('clearDynamicNavItems'),
-      this.store.dispatch('hideModal')
-    ])
+    this.userStore.$reset()
+    this.authStore.clearUserContext()
   }
 
   private handleDelegatedTokenUpdate(event: MessageEvent): void {
     if (
-      this.configurationManager.options.embed?.delegateAuthenticationOrigin &&
-      event.origin !== this.configurationManager.options.embed.delegateAuthenticationOrigin
+      this.configStore.options.embed?.delegateAuthenticationOrigin &&
+      event.origin !== this.configStore.options.embed.delegateAuthenticationOrigin
     ) {
       return
     }

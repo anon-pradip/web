@@ -1,44 +1,37 @@
 import CreateShortcutModal from '../../../src/components/CreateShortcutModal.vue'
 import {
-  createStore,
   defaultComponentMocks,
   defaultPlugins,
-  defaultStoreMockOptions,
   mockAxiosReject,
   RouteLocation,
   shallowMount
 } from 'web-test-helpers'
 import { SpaceResource } from '@ownclouders/web-client'
-import { mock, mockDeep } from 'jest-mock-extended'
-import { FileResource } from '@ownclouders/web-client/src/helpers'
-import { SearchResource } from '@ownclouders/web-client/src/webdav/search'
-import { ConfigurationManager } from '../../../src'
-
-jest.mock('../../../src/composables/configuration/useConfigurationManager', () => ({
-  useConfigurationManager: () =>
-    mockDeep<ConfigurationManager>({
-      options: {
-        routing: {
-          fullShareOwnerPaths: false
-        }
-      }
-    })
-}))
+import { mock } from 'vitest-mock-extended'
+import { FileResource } from '@ownclouders/web-client'
+import { SearchResource } from '@ownclouders/web-client'
+import { useMessages, useResourcesStore } from '../../../src/composables/piniaStores'
 
 describe('CreateShortcutModal', () => {
   describe('method "onConfirm"', () => {
     it('should show message on success', async () => {
-      const { wrapper, storeOptions } = getWrapper()
-      await wrapper.vm.onConfirm('https://owncloud.com', 'owncloud.url')
-      expect(storeOptions.modules.Files.mutations.UPSERT_RESOURCE).toHaveBeenCalled()
-      expect(storeOptions.actions.showMessage).toHaveBeenCalled()
+      const { wrapper } = getWrapper()
+      await wrapper.vm.onConfirm()
+
+      const { upsertResource } = useResourcesStore()
+      expect(upsertResource).toHaveBeenCalled()
+      const { showMessage } = useMessages()
+      expect(showMessage).toHaveBeenCalled()
     })
     it('should show error message on fail', async () => {
-      console.error = jest.fn()
-      const { wrapper, storeOptions } = getWrapper({ rejectPutFileContents: true })
-      await wrapper.vm.onConfirm('https://owncloud.com', 'owncloud.url')
-      expect(storeOptions.modules.Files.mutations.UPSERT_RESOURCE).not.toHaveBeenCalled()
-      expect(storeOptions.actions.showErrorMessage).toHaveBeenCalled()
+      console.error = vi.fn()
+      const { wrapper } = getWrapper({ rejectPutFileContents: true })
+      await wrapper.vm.onConfirm()
+
+      const { upsertResource } = useResourcesStore()
+      expect(upsertResource).not.toHaveBeenCalled()
+      const { showErrorMessage } = useMessages()
+      expect(showErrorMessage).toHaveBeenCalled()
     })
   })
   describe('method "searchTask"', () => {
@@ -48,7 +41,7 @@ describe('CreateShortcutModal', () => {
       expect(wrapper.vm.searchResult.values.length).toBe(3)
     })
     it('should reset "searchResult" on error', async () => {
-      console.error = jest.fn()
+      console.error = vi.fn()
       const { wrapper } = getWrapper({ rejectSearch: true })
       await wrapper.vm.searchTask.perform('new folder')
       expect(wrapper.vm.searchResult).toBe(null)
@@ -57,14 +50,6 @@ describe('CreateShortcutModal', () => {
 })
 
 function getWrapper({ rejectPutFileContents = false, rejectSearch = false } = {}) {
-  const storeOptions = {
-    ...defaultStoreMockOptions
-  }
-
-  storeOptions.modules.Files.getters.currentFolder.mockImplementation(() => mock<FileResource>())
-
-  const store = createStore(storeOptions)
-
   const mocks = {
     ...defaultComponentMocks({
       currentRoute: mock<RouteLocation>({ name: 'files-spaces-generic' })
@@ -92,13 +77,17 @@ function getWrapper({ rejectPutFileContents = false, rejectSearch = false } = {}
 
   return {
     mocks,
-    storeOptions,
     wrapper: shallowMount(CreateShortcutModal, {
       props: {
-        space: mock<SpaceResource>()
+        space: mock<SpaceResource>(),
+        modal: undefined
       },
       global: {
-        plugins: [...defaultPlugins(), store],
+        plugins: [
+          ...defaultPlugins({
+            piniaOptions: { resourcesStore: { currentFolder: mock<FileResource>() } }
+          })
+        ],
         mocks,
         provide: mocks
       }

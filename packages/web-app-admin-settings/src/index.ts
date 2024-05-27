@@ -3,30 +3,23 @@ import General from './views/General.vue'
 import Users from './views/Users.vue'
 import Groups from './views/Groups.vue'
 import Spaces from './views/Spaces.vue'
-import { Ability } from '@ownclouders/web-client/src/helpers/resource/types'
-import { AppNavigationItem } from '@ownclouders/web-pkg'
-import { Store } from 'vuex'
+import { Ability } from '@ownclouders/web-client'
+import {
+  AppNavigationItem,
+  defineWebApplication,
+  useAbility,
+  useUserStore
+} from '@ownclouders/web-pkg'
+import { RouteRecordRaw } from 'vue-router'
 
 // just a dummy function to trick gettext tools
-function $gettext(msg) {
+function $gettext(msg: string) {
   return msg
 }
 
-const appInfo = {
-  name: $gettext('Admin Settings'),
-  id: 'admin-settings',
-  icon: 'settings-4',
-  color: '#2b2b2b',
-  isFileEditor: false,
-  applicationMenu: {
-    enabled: (store: Store<unknown>, ability: Ability) => {
-      return !!store.getters?.user?.id && ability.can('read-all', 'Setting')
-    },
-    priority: 40
-  }
-}
+const appId = 'admin-settings'
 
-const routes = ({ $ability }: { $ability: Ability }) => [
+export const routes = ({ $ability }: { $ability: Ability }): RouteRecordRaw[] => [
   {
     path: '/',
     redirect: () => {
@@ -107,14 +100,14 @@ const routes = ({ $ability }: { $ability: Ability }) => [
   }
 ]
 
-const navItems = ({ $ability }: { $ability: Ability }): AppNavigationItem[] => [
+export const navItems = ({ $ability }: { $ability: Ability }): AppNavigationItem[] => [
   {
     name: $gettext('General'),
     icon: 'settings-4',
     route: {
-      path: `/${appInfo.id}/general?`
+      path: `/${appId}/general?`
     },
-    enabled: () => {
+    isVisible: () => {
       return $ability.can('read-all', 'Setting')
     },
     priority: 10
@@ -123,9 +116,9 @@ const navItems = ({ $ability }: { $ability: Ability }): AppNavigationItem[] => [
     name: $gettext('Users'),
     icon: 'user',
     route: {
-      path: `/${appInfo.id}/users?`
+      path: `/${appId}/users?`
     },
-    enabled: () => {
+    isVisible: () => {
       return $ability.can('read-all', 'Account')
     },
     priority: 20
@@ -134,9 +127,9 @@ const navItems = ({ $ability }: { $ability: Ability }): AppNavigationItem[] => [
     name: $gettext('Groups'),
     icon: 'group-2',
     route: {
-      path: `/${appInfo.id}/groups?`
+      path: `/${appId}/groups?`
     },
-    enabled: () => {
+    isVisible: () => {
       return $ability.can('read-all', 'Group')
     },
     priority: 30
@@ -145,18 +138,43 @@ const navItems = ({ $ability }: { $ability: Ability }): AppNavigationItem[] => [
     name: $gettext('Spaces'),
     icon: 'layout-grid',
     route: {
-      path: `/${appInfo.id}/spaces?`
+      path: `/${appId}/spaces?`
     },
-    enabled: () => {
+    isVisible: () => {
       return $ability.can('read-all', 'Drive')
     },
     priority: 40
   }
 ]
 
-export default {
-  appInfo,
-  routes,
-  translations,
-  navItems
-}
+export default defineWebApplication({
+  setup() {
+    const { can } = useAbility()
+    const userStore = useUserStore()
+
+    return {
+      appInfo: {
+        name: $gettext('Admin Settings'),
+        id: appId,
+        icon: 'settings-4',
+        color: '#2b2b2b',
+        isFileEditor: false,
+        applicationMenu: {
+          enabled: () => {
+            return (
+              userStore.user &&
+              (can('read-all', 'Setting') ||
+                can('read-all', 'Account') ||
+                can('read-all', 'Group') ||
+                can('read-all', 'Drive'))
+            )
+          },
+          priority: 40
+        }
+      },
+      routes,
+      navItems,
+      translations
+    }
+  }
+})

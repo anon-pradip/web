@@ -1,31 +1,35 @@
 import { DateTime } from 'luxon'
 import ResourceTable from '../../../../src/components/FilesList/ResourceTable.vue'
-import { extractDomSelector, Resource } from '@ownclouders/web-client/src/helpers'
-import { createStore, defaultPlugins, mount, defaultStoreMockOptions } from 'web-test-helpers'
-import { ConfigurationManager, displayPositionedDropdown } from '../../../../src'
+import {
+  extractDomSelector,
+  IncomingShareResource,
+  OutgoingShareResource,
+  Resource,
+  ResourceIndicator,
+  ShareTypes,
+  SpaceResource
+} from '@ownclouders/web-client'
+import { defaultPlugins, mount, PartialComponentProps } from 'web-test-helpers'
+import { CapabilityStore } from '../../../../src/composables/piniaStores'
+import { displayPositionedDropdown } from '../../../../src/helpers/contextMenuDropdown'
 import { eventBus } from '../../../../src/services/eventBus'
 import { SideBarEventTopics } from '../../../../src/composables/sideBar'
-import { mock, mockDeep } from 'jest-mock-extended'
+import { mock } from 'vitest-mock-extended'
 import { computed } from 'vue'
+import { Identity } from '@ownclouders/web-client/graph/generated'
 
-const mockUseEmbedMode = jest.fn().mockReturnValue({ isLocationPicker: computed(() => false) })
+const mockUseEmbedMode = vi
+  .fn()
+  .mockReturnValue({ isLocationPicker: computed(() => false), isEnabled: computed(() => false) })
 
-jest.mock('../../../../src/helpers')
-jest.mock('../../../../src/composables/configuration/useConfigurationManager', () => ({
-  useConfigurationManager: () =>
-    mock<ConfigurationManager>({
-      options: {
-        routing: {
-          fullShareOwnerPaths: false
-        }
-      }
-    }),
-  useEmbedMode: jest.fn().mockImplementation(() => mockUseEmbedMode())
+vi.mock('../../../../src/helpers/contextMenuDropdown')
+vi.mock('../../../../src/composables/embedMode', () => ({
+  useEmbedMode: vi.fn().mockImplementation(() => mockUseEmbedMode())
 }))
 
 const router = {
-  push: jest.fn(),
-  afterEach: jest.fn(),
+  push: vi.fn(),
+  afterEach: vi.fn(),
   currentRoute: {
     name: 'some-route-name',
     query: {},
@@ -33,7 +37,7 @@ const router = {
       driveAliasAndItem: ''
     }
   },
-  resolve: (r) => {
+  resolve: (r: { name: string }) => {
     return { href: r.name }
   }
 }
@@ -42,60 +46,56 @@ const getCurrentDate = () => {
   return DateTime.fromJSDate(new Date()).minus({ days: 1 }).toFormat('EEE, dd MMM yyyy HH:mm:ss')
 }
 
-const fields = ['name', 'size', 'mdate', 'sdate', 'ddate', 'actions', 'owner', 'sharedWith']
+const fields = ['name', 'size', 'mdate', 'sdate', 'ddate', 'actions', 'sharedBy', 'sharedWith']
 
 const sharedWith = [
   {
     id: 'bob',
-    username: 'bob',
     displayName: 'Bob',
-    avatar:
-      'https://images.unsplash.com/photo-1610216705422-caa3fcb6d158?ixid=MXwxMjA3fDB8MHxzZWFyY2h8MTB8fGZhY2V8ZW58MHwyfDB8&ixlib=rb-1.2.1&auto=format&fit=crop&w=800&q=60'
+    shareType: ShareTypes.user.value
   },
   {
     id: 'marie',
-    username: 'marie',
     displayName: 'Marie',
-    avatar:
-      'https://images.unsplash.com/photo-1584308972272-9e4e7685e80f?ixid=MXwxMjA3fDB8MHxzZWFyY2h8Mzh8fGZhY2V8ZW58MHwyfDB8&ixlib=rb-1.2.1&auto=format&fit=crop&w=800&q=60'
+    shareType: ShareTypes.user.value
   },
   {
     id: 'john',
-    username: 'john',
-    displayName: 'John Richards Emperor of long names'
+    displayName: 'John Richards Emperor of long names',
+    shareType: ShareTypes.user.value
   }
-]
+] as Array<{ shareType: number } & Identity>
 
-const owner = [
+const owner = {
+  id: 'bob',
+  displayName: 'Bob'
+} as Resource['owner']
+
+const sharedBy = [
   {
     id: 'bob',
-    username: 'bob',
-    displayName: 'Bob',
-    avatar:
-      'https://images.unsplash.com/photo-1610216705422-caa3fcb6d158?ixid=MXwxMjA3fDB8MHxzZWFyY2h8MTB8fGZhY2V8ZW58MHwyfDB8&ixlib=rb-1.2.1&auto=format&fit=crop&w=800&q=60'
+    displayName: 'Bob'
   }
-]
+] as Identity[]
 
 const indicators = [
   {
     id: 'files-sharing',
     label: 'Shared with other people',
-    visible: true,
     icon: 'group',
-    handler: (resource, indicatorId) =>
-      alert(`Resource: ${resource.name}, indicator: ${indicatorId}`)
+    handler: (resource) => alert(`Resource: ${resource.name}`)
   },
   {
     id: 'file-link',
     label: 'Shared via link',
-    visible: true,
     icon: 'link'
   }
-]
+] as ResourceIndicator[]
 
 const resourcesWithAllFields = [
   {
     id: 'forest',
+    driveId: 'forest',
     name: 'forest.jpg',
     path: 'images/nature/forest.jpg',
     extension: 'jpg',
@@ -109,12 +109,20 @@ const resourcesWithAllFields = [
     sdate: getCurrentDate(),
     ddate: getCurrentDate(),
     owner,
+    sharedBy,
     sharedWith,
-    canRename: jest.fn,
+    hidden: false,
+    syncEnabled: true,
+    outgoing: false,
+    shareRoles: [],
+    sharePermissions: [],
+    shareTypes: [],
+    canRename: vi.fn(),
     getDomSelector: () => extractDomSelector('forest')
   },
   {
     id: 'notes',
+    driveId: 'notes',
     name: 'notes.txt',
     path: '/Documents/notes.txt',
     extension: 'txt',
@@ -126,13 +134,21 @@ const resourcesWithAllFields = [
     mdate: getCurrentDate(),
     sdate: getCurrentDate(),
     ddate: getCurrentDate(),
-    sharedWith,
     owner,
-    canRename: jest.fn,
+    sharedBy,
+    sharedWith,
+    hidden: false,
+    syncEnabled: true,
+    outgoing: false,
+    shareRoles: [],
+    sharePermissions: [],
+    shareTypes: [],
+    canRename: vi.fn(),
     getDomSelector: () => extractDomSelector('notes')
   },
   {
     id: 'documents',
+    driveId: 'documents',
     name: 'Documents',
     path: '/Documents',
     indicators,
@@ -143,13 +159,21 @@ const resourcesWithAllFields = [
     mdate: getCurrentDate(),
     sdate: getCurrentDate(),
     ddate: getCurrentDate(),
-    sharedWith,
     owner,
-    canRename: jest.fn,
+    sharedBy,
+    sharedWith,
+    hidden: false,
+    syncEnabled: true,
+    outgoing: false,
+    shareRoles: [],
+    sharePermissions: [],
+    shareTypes: [],
+    canRename: vi.fn(),
     getDomSelector: () => extractDomSelector('documents')
   },
   {
     id: 'another-one==',
+    driveId: 'another-one==',
     name: 'Another one',
     path: '/Another one',
     indicators,
@@ -159,17 +183,25 @@ const resourcesWithAllFields = [
     mdate: getCurrentDate(),
     sdate: getCurrentDate(),
     ddate: getCurrentDate(),
-    sharedWith,
-    tags: [],
     owner,
-    canRename: jest.fn,
+    sharedBy,
+    sharedWith,
+    hidden: false,
+    syncEnabled: true,
+    outgoing: false,
+    shareRoles: [],
+    sharePermissions: [],
+    shareTypes: [],
+    tags: [],
+    canRename: vi.fn(),
     getDomSelector: () => extractDomSelector('another-one==')
   }
-]
+] as IncomingShareResource[]
 
 const processingResourcesWithAllFields = [
   {
     id: 'rainforest',
+    driveId: 'rainforest',
     name: 'rainforest.jpg',
     path: 'images/nature/rainforest.jpg',
     extension: 'jpg',
@@ -183,13 +215,21 @@ const processingResourcesWithAllFields = [
     sdate: getCurrentDate(),
     ddate: getCurrentDate(),
     owner,
+    sharedBy,
     sharedWith,
-    canRename: jest.fn,
+    hidden: false,
+    syncEnabled: true,
+    outgoing: false,
+    shareRoles: [],
+    sharePermissions: [],
+    shareTypes: [],
+    canRename: vi.fn(),
     getDomSelector: () => extractDomSelector('forest'),
     processing: true
   },
   {
     id: 'personalnotes',
+    driveId: 'personalnotes',
     name: 'personalnotes.txt',
     path: '/Documents/personalnotes.txt',
     extension: 'txt',
@@ -201,13 +241,20 @@ const processingResourcesWithAllFields = [
     mdate: getCurrentDate(),
     sdate: getCurrentDate(),
     ddate: getCurrentDate(),
-    sharedWith,
     owner,
-    canRename: jest.fn,
+    sharedBy,
+    sharedWith,
+    hidden: false,
+    syncEnabled: true,
+    outgoing: false,
+    shareRoles: [],
+    sharePermissions: [],
+    shareTypes: [],
+    canRename: vi.fn(),
     getDomSelector: () => extractDomSelector('notes'),
     processing: true
   }
-]
+] as IncomingShareResource[]
 
 describe('ResourceTable', () => {
   it('displays all known fields of the resources', () => {
@@ -223,7 +270,7 @@ describe('ResourceTable', () => {
   it('accepts resourceDomId closure', () => {
     const { wrapper } = getMountedWrapper({
       props: {
-        resourceDomSelector: (resource) => ['custom', resource.getDomSelector()].join('-')
+        resourceDomSelector: (resource: Resource) => ['custom', resource.getDomSelector()].join('-')
       }
     })
     resourcesWithAllFields.forEach((resource) => {
@@ -269,7 +316,7 @@ describe('ResourceTable', () => {
         })
 
         await wrapper.find('.resource-table-select-all .oc-checkbox').setValue(false)
-        expect((wrapper.emitted('update:selectedIds')[0][0] as any).length).toBe(0)
+        expect(wrapper.emitted<string>('update:selectedIds')[0][0].length).toBe(0)
       })
     })
 
@@ -304,7 +351,9 @@ describe('ResourceTable', () => {
       const tr = await wrapper.find('.oc-tbody-tr-forest .oc-resource-name')
       await tr.trigger('click')
 
-      expect(wrapper.emitted().fileClick[0][0].resources[0].name).toMatch('forest.jpg')
+      expect(
+        wrapper.emitted<{ resources: Resource[] }[]>('fileClick')[0][0].resources[0].name
+      ).toMatch('forest.jpg')
     })
 
     it('does not emit fileClick upon clicking on a disabled resource name', async () => {
@@ -312,6 +361,16 @@ describe('ResourceTable', () => {
       const tr = await wrapper.find('.oc-tbody-tr-rainforest .oc-resource-name')
       await tr.trigger('click')
 
+      expect(wrapper.emitted().fileClick).toBeUndefined()
+    })
+
+    it('does not emit fileClick upon clicking on a resource when embed mode is enabled', async () => {
+      mockUseEmbedMode.mockReturnValue({
+        isEnabled: computed(() => true)
+      })
+      const { wrapper } = getMountedWrapper()
+      const tr = await wrapper.find('.oc-tbody-tr-forest .oc-resource-name')
+      await tr.trigger('click')
       expect(wrapper.emitted().fileClick).toBeUndefined()
     })
   })
@@ -335,7 +394,7 @@ describe('ResourceTable', () => {
 
   describe('context menu', () => {
     it('emits select event on contextmenu click', async () => {
-      const spyDisplayPositionedDropdown = jest.mocked(displayPositionedDropdown)
+      const spyDisplayPositionedDropdown = vi.mocked(displayPositionedDropdown)
       const { wrapper } = getMountedWrapper()
       await wrapper.find('.oc-tbody-tr').trigger('contextmenu')
       expect(wrapper.emitted('update:selectedIds').length).toBe(1)
@@ -343,7 +402,7 @@ describe('ResourceTable', () => {
     })
 
     it('does not emit select event on contextmenu click of disabled resource', async () => {
-      const spyDisplayPositionedDropdown = jest.mocked(displayPositionedDropdown)
+      const spyDisplayPositionedDropdown = vi.mocked(displayPositionedDropdown)
       const { wrapper } = getMountedWrapper({ addProcessingResources: true })
       await wrapper.find('.oc-tbody-tr-rainforest').trigger('contextmenu')
       expect(wrapper.emitted('update:selectedIds')).toBeUndefined()
@@ -351,7 +410,7 @@ describe('ResourceTable', () => {
     })
 
     it('emits select event on clicking the three-dot icon in table row', async () => {
-      const spyDisplayPositionedDropdown = jest.mocked(displayPositionedDropdown)
+      const spyDisplayPositionedDropdown = vi.mocked(displayPositionedDropdown)
       const { wrapper } = getMountedWrapper()
       await wrapper
         .find('.oc-table-data-cell-actions .resource-table-btn-action-dropdown')
@@ -361,7 +420,7 @@ describe('ResourceTable', () => {
     })
 
     it('does not emit select event on clicking the three-dot icon in table row of a disabled resource', async () => {
-      const spyDisplayPositionedDropdown = jest.mocked(displayPositionedDropdown)
+      const spyDisplayPositionedDropdown = vi.mocked(displayPositionedDropdown)
       const { wrapper } = getMountedWrapper({ addProcessingResources: true })
       await wrapper
         .find(
@@ -386,12 +445,12 @@ describe('ResourceTable', () => {
   describe('hover effect', () => {
     it('is disabled by default', () => {
       const { wrapper } = getMountedWrapper({ props: { hover: false } })
-      expect(wrapper.classes()).not.toContain('oc-table-hover')
+      expect(wrapper.find('table').classes()).not.toContain('oc-table-hover')
     })
 
     it('can be enabled', () => {
       const { wrapper } = getMountedWrapper({ props: { hover: true } })
-      expect(wrapper.classes()).toContain('oc-table-hover')
+      expect(wrapper.find('table').classes()).toContain('oc-table-hover')
     })
   })
 
@@ -405,13 +464,13 @@ describe('ResourceTable', () => {
         { tags: ['1', '2', '3', '4'], tagCount: 2 }
       ])('render 2 tags max', (data) => {
         const { tags, tagCount } = data
-        const resource = mockDeep<Resource>({ id: '1', tags })
+        const resource = mock<Resource>({ id: '1', tags })
         const { wrapper } = getMountedWrapper({ props: { resources: [resource] } })
         const resourceRow = wrapper.find(`[data-item-id="${resource.id}"]`)
         expect(resourceRow.findAll('.resource-table-tag').length).toBe(tagCount)
       })
       it('render router link if user is authenticated', () => {
-        const resource = mockDeep<Resource>({ id: '1', tags: ['1'] })
+        const resource = mock<Resource>({ id: '1', tags: ['1'] })
         const { wrapper } = getMountedWrapper({ props: { resources: [resource] } })
         const resourceRow = wrapper.find(`[data-item-id="${resource.id}"]`)
         expect(resourceRow.find('.resource-table-tag-wrapper').element.tagName).toEqual(
@@ -419,10 +478,10 @@ describe('ResourceTable', () => {
         )
       })
       it('do not render router link if user is not authenticated', () => {
-        const resource = mockDeep<Resource>({ id: '1', tags: ['1'] })
+        const resource = mock<Resource>({ id: '1', tags: ['1'] })
         const { wrapper } = getMountedWrapper({
           props: { resources: [resource] },
-          isUserContextReady: false
+          userContextReady: false
         })
         const resourceRow = wrapper.find(`[data-item-id="${resource.id}"]`)
         expect(resourceRow.find('.resource-table-tag-wrapper').element.tagName).toEqual('SPAN')
@@ -437,14 +496,14 @@ describe('ResourceTable', () => {
         { tags: ['1', '2', '3', '4'], renderButton: true }
       ])('does only render when the resource has 3 tags or more', (data) => {
         const { tags, renderButton } = data
-        const resource = mockDeep<Resource>({ id: '1', tags })
+        const resource = mock<Resource>({ id: '1', tags })
         const { wrapper } = getMountedWrapper({ props: { resources: [resource] } })
         const resourceRow = wrapper.find(`[data-item-id="${resource.id}"]`)
         expect(resourceRow.find('.resource-table-tag-more').exists()).toBe(renderButton)
       })
       it('opens sidebar on click', async () => {
-        const spyBus = jest.spyOn(eventBus, 'publish')
-        const resource = mockDeep<Resource>({ id: '1', tags: ['1', '2', '3'] })
+        const spyBus = vi.spyOn(eventBus, 'publish')
+        const resource = mock<Resource>({ id: '1', tags: ['1', '2', '3'] })
         const { wrapper } = getMountedWrapper({ props: { resources: [resource] } })
         const resourceRow = wrapper.find(`[data-item-id="${resource.id}"]`)
         await resourceRow.find('.resource-table-tag-more').trigger('click')
@@ -452,51 +511,66 @@ describe('ResourceTable', () => {
       })
     })
   })
+  describe('"shared with" field', () => {
+    it('only displays authenticated shares', () => {
+      const resource = mock<OutgoingShareResource>({ id: '1' })
+      resource.sharedWith = [
+        {
+          id: 'bob',
+          displayName: 'Bob',
+          shareType: ShareTypes.user.value
+        },
+        { displayName: 'Link', shareType: ShareTypes.link.value }
+      ]
+
+      const { wrapper } = getMountedWrapper({ resources: [resource] })
+
+      expect(wrapper.find('.resource-table-shared-with').exists()).toBeTruthy()
+      expect(wrapper.findAll('.resource-table-shared-with .oc-avatar').length).toBe(1)
+    })
+  })
 })
 
 function getMountedWrapper({
   props = {},
-  isUserContextReady = true,
-  addProcessingResources = false
+  userContextReady = true,
+  addProcessingResources = false,
+  resources = resourcesWithAllFields
+}: {
+  props?: PartialComponentProps<typeof ResourceTable>
+  userContextReady?: boolean
+  addProcessingResources?: boolean
+  resources?: Resource[]
 } = {}) {
-  const storeOptions = defaultStoreMockOptions
-  storeOptions.modules.runtime.modules.auth.getters.isUserContextReady.mockReturnValue(
-    isUserContextReady
-  )
-  storeOptions.getters.capabilities.mockImplementation(() => ({
-    files: {
-      tags: true
-    }
-  }))
-  storeOptions.getters.configuration.mockImplementation(() => ({
-    currentTheme: { general: { slogan: '' } },
-    options: {
-      editor: {
-        autosaveEnabled: false,
-        autosaveInterval: 120
-      }
-    }
-  }))
-
-  const store = createStore(storeOptions)
+  const capabilities = {
+    files: { tags: true }
+  } satisfies Partial<CapabilityStore['capabilities']>
 
   return {
     wrapper: mount(ResourceTable, {
       props: {
         resources: [
-          ...resourcesWithAllFields,
+          ...resources,
           ...(addProcessingResources ? processingResourcesWithAllFields : [])
         ],
         selection: [],
         hover: false,
-        space: {
-          getDriveAliasAndItem: jest.fn()
-        },
+        space: mock<SpaceResource>({
+          getDriveAliasAndItem: vi.fn()
+        }),
         ...props
       },
       global: {
         renderStubDefaultSlot: true,
-        plugins: [...defaultPlugins(), store],
+        plugins: [
+          ...defaultPlugins({
+            piniaOptions: {
+              authState: { userContextReady },
+              capabilityState: { capabilities },
+              configState: { options: { displayResourcesLazy: false } }
+            }
+          })
+        ],
         stubs: {
           OcButton: false,
           'router-link': true

@@ -7,30 +7,24 @@ import {
 import { useIsFilesAppActive } from '../helpers'
 import path from 'path'
 import first from 'lodash-es/first'
-import {
-  isProjectSpaceResource,
-  isPublicSpaceResource,
-  Resource
-} from '@ownclouders/web-client/src/helpers'
-import { Store } from 'vuex'
+import { isProjectSpaceResource, isPublicSpaceResource, Resource } from '@ownclouders/web-client'
 import { computed, unref } from 'vue'
-import { usePublicLinkPassword } from '../../authContext'
 import { useLoadingService } from '../../loadingService'
 import { useRouter } from '../../router'
-import { useStore } from '../../store'
 
 import { FileAction, FileActionOptions } from '../types'
 import { useGettext } from 'vue3-gettext'
 import { useArchiverService } from '../../archiverService'
 import { formatFileSize } from '../../../helpers/filesize'
+import { useAuthStore, useMessages } from '../../piniaStores'
 
-export const useFileActionsDownloadArchive = ({ store }: { store?: Store<any> } = {}) => {
-  store = store || useStore()
+export const useFileActionsDownloadArchive = () => {
+  const { showErrorMessage } = useMessages()
   const router = useRouter()
   const loadingService = useLoadingService()
   const archiverService = useArchiverService()
   const { $ngettext, $gettext, current } = useGettext()
-  const publicLinkPassword = usePublicLinkPassword({ store })
+  const authStore = useAuthStore()
   const isFilesAppActive = useIsFilesAppActive()
 
   const handler = ({ space, resources }: FileActionOptions) => {
@@ -54,18 +48,18 @@ export const useFileActionsDownloadArchive = ({ store }: { store?: Store<any> } 
         ...(space &&
           isPublicSpaceResource(space) && {
             publicToken: space.id as string,
-            publicLinkPassword: unref(publicLinkPassword)
+            publicLinkPassword: authStore.publicLinkPassword
           })
       })
       .catch((e) => {
         console.error(e)
-        store.dispatch('showErrorMessage', {
+        showErrorMessage({
           title: $ngettext(
             'Failed to download the selected folder.', // on single selection only available for folders
             'Failed to download the selected files.', // on multi selection available for files+folders
             resources.length
           ),
-          error: e
+          errors: [e]
         })
       })
   }
@@ -101,7 +95,7 @@ export const useFileActionsDownloadArchive = ({ store }: { store?: Store<any> } 
             : ''
         },
         isDisabled: ({ resources }) => areArchiverLimitsExceeded(resources),
-        isEnabled: ({ resources }) => {
+        isVisible: ({ resources }) => {
           if (
             unref(isFilesAppActive) &&
             !isLocationSpacesActive(router, 'files-spaces-generic') &&

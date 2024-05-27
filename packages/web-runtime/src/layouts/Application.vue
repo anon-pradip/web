@@ -1,6 +1,8 @@
 <template>
   <div id="web-content">
-    <loading-indicator />
+    <div id="global-progress-bar">
+      <custom-component-target :extension-point="progressBarExtensionPoint" />
+    </div>
     <div id="web-content-header">
       <div v-if="isIE11" class="oc-background-muted oc-text-center oc-py-m">
         <p class="oc-m-rm" v-text="ieDeprecationWarning" />
@@ -11,9 +13,15 @@
       <div class="app-container oc-flex">
         <app-loading-spinner v-if="isLoading" />
         <template v-else>
-          <sidebar-nav v-if="isSidebarVisible" class="app-navigation" :nav-items="navItems" />
+          <sidebar-nav
+            v-if="isSidebarVisible"
+            class="app-navigation"
+            :nav-items="navItems"
+            :closed="navBarClosed"
+            @update:nav-bar-closed="setNavBarClosed"
+          />
           <portal to="app.runtime.mobile.nav">
-            <mobile-nav v-if="isMobileWidth" :nav-items="navItems" />
+            <mobile-nav v-if="isMobileWidth && navItems.length" :nav-items="navItems" />
           </portal>
           <router-view
             v-for="name in ['default', 'app', 'fullscreen']"
@@ -27,37 +35,40 @@
       <portal-target name="app.runtime.footer" />
     </div>
     <div class="snackbars">
-      <message-bar :active-messages="activeMessages" @delete-message="deleteMessage" />
+      <message-bar />
       <upload-info />
     </div>
   </div>
 </template>
 
 <script lang="ts">
-import { mapActions, mapGetters } from 'vuex'
 import orderBy from 'lodash-es/orderBy'
-import { AppLoadingSpinner, SidebarNavExtension, useExtensionRegistry } from '@ownclouders/web-pkg'
+import {
+  AppLoadingSpinner,
+  ApplicationInformation,
+  CustomComponentExtension,
+  CustomComponentTarget,
+  Extension,
+  ExtensionPoint,
+  useAppsStore,
+  useAuthStore,
+  useExtensionRegistry,
+  useLocalStorage
+} from '@ownclouders/web-pkg'
 import TopBar from '../components/Topbar/TopBar.vue'
 import MessageBar from '../components/MessageBar.vue'
 import SidebarNav from '../components/SidebarNav/SidebarNav.vue'
 import UploadInfo from '../components/UploadInfo.vue'
 import MobileNav from '../components/MobileNav.vue'
-import { NavItem } from '../helpers/navItems'
+import { NavItem, getExtensionNavItems } from '../helpers/navItems'
 import { LoadingIndicator } from '@ownclouders/web-pkg'
-import {
-  useActiveApp,
-  useRoute,
-  useRouteMeta,
-  useSpacesLoading,
-  useStore,
-  useUserContext
-} from '@ownclouders/web-pkg'
-import { computed, defineComponent, provide, ref, unref, watch } from 'vue'
+import { useActiveApp, useRoute, useRouteMeta, useSpacesLoading } from '@ownclouders/web-pkg'
+import { computed, defineComponent, provide, ref, toRef, unref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useGettext } from 'vue3-gettext'
 
 import '@uppy/core/dist/style.min.css'
-import { AppNavigationItem } from '@ownclouders/web-pkg'
+import { storeToRefs } from 'pinia'
 
 const MOBILE_BREAKPOINT = 640
 
@@ -65,30 +76,26 @@ export default defineComponent({
   name: 'ApplicationLayout',
   components: {
     AppLoadingSpinner,
+    CustomComponentTarget,
     MessageBar,
     MobileNav,
     TopBar,
     SidebarNav,
-    UploadInfo,
-    LoadingIndicator
+    UploadInfo
   },
   setup() {
-    const store = useStore()
     const router = useRouter()
     const route = useRoute()
     const { $gettext } = useGettext()
-    const isUserContext = useUserContext({ store })
+    const authStore = useAuthStore()
     const activeApp = useActiveApp()
     const extensionRegistry = useExtensionRegistry()
 
+    const appsStore = useAppsStore()
+    const { apps } = storeToRefs(appsStore)
+
     const extensionNavItems = computed(() =>
-      extensionRegistry
-        .requestExtensions<SidebarNavExtension>('sidebarNav', [
-          unref(activeApp),
-          `app.${unref(activeApp)}`
-        ])
-        .map(({ navItem }) => navItem)
-        .filter((n) => n.enabled(store.getters.capabilities))
+      getExtensionNavItems({ extensionRegistry, appId: unref(activeApp) })
     )
 
     // FIXME: we can convert to a single router-view without name (thus without the loop) and without this watcher when we release v6.0.0
@@ -112,7 +119,7 @@ export default defineComponent({
     )
 
     const requiredAuthContext = useRouteMeta('authContext')
-    const { areSpacesLoading } = useSpacesLoading({ store })
+    const { areSpacesLoading } = useSpacesLoading()
     const isLoading = computed(() => {
       if (['anonymous', 'idp'].includes(unref(requiredAuthContext))) {
         return false
@@ -127,18 +134,13 @@ export default defineComponent({
     }
 
     const navItems = computed<NavItem[]>(() => {
-      if (!unref(isUserContext)) {
+      if (!authStore.userContextReady) {
         return []
       }
 
-      const items = [
-        ...store.getters['getNavItemsByExtension'](unref(activeApp)),
-        ...unref(extensionNavItems)
-      ] as AppNavigationItem[]
-
       const { href: currentHref } = router.resolve(unref(route))
       return orderBy(
-        items.map((item) => {
+        unref(extensionNavItems).map((item) => {
           let active = typeof item.isActive !== 'function' || item.isActive()
 
           if (active) {
@@ -153,8 +155,7 @@ export default defineComponent({
             })
           }
 
-          const name =
-            typeof item.name === 'function' ? item.name(store.getters['capabilities']) : item.name
+          const name = typeof item.name === 'function' ? item.name() : item.name
 
           return {
             ...item,
@@ -170,16 +171,49 @@ export default defineComponent({
       return unref(navItems).length && !unref(isMobileWidth)
     })
 
+    const navBarClosed = useLocalStorage(`oc_navBarClosed`, false)
+    const setNavBarClosed = (value: boolean) => {
+      navBarClosed.value = value
+    }
+
+    const progressBarExtensionId = 'com.github.owncloud.web.runtime.default-progress-bar'
+    const progressBarExtensionPointId = 'app.runtime.global-progress-bar'
+    const defaultProgressBarExtension: CustomComponentExtension = {
+      id: progressBarExtensionId,
+      type: 'customComponent',
+      extensionPointIds: [progressBarExtensionPointId],
+      content: LoadingIndicator,
+      userPreference: {
+        optionLabel: $gettext('Default progress bar')
+      }
+    }
+    extensionRegistry.registerExtensions(toRef([defaultProgressBarExtension] satisfies Extension[]))
+    const progressBarExtensionPoint: ExtensionPoint<CustomComponentExtension> = {
+      id: progressBarExtensionPointId,
+      extensionType: 'customComponent',
+      multiple: false,
+      defaultExtensionId: defaultProgressBarExtension.id,
+      userPreference: {
+        label: $gettext('Global progress bar')
+      }
+    }
+    const extensionPoints = computed<ExtensionPoint<Extension>[]>(() => [progressBarExtensionPoint])
+    extensionRegistry.registerExtensionPoints(extensionPoints)
+
     return {
+      apps,
+      defaultProgressBarExtension,
+      progressBarExtensionPoint,
       isSidebarVisible,
       isLoading,
       navItems,
       onResize,
-      isMobileWidth
+      isMobileWidth,
+      navBarClosed,
+      setNavBarClosed
     }
   },
   computed: {
-    ...mapGetters(['apps', 'activeMessages', 'configuration', 'getExtensionsWithNavItems']),
     isIE11() {
       return !!(window as any).MSInputMethodContext && !!(document as any).documentMode
     },
@@ -190,20 +224,12 @@ export default defineComponent({
     },
 
     applicationsList() {
-      const list = []
+      const list: ApplicationInformation[] = []
 
-      Object.values(this.apps).forEach((app: any) => {
+      Object.values(this.apps).forEach((app) => {
         list.push({
           ...app,
           type: 'extension'
-        })
-      })
-
-      // Get extensions manually added into config
-      this.configuration.applications.forEach((application) => {
-        list.push({
-          ...application,
-          type: 'link'
         })
       })
 
@@ -222,9 +248,6 @@ export default defineComponent({
   },
   beforeUnmount() {
     window.removeEventListener('resize', this.onResize)
-  },
-  methods: {
-    ...mapActions(['deleteMessage'])
   }
 })
 </script>
@@ -234,6 +257,13 @@ export default defineComponent({
   flex-flow: column;
   flex-wrap: nowrap;
   height: 100vh;
+
+  #global-progress-bar {
+    z-index: 10;
+    position: absolute;
+    top: 0;
+    width: 100%;
+  }
 
   #web-content-header,
   #web-content-main {

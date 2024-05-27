@@ -1,7 +1,8 @@
 import MembersPanel from '../../../../../src/components/Spaces/SideBar/MembersPanel.vue'
 import { defaultPlugins, shallowMount } from 'web-test-helpers'
-import { mock } from 'jest-mock-extended'
-import { SpaceResource } from '@ownclouders/web-client/src/helpers'
+import { mock } from 'vitest-mock-extended'
+import { SpaceResource } from '@ownclouders/web-client'
+import MembersRoleSection from '../../../../../src/components/Spaces/SideBar/MembersRoleSection.vue'
 
 const spaceMock = mock<SpaceResource>({
   spaceRoles: {
@@ -10,7 +11,8 @@ const spaceMock = mock<SpaceResource>({
       { kind: 'user', displayName: 'einstein' },
       { kind: 'group', displayName: 'physic-haters' }
     ],
-    viewer: [{ kind: 'user', displayName: 'marie' }]
+    viewer: [{ kind: 'user', displayName: 'marie' }],
+    'secure-viewer': [{ kind: 'user', displayName: 'kathrine' }]
   }
 })
 
@@ -30,7 +32,8 @@ describe('MembersPanel', () => {
     await wrapper.vm.$nextTick
     expect(wrapper.findAll(selectors.membersRolePanelStub).length).toBe(1)
     expect(
-      wrapper.findComponent<any>(selectors.membersRolePanelStub).props().members[0].displayName
+      wrapper.findComponent<typeof MembersRoleSection>(selectors.membersRolePanelStub).props()
+        .members[0].displayName
     ).toEqual(userToFilterFor.displayName)
   })
   it('should display an empty result if no matching members found', async () => {

@@ -1,14 +1,8 @@
 import GdprExport from 'web-runtime/src/components/Account/GdprExport.vue'
-import {
-  createStore,
-  defaultComponentMocks,
-  defaultPlugins,
-  shallowMount,
-  defaultStoreMockOptions
-} from 'web-test-helpers'
-import { mock, mockDeep } from 'jest-mock-extended'
+import { defaultComponentMocks, defaultPlugins, shallowMount } from 'web-test-helpers'
+import { mock, mockDeep } from 'vitest-mock-extended'
 import { ClientService } from '@ownclouders/web-pkg'
-import { Resource } from '@ownclouders/web-client/src'
+import { Resource } from '@ownclouders/web-client'
 
 const selectors = {
   ocSpinnerStub: 'oc-spinner-stub',
@@ -17,10 +11,10 @@ const selectors = {
   exportInProgress: '[data-testid="export-in-process"]'
 }
 
-const downloadFile = jest.fn()
-jest.mock('@ownclouders/web-pkg', () => ({
-  ...jest.requireActual('@ownclouders/web-pkg'),
-  useDownloadFile: jest.fn(() => ({ downloadFile }))
+const downloadFile = vi.fn()
+vi.mock('@ownclouders/web-pkg', async (importOriginal) => ({
+  ...(await importOriginal<any>()),
+  useDownloadFile: vi.fn(() => ({ downloadFile }))
 }))
 
 describe('GdprExport component', () => {
@@ -71,7 +65,7 @@ describe('GdprExport component', () => {
   })
 })
 
-function getWrapper(resource = undefined) {
+function getWrapper(resource: Resource = undefined) {
   const clientService = mockDeep<ClientService>()
   if (resource) {
     clientService.webdav.getFileInfo.mockResolvedValue(resource)
@@ -80,14 +74,14 @@ function getWrapper(resource = undefined) {
   }
   const mocks = defaultComponentMocks()
   mocks.$clientService = clientService
-  const store = createStore(defaultStoreMockOptions)
+
   return {
     mocks,
     wrapper: shallowMount(GdprExport, {
       global: {
         mocks,
         provide: mocks,
-        plugins: [...defaultPlugins(), store]
+        plugins: [...defaultPlugins()]
       }
     })
   }

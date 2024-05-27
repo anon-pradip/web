@@ -56,11 +56,16 @@ export const defineConfig = (overrides = {}) => {
             // keep in sync with packages/web-runtime/src/container/application/index.ts
             external: [
               'vue',
-              'vuex',
               'luxon',
+              'pinia',
               'vue3-gettext',
 
               '@ownclouders/web-client',
+              '@ownclouders/web-client/graph',
+              '@ownclouders/web-client/graph/generated',
+              '@ownclouders/web-client/ocs',
+              '@ownclouders/web-client/sse',
+              '@ownclouders/web-client/webdav',
               '@ownclouders/web-pkg',
               'web-client',
               'web-pkg'

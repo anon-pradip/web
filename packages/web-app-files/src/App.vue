@@ -6,21 +6,21 @@
 </template>
 <script lang="ts">
 import { defineComponent, onBeforeUnmount, watch, ref } from 'vue'
-import { useRoute, useStore } from '@ownclouders/web-pkg'
-import { eventBus } from '@ownclouders/web-pkg'
+import { useRoute, eventBus, useResourcesStore } from '@ownclouders/web-pkg'
 
 export default defineComponent({
   setup() {
-    const store = useStore<any>()
     const dragareaEnabled = ref(false)
+    const { resetSelection } = useResourcesStore()
+
     watch(useRoute(), () => {
-      store.dispatch('Files/resetFileSelection')
+      resetSelection()
     })
 
     const hideDropzone = () => {
       dragareaEnabled.value = false
     }
-    const onDragOver = (event) => {
+    const onDragOver = (event: DragEvent) => {
       dragareaEnabled.value = (event.dataTransfer.types || []).some((e) => e === 'Files')
     }
 

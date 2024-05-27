@@ -103,7 +103,7 @@
         :compare-object="editUser"
         :confirm-button-disabled="invalidFormData"
         @revert="revertChanges"
-        @confirm="$emit('confirm', { user, editUser })"
+        @confirm="onEditUser({ user, editUser })"
       ></compare-save-dialog>
     </form>
   </div>
@@ -112,17 +112,30 @@
 import { computed, defineComponent, PropType, ref, unref } from 'vue'
 import * as EmailValidator from 'email-validator'
 import UserInfoBox from './UserInfoBox.vue'
-import { CompareSaveDialog, QuotaSelect } from '@ownclouders/web-pkg'
-import GroupSelect from '../GroupSelect.vue'
-import { cloneDeep } from 'lodash-es'
-import { AppRole, AppRoleAssignment, Group, User } from '@ownclouders/web-client/src/generated'
 import {
-  MaybeRef,
-  useCapabilityReadOnlyUserAttributes,
-  useClientService,
-  useStore
+  CompareSaveDialog,
+  QuotaSelect,
+  useUserStore,
+  useCapabilityStore,
+  useEventBus,
+  useMessages,
+  useConfigStore,
+  useSpacesStore
 } from '@ownclouders/web-pkg'
-import { useCapabilitySpacesMaxQuota } from '@ownclouders/web-pkg'
+import GroupSelect from '../GroupSelect.vue'
+import { cloneDeep, isEmpty, isEqual, omit } from 'lodash-es'
+import {
+  AppRole,
+  AppRoleAssignment,
+  Drive,
+  Group,
+  User
+} from '@ownclouders/web-client/graph/generated'
+import { MaybeRef, useClientService } from '@ownclouders/web-pkg'
+import { storeToRefs } from 'pinia'
+import { diff } from 'deep-object-diff'
+import { useUserSettingsStore } from '../../../composables/stores/userSettings'
+import { useGettext } from 'vue3-gettext'
 
 export default defineComponent({
   name: 'EditPanel',
@@ -145,13 +158,25 @@ export default defineComponent({
     groups: {
       type: Array as PropType<Group[]>,
       required: true
+    },
+    applicationId: {
+      type: String,
+      required: true
     }
   },
   emits: ['confirm'],
   setup(props) {
-    const store = useStore()
+    const capabilityStore = useCapabilityStore()
+    const capabilityRefs = storeToRefs(capabilityStore)
     const clientService = useClientService()
-    const currentUser = store.getters.user
+    const userStore = useUserStore()
+    const userSettingsStore = useUserSettingsStore()
+    const configStore = useConfigStore()
+    const spacesStore = useSpacesStore()
+    const eventBus = useEventBus()
+    const { showErrorMessage } = useMessages()
+    const { $gettext } = useGettext()
+
     const editUser: MaybeRef<User> = ref({})
     const formData = ref({
       displayName: {
@@ -173,20 +198,114 @@ export default defineComponent({
         (g) => !selectedGroups.some((s) => s.id === g.id) && !g.groupTypes?.includes('ReadOnly')
       )
     })
-    const isLoginInputDisabled = computed(() => currentUser.uuid === (props.user as User).id)
-    const readOnlyUserAttributes = useCapabilityReadOnlyUserAttributes()
-    const isInputFieldReadOnly = (key) => {
-      return unref(readOnlyUserAttributes).includes(key)
+    const isLoginInputDisabled = computed(() => userStore.user.id === (props.user as User).id)
+    const isInputFieldReadOnly = (key: string) => {
+      return capabilityStore.graphUsersReadOnlyAttributes.includes(key)
+    }
+
+    const onUpdateUserAppRoleAssignments = (user: User, editUser: User) => {
+      const client = clientService.graphAuthenticated
+      return client.users.createUserAppRoleAssignment(user.id, {
+        appRoleId: editUser.appRoleAssignments[0].appRoleId,
+        resourceId: props.applicationId,
+        principalId: editUser.id
+      })
+    }
+    const onUpdateUserGroupAssignments = (user: User, editUser: User) => {
+      const client = clientService.graphAuthenticated
+      const groupsToAdd = editUser.memberOf.filter(
+        (editUserGroup) => !user.memberOf.some((g) => g.id === editUserGroup.id)
+      )
+      const groupsToDelete = user.memberOf.filter(
+        (editUserGroup) => !editUser.memberOf.some((g) => g.id === editUserGroup.id)
+      )
+      const requests = []
+
+      for (const groupToAdd of groupsToAdd) {
+        requests.push(client.groups.addMember(groupToAdd.id, user.id, configStore.serverUrl))
+      }
+      for (const groupToDelete of groupsToDelete) {
+        requests.push(client.groups.deleteMember(groupToDelete.id, user.id))
+      }
+
+      return Promise.all(requests)
+    }
+
+    const onUpdateUserDrive = async (editUser: User) => {
+      const client = clientService.graphAuthenticated
+      const updateDriveResponse = await client.drives.updateDrive(
+        editUser.drive.id,
+        { quota: { total: editUser.drive.quota.total } } as Drive,
+        {}
+      )
+
+      if (editUser.id === userStore.user.id) {
+        // Load current user quota
+        spacesStore.updateSpaceField({
+          id: editUser.drive.id,
+          field: 'spaceQuota',
+          value: updateDriveResponse.data.quota
+        })
+      }
+    }
+
+    const onEditUser = async ({ user, editUser }: { user: User; editUser: User }) => {
+      try {
+        const client = clientService.graphAuthenticated
+        const graphEditUserPayloadExtractor = (user: User) => {
+          return omit(user, ['drive', 'appRoleAssignments', 'memberOf'])
+        }
+        const graphEditUserPayload = diff(
+          graphEditUserPayloadExtractor(user),
+          graphEditUserPayloadExtractor(editUser)
+        )
+
+        if (!isEmpty(graphEditUserPayload)) {
+          await client.users.editUser(editUser.id, graphEditUserPayload)
+        }
+
+        if (!isEqual(user.drive?.quota?.total, editUser.drive?.quota?.total)) {
+          await onUpdateUserDrive(editUser)
+        }
+
+        if (!isEqual(user.memberOf, editUser.memberOf)) {
+          await onUpdateUserGroupAssignments(user, editUser)
+        }
+
+        if (
+          !isEqual(user.appRoleAssignments[0]?.appRoleId, editUser.appRoleAssignments[0]?.appRoleId)
+        ) {
+          await onUpdateUserAppRoleAssignments(user, editUser)
+        }
+
+        const { data: updatedUser } = await client.users.getUser(user.id)
+        userSettingsStore.upsertUser(updatedUser)
+
+        eventBus.publish('sidebar.entity.saved')
+
+        if (userStore.user.id === updatedUser.id) {
+          userStore.setUser(updatedUser)
+        }
+
+        return updatedUser
+      } catch (error) {
+        console.error(error)
+        showErrorMessage({
+          title: $gettext('Failed to edit user'),
+          errors: [error]
+        })
+      }
     }
 
     return {
-      maxQuota: useCapabilitySpacesMaxQuota(),
+      maxQuota: capabilityRefs.spacesMaxQuota,
       isInputFieldReadOnly,
       isLoginInputDisabled,
       editUser,
       formData,
       groupOptions,
       clientService,
+      onEditUser,
       // HACK: make sure _user has a proper type
       _user: computed(() => props.user as User)
     }
@@ -258,7 +377,7 @@ export default defineComponent({
     }
   },
   methods: {
-    changeSelectedQuotaOption(option) {
+    changeSelectedQuotaOption(option: { value: number; displayValue: string }) {
       this.editUser.drive.quota.total = option.value
     },
     changeSelectedGroupOption(option: Group[]) {
@@ -348,7 +467,7 @@ export default defineComponent({
         formDataValue.errorMessage = ''
       })
     },
-    onUpdateRole(role) {
+    onUpdateRole(role: AppRoleAssignment) {
       if (!this.editUser.appRoleAssignments.length) {
         // FIXME: Add resourceId and principalId to be able to remove type cast
         this.editUser.appRoleAssignments.push({
@@ -358,12 +477,12 @@ export default defineComponent({
       }
       this.editUser.appRoleAssignments[0].appRoleId = role.id
     },
-    onUpdatePassword(password) {
+    onUpdatePassword(password: string) {
       this.editUser.passwordProfile = {
         password
       }
     },
-    onUpdateLogin({ value }) {
+    onUpdateLogin({ value }: { value: boolean }) {
       this.editUser.accountEnabled = value
     }
   }

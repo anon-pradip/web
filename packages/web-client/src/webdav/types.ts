@@ -1,4 +1,3 @@
-import { OwnCloudSdk } from '../types'
 import { CreateFolderFactory } from './createFolder'
 import { GetFileContentsFactory } from './getFileContents'
 import { GetFileInfoFactory } from './getFileInfo'
@@ -15,19 +14,14 @@ import { RestoreFileVersionFactory } from './restoreFileVersion'
 import { ClearTrashBinFactory } from './clearTrashBin'
 import { SearchFactory } from './search'
 import { GetPathForFileIdFactory } from './getPathForFileId'
-import { Capabilities } from '../ocs'
-import { User } from '../helpers'
-import { Ref } from 'vue'
 import { ListFilesByIdFactory } from './listFilesById'
+import { SetFavoriteFactory } from './setFavorite'
+import { ListFavoriteFilesFactory } from './listFavoriteFiles'
+import { AxiosInstance } from 'axios'
 
 export interface WebDavOptions {
-  sdk: OwnCloudSdk
-  accessToken: Ref<string>
+  axiosClient: AxiosInstance
   baseUrl: string
-  capabilities: Ref<Capabilities['capabilities']>
-  clientService: any
-  language: Ref<string>
-  user: Ref<User>
 }
 
 export interface WebDAV {
@@ -49,4 +43,6 @@ export interface WebDAV {
   restoreFileVersion: ReturnType<typeof RestoreFileVersionFactory>['restoreFileVersion']
   clearTrashBin: ReturnType<typeof ClearTrashBinFactory>['clearTrashBin']
   search: ReturnType<typeof SearchFactory>['search']
+  listFavoriteFiles: ReturnType<typeof ListFavoriteFilesFactory>['listFavoriteFiles']
+  setFavorite: ReturnType<typeof SetFavoriteFactory>['setFavorite']
 }

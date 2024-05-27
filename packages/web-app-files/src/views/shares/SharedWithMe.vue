@@ -45,13 +45,13 @@
               :items="fileOwners"
               :option-filter-label="$gettext('Filter shared by')"
               :show-option-filter="true"
-              id-attribute="username"
+              id-attribute="id"
               class="shared-by-filter oc-ml-s"
               display-name-attribute="displayName"
               filter-name="sharedBy"
             >
               <template #image="{ item }">
-                <avatar-image :width="32" :userid="item.username" :user-name="item.displayName" />
+                <avatar-image :width="32" :userid="item.id" :user-name="item.displayName" />
               </template>
               <template #item="{ item }">
                 <span class="oc-ml-s" v-text="item.displayName" />
@@ -101,20 +101,21 @@ import {
   AppLoadingSpinner,
   FileSideBar,
   InlineFilterOption,
-  ItemFilter
+  ItemFilter,
+  useConfigStore,
+  useResourcesStore
 } from '@ownclouders/web-pkg'
 import { AppBar, ItemFilterInline } from '@ownclouders/web-pkg'
 import { queryItemAsString, useRouteQuery } from '@ownclouders/web-pkg'
 import SharedWithMeSection from '../../components/Shares/SharedWithMeSection.vue'
 import { computed, defineComponent, onMounted, ref, unref, watch } from 'vue'
-import { Resource } from '@ownclouders/web-client'
 import FilesViewWrapper from '../../components/FilesViewWrapper.vue'
 import { useGetMatchingSpace, useSort } from '@ownclouders/web-pkg'
 import { useGroupingSettings } from '@ownclouders/web-pkg'
 import SharesNavigation from 'web-app-files/src/components/AppBar/SharesNavigation.vue'
 import { useGettext } from 'vue3-gettext'
-import { useStore, useOpenWithDefaultApp, defaultFuseOptions } from '@ownclouders/web-pkg'
-import { ShareTypes } from '@ownclouders/web-client/src/helpers'
+import { useOpenWithDefaultApp, defaultFuseOptions } from '@ownclouders/web-pkg'
+import { IncomingShareResource, ShareTypes } from '@ownclouders/web-client'
 import { uniq } from 'lodash-es'
 
 export default defineComponent({
@@ -131,6 +132,8 @@ export default defineComponent({
 
   setup() {
     const { openWithDefaultApp } = useOpenWithDefaultApp()
+    const configStore = useConfigStore()
+    const resourcesStore = useResourcesStore()
 
     const {
       areResourcesLoading,
@@ -141,9 +144,9 @@ export default defineComponent({
       selectedResourcesIds,
       sideBarActivePanel,
       isSideBarOpen,
-      storeItems,
+      paginatedResources,
       scrollToResourceFromRoute
-    } = useResourcesViewDefaults<Resource, any, any[]>()
+    } = useResourcesViewDefaults<IncomingShareResource, any, any>()
 
     const { $gettext } = useGettext()
 
@@ -162,11 +165,11 @@ export default defineComponent({
 
     const setAreHiddenFilesShown = (value: InlineFilterOption) => {
       areHiddenFilesShown.value = value.name === 'hidden'
-      store.dispatch('Files/resetFileSelection')
+      resourcesStore.resetSelection()
     }
 
-    const visibleShares = computed(() => unref(storeItems).filter((r) => !r.hidden))
-    const hiddenShares = computed(() => unref(storeItems).filter((r) => r.hidden))
+    const visibleShares = computed(() => unref(paginatedResources).filter((r) => !r.hidden))
+    const hiddenShares = computed(() => unref(paginatedResources).filter((r) => r.hidden))
     const currentItems = computed(() => {
       return unref(areHiddenFilesShown) ? unref(hiddenShares) : unref(visibleShares)
     })
@@ -178,15 +181,17 @@ export default defineComponent({
 
       const selectedShareTypes = queryItemAsString(unref(selectedShareTypesQuery))?.split('+')
       if (selectedShareTypes?.length) {
-        result = result.filter(({ share }) => {
-          return selectedShareTypes.map((t) => ShareTypes[t].value).includes(share.shareType)
+        result = result.filter(({ shareTypes }) => {
+          return ShareTypes.getByKeys(selectedShareTypes)
+            .map(({ value }) => value)
+            .some((t) => shareTypes.includes(t))
         })
       }
 
       const selectedSharedBy = queryItemAsString(unref(selectedSharedByQuery))?.split('+')
       if (selectedSharedBy?.length) {
-        result = result.filter(({ owner }) =>
-          owner.some(({ username }) => selectedSharedBy.includes(username))
+        result = result.filter(({ sharedBy }) =>
+          sharedBy.some(({ id }) => selectedSharedBy.includes(id))
         )
       }
 
@@ -219,9 +224,8 @@ export default defineComponent({
     })
 
     const { getMatchingSpace } = useGetMatchingSpace()
-    const store = useStore()
 
-    const displayThumbnails = computed(() => store.getters.configuration?.options?.disablePreviews)
+    const displayThumbnails = computed(() => configStore.options.disablePreviews)
 
     const selectedShareSpace = computed(() => {
       if (unref(selectedResources).length !== 1) {
@@ -244,15 +248,15 @@ export default defineComponent({
     }
 
     const shareTypes = computed(() => {
-      const uniqueShareTypes = uniq(unref(storeItems).map((i) => i.share?.shareType))
+      const uniqueShareTypes = uniq(unref(paginatedResources).flatMap((i) => i.shareTypes))
       return ShareTypes.getByValues(uniqueShareTypes)
     })
 
     const fileOwners = computed(() => {
-      const flatList = unref(storeItems)
-        .map((i) => i.owner)
+      const flatList = unref(paginatedResources)
+        .map((i) => i.sharedBy)
         .flat()
-      return [...new Map(flatList.map((item) => [item.username, item])).values()]
+      return [...new Map(flatList.map((item) => [item.displayName, item])).values()]
     })
 
     onMounted(() => {

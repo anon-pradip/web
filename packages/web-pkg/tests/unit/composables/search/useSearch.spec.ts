@@ -1,33 +1,15 @@
-import { mock } from 'jest-mock-extended'
-import {
-  createStore,
-  defaultComponentMocks,
-  defaultStoreMockOptions,
-  getComposableWrapper
-} from 'web-test-helpers'
-import { useSearch } from '../../../../src/composables'
-import { ConfigurationManager } from '../../../../src/configuration'
-
-jest.mock('../../../../src/composables/configuration', () => ({
-  useConfigurationManager: () =>
-    mock<ConfigurationManager>({
-      options: {
-        routing: {
-          fullShareOwnerPaths: false,
-          idBased: true
-        }
-      }
-    })
-}))
+import { defaultComponentMocks, getComposableWrapper } from 'web-test-helpers'
+import { CapabilityStore, useSearch } from '../../../../src/composables'
+import { SearchResource, SpaceResource } from '@ownclouders/web-client'
 
 describe('useSearch', () => {
   describe('method "search"', () => {
     it('can search', async () => {
       const files = [
-        { id: 'foo', name: 'foo', fileInfo: {} },
-        { id: 'bar', name: 'bar', fileInfo: {} },
-        { id: 'baz', name: 'baz', fileInfo: {} }
-      ]
+        { id: 'foo', name: 'foo' },
+        { id: 'bar', name: 'bar' },
+        { id: 'baz', name: 'baz' }
+      ] as SearchResource[]
 
       const wrapper = createWrapper({ resources: files })
 
@@ -38,7 +20,7 @@ describe('useSearch', () => {
       expect(withTermResult.values.map((r) => r.data)).toMatchObject(files)
     })
     it('properly returns space resources', async () => {
-      const files = [{ id: 'foo', name: 'foo', parentFolderId: '2' }]
+      const files = [{ id: 'foo', name: 'foo', parentFolderId: '2' }] as SearchResource[]
 
       const wrapper = createWrapper({ resources: files })
 
@@ -48,12 +30,8 @@ describe('useSearch', () => {
   })
 })
 
-const createWrapper = ({ resources = [] }: { resources?: any[] } = {}) => {
-  const storeOptions = { ...defaultStoreMockOptions }
-  storeOptions.getters.capabilities.mockImplementation(() => ({
-    spaces: { projects: true, share_jail: true }
-  }))
-  storeOptions.modules.runtime.modules.spaces.getters.spaces = jest.fn(() => [
+const createWrapper = ({ resources = [] }: { resources?: SearchResource[] } = {}) => {
+  const spaces = [
     {
       id: '1',
       fileId: '1',
@@ -64,11 +42,14 @@ const createWrapper = ({ resources = [] }: { resources?: any[] } = {}) => {
       id: '2',
       driveType: 'project',
       name: 'New space',
-      getDriveAliasAndItem: jest.fn()
+      getDriveAliasAndItem: vi.fn()
     }
-  ])
-  const store = createStore(storeOptions)
+  ] as unknown as SpaceResource[]
+
   const mocks = defaultComponentMocks({})
+  const capabilities = {
+    spaces: { projects: true }
+  } satisfies Partial<CapabilityStore['capabilities']>
 
   mocks.$clientService.webdav.search.mockResolvedValue({
     resources,
@@ -86,7 +67,9 @@ const createWrapper = ({ resources = [] }: { resources?: any[] } = {}) => {
     {
       mocks,
       provide: mocks,
-      store
+      pluginOptions: {
+        piniaOptions: { spacesState: { spaces }, capabilityState: { capabilities } }
+      }
     }
   )
 }

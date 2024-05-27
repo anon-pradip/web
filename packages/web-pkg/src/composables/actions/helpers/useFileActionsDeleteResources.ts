@@ -1,7 +1,6 @@
-import { Store } from 'vuex'
 import { cloneStateObject } from '../../../helpers/store'
 import { isSameResource } from '../../../helpers/resource'
-import { Resource, SpaceResource } from '@ownclouders/web-client/src/helpers'
+import { Resource, SpaceResource } from '@ownclouders/web-client'
 import PQueue from 'p-queue'
 import { isLocationSpacesActive } from '../../../router'
 import { dirname } from 'path'
@@ -10,31 +9,42 @@ import { computed, unref } from 'vue'
 import { queryItemAsString } from '../../appDefaults'
 import { useGetMatchingSpace } from '../../spaces'
 import { useRouteQuery } from '../../router'
-import { useCapabilitySpacesEnabled } from '../../capability'
-import { useLoadingService } from '../../loadingService'
 import { useClientService } from '../../clientService'
 import { useRouter } from '../../router'
-import { useStore } from '../../store'
 import { useGettext } from 'vue3-gettext'
 import { ref } from 'vue'
-import { useConfigurationManager } from '../../configuration'
+import {
+  useMessages,
+  useModals,
+  useSpacesStore,
+  useConfigStore,
+  useSharesStore,
+  useResourcesStore
+} from '../../piniaStores'
+import { storeToRefs } from 'pinia'
+import { useDeleteWorker } from '../../webWorkers'
 
-export const useFileActionsDeleteResources = ({ store }: { store?: Store<any> }) => {
-  store = store || useStore()
+export const useFileActionsDeleteResources = () => {
+  const configStore = useConfigStore()
+  const messageStore = useMessages()
+  const { showMessage, showErrorMessage } = messageStore
   const router = useRouter()
   const language = useGettext()
   const { getMatchingSpace } = useGetMatchingSpace()
   const { $gettext, $ngettext } = language
-  const hasSpacesEnabled = useCapabilitySpacesEnabled()
   const clientService = useClientService()
-  const loadingService = useLoadingService()
-  const { owncloudSdk } = clientService
-  const configurationManager = useConfigurationManager()
+  const { dispatchModal } = useModals()
+  const spacesStore = useSpacesStore()
+  const sharesStore = useSharesStore()
+  const { startWorker } = useDeleteWorker()
+
+  const resourcesStore = useResourcesStore()
+  const { currentFolder } = storeToRefs(resourcesStore)
 
   const queue = new PQueue({
-    concurrency: configurationManager.options.concurrentRequests.resourceBatchActions
+    concurrency: configStore.options.concurrentRequests.resourceBatchActions
   })
-  const deleteOps = []
+  const deleteOps: Promise<void>[] = []
   const resourcesToDelete = ref([])
 
   const currentPageQuery = useRouteQuery('page', '1')
@@ -48,13 +58,13 @@ export const useFileActionsDeleteResources = ({ store }: { store?: Store<any> })
   })
 
   const resources = computed(() => {
-    return cloneStateObject(unref(resourcesToDelete))
+    return cloneStateObject<Resource[]>(unref(resourcesToDelete))
   })
 
   const dialogTitle = computed(() => {
     const currentResources = unref(resources)
     const isFolder = currentResources[0].type === 'folder'
-    let title = null
+    let title: string = null
 
     if (currentResources.length === 1) {
       if (isFolder) {
@@ -81,7 +91,7 @@ export const useFileActionsDeleteResources = ({ store }: { store?: Store<any> })
       'Permanently delete selected resource?',
       'Permanently delete %{amount} selected resources?',
       currentResources.length,
-      { amount: currentResources.length },
+      { amount: currentResources.length.toString() },
       false
     )
   })
@@ -112,15 +122,15 @@ export const useFileActionsDeleteResources = ({ store }: { store?: Store<any> })
         id: resource.id
       })
       .then(() => {
-        store.dispatch('Files/removeFilesFromTrashbin', [resource])
+        resourcesStore.removeResources([resource])
+        resourcesStore.resetSelection()
+
         const translated = $gettext(
           '"%{file}" was deleted successfully',
           { file: resource.name },
           true
         )
-        store.dispatch('showMessage', {
-          title: translated
-        })
+        showMessage({ title: translated })
       })
       .catch((error) => {
         if (error.statusCode === 423) {
@@ -134,14 +144,14 @@ export const useFileActionsDeleteResources = ({ store }: { store?: Store<any> })
 
         console.error(error)
         const translated = $gettext('Failed to delete "%{file}"', { file: resource.name }, true)
-        store.dispatch('showErrorMessage', {
+        showErrorMessage({
           title: translated,
-          error
+          errors: [error]
         })
       })
   }
 
-  const trashbin_delete = (space: SpaceResource) => {
+  const trashbin_delete = async (space: SpaceResource) => {
     // TODO: use clear all if all files are selected
     // FIXME: Implement proper batch delete and add loading indicator
     for (const file of unref(resources)) {
@@ -151,86 +161,107 @@ export const useFileActionsDeleteResources = ({ store }: { store?: Store<any> })
       deleteOps.push(p)
     }
 
-    Promise.all(deleteOps).then(() => {
-      store.dispatch('hideModal')
-      store.dispatch('toggleModalConfirmButton')
-    })
+    await Promise.all(deleteOps)
   }
 
   const filesList_delete = (resources: Resource[]) => {
     resourcesToDelete.value = [...resources]
 
-    const resourceSpaceMapping: Record<string, { space: SpaceResource; resources: Resource[] }> =
-      unref(resources).reduce((acc, resource) => {
-        if (resource.storageId in acc) {
-          acc[resource.storageId].resources.push(resource)
-          return acc
-        }
-
-        const matchingSpace = getMatchingSpace(resource)
-
-        if (!(matchingSpace.id in acc)) {
-          acc[matchingSpace.id] = { space: matchingSpace, resources: [] }
-        }
-
-        acc[matchingSpace.id].resources.push(resource)
+    const resourceSpaceMapping = unref(resources).reduce<
+      Record<string, { space: SpaceResource; resources: Resource[] }>
+    >((acc, resource) => {
+      if (resource.storageId in acc) {
+        acc[resource.storageId].resources.push(resource)
         return acc
-      }, {})
+      }
+
+      const matchingSpace = getMatchingSpace(resource)
+
+      if (!(matchingSpace.id in acc)) {
+        acc[matchingSpace.id] = { space: matchingSpace, resources: [] }
+      }
+
+      acc[matchingSpace.id].resources.push(resource)
+      return acc
+    }, {})
+
+    const originalCurrentFolderId = unref(currentFolder)?.id
 
     return Object.values(resourceSpaceMapping).map(
       ({ space: spaceForDeletion, resources: resourcesForDeletion }) => {
-        return loadingService.addTask(() => {
-          return store
-            .dispatch('Files/deleteFiles', {
-              ...language,
-              space: spaceForDeletion,
-              files: resourcesForDeletion,
-              clientService,
-              configurationManager
+        startWorker(
+          { space: spaceForDeletion, resources: resourcesForDeletion },
+          async ({ successful, failed }) => {
+            if (successful.length) {
+              const title =
+                successful.length === 1 && resources.length === 1
+                  ? $gettext('"%{item}" was moved to trash bin', { item: successful[0].name })
+                  : $ngettext(
+                      '%{itemCount} item was moved to trash bin',
+                      '%{itemCount} items were moved to trash bin',
+                      successful.length,
+                      { itemCount: successful.length.toString() },
+                      true
+                    )
+
+              messageStore.showMessage({ title })
+            }
+
+            failed.forEach(({ status, resource }) => {
+              let title = $gettext('Failed to delete "%{resource}"', { resource: resource.name })
+              if (status === 423) {
+                title = $gettext('Failed to delete "%{resource}" - the file is locked', {
+                  resource: resource.name
+                })
+              }
+
+              messageStore.showErrorMessage({ title, errors: [new Error()] })
             })
-            .then(async () => {
-              // Load quota
-              if (
-                isLocationSpacesActive(router, 'files-spaces-generic') &&
-                !['public', 'share'].includes(spaceForDeletion?.driveType)
-              ) {
-                if (unref(hasSpacesEnabled)) {
-                  const graphClient = clientService.graphAuthenticated
-                  const driveResponse = await graphClient.drives.getDrive(
-                    unref(resources)[0].storageId
-                  )
-                  store.commit('runtime/spaces/UPDATE_SPACE_FIELD', {
-                    id: driveResponse.data.id,
-                    field: 'spaceQuota',
-                    value: driveResponse.data.quota
-                  })
-                } else {
-                  const user = await owncloudSdk.users.getUser(store.getters.user.id)
-                  store.commit('SET_QUOTA', user.quota)
-                }
-              }
 
-              if (
-                unref(resourcesToDelete).length &&
-                isSameResource(unref(resourcesToDelete)[0], store.getters['Files/currentFolder'])
-              ) {
-                // current folder is being deleted
-                return router.push(
-                  createFileRouteOptions(spaceForDeletion, {
-                    path: dirname(unref(resourcesToDelete)[0].path),
-                    fileId: unref(resourcesToDelete)[0].parentFolderId
-                  })
-                )
-              }
+            // user hasn't navigated to another location meanwhile
+            if (originalCurrentFolderId === unref(currentFolder)?.id) {
+              resourcesStore.removeResources(successful)
 
-              const activeFilesCount = store.getters['Files/activeFiles'].length
+              successful.forEach(({ id }) => {
+                resourcesStore.removeSelection(id)
+              })
+
+              const activeFilesCount = resourcesStore.activeResources.length
               const pageCount = Math.ceil(unref(activeFilesCount) / unref(itemsPerPage))
               if (unref(currentPage) > 1 && unref(currentPage) > pageCount) {
                 // reset pagination to avoid empty lists (happens when deleting all items on the last page)
                 currentPageQuery.value = pageCount.toString()
               }
-            })
-        })
+            }
+
+            // Load quota
+            if (
+              isLocationSpacesActive(router, 'files-spaces-generic') &&
+              !['public', 'share'].includes(spaceForDeletion?.driveType)
+            ) {
+              const graphClient = clientService.graphAuthenticated
+              const driveResponse = await graphClient.drives.getDrive(unref(resources)[0].storageId)
+              spacesStore.updateSpaceField({
+                id: driveResponse.data.id,
+                field: 'spaceQuota',
+                value: driveResponse.data.quota
+              })
+            }
+
+            if (
+              unref(resourcesToDelete).length &&
+              isSameResource(unref(resourcesToDelete)[0], unref(currentFolder))
+            ) {
+              // current folder is being deleted
+              return router.push(
+                createFileRouteOptions(spaceForDeletion, {
+                  path: dirname(unref(resourcesToDelete)[0].path),
+                  fileId: unref(resourcesToDelete)[0].parentFolderId
+                })
+              )
+            }
+          }
+        )
       }
     )
   }
@@ -238,21 +269,13 @@ export const useFileActionsDeleteResources = ({ store }: { store?: Store<any> })
   const displayDialog = (space: SpaceResource, resources: Resource[]) => {
     resourcesToDelete.value = [...resources]
 
-    const modal = {
+    dispatchModal({
       variation: 'danger',
       title: unref(dialogTitle),
       message: unref(dialogMessage),
-      cancelText: $gettext('Cancel'),
       confirmText: $gettext('Delete'),
-      onCancel: () => {
-        store.dispatch('hideModal')
-      },
-      onConfirm: () => {
-        trashbin_delete(space)
-      }
-    }
-
-    store.dispatch('createModal', modal)
+      onConfirm: () => trashbin_delete(space)
+    })
   }
 
   return {

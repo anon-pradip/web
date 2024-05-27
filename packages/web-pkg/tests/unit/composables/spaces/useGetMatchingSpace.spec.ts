@@ -1,12 +1,6 @@
 import { useGetMatchingSpace } from '../../../../src/composables/spaces'
-import {
-  createStore,
-  defaultComponentMocks,
-  defaultStoreMockOptions,
-  getComposableWrapper,
-  RouteLocation
-} from 'web-test-helpers'
-import { mock } from 'jest-mock-extended'
+import { defaultComponentMocks, getComposableWrapper, RouteLocation } from 'web-test-helpers'
+import { mock } from 'vitest-mock-extended'
 import { Resource, SpaceResource } from '@ownclouders/web-client'
 
 describe('useSpaceHelpers', () => {
@@ -34,7 +28,7 @@ describe('useSpaceHelpers', () => {
     it('should return the matching share space', () => {
       getWrapper({
         setup: ({ getMatchingSpace }) => {
-          const resource = mock<Resource>({ shareRoot: '/' })
+          const resource = mock<Resource>({ remoteItemPath: '/' })
           expect(getMatchingSpace(resource).driveType).toEqual('share')
         }
       })
@@ -47,14 +41,7 @@ function getWrapper({
   setup
 }: {
   driveAliasAndItem?: string
-  setup: (
-    instance: ReturnType<typeof useGetMatchingSpace>,
-    {
-      storeOptions
-    }: {
-      storeOptions: typeof defaultStoreMockOptions
-    }
-  ) => void
+  setup: (instance: ReturnType<typeof useGetMatchingSpace>) => void
 }) {
   const mocks = {
     ...defaultComponentMocks({
@@ -64,22 +51,22 @@ function getWrapper({
       })
     })
   }
-  const storeOptions = defaultStoreMockOptions
-  storeOptions.modules.runtime.modules.spaces.getters.spaces.mockImplementation(() => [
+
+  const spaces = [
     mock<SpaceResource>({ id: '1', driveType: 'project' }),
     mock<SpaceResource>({ id: 'xyz', driveType: 'public' })
-  ])
-  const store = createStore(storeOptions)
+  ]
+
   return {
     wrapper: getComposableWrapper(
       () => {
         const instance = useGetMatchingSpace()
-        setup(instance, { storeOptions })
+        setup(instance)
       },
       {
-        store,
         mocks,
-        provide: mocks
+        provide: mocks,
+        pluginOptions: { piniaOptions: { spacesState: { spaces } } }
       }
     )
   }

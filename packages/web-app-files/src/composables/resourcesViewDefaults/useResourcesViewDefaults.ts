@@ -1,17 +1,20 @@
 import { nextTick, computed, unref, Ref } from 'vue'
 import { folderService } from '../../services/folder'
 import { fileList } from '../../helpers/ui'
-import { usePagination, useSort, SortDir, SortField, useRouteName } from '@ownclouders/web-pkg'
-import { useSideBar } from '@ownclouders/web-pkg'
-
 import {
-  queryItemAsString,
-  useMutationSubscription,
-  useRouteQuery,
-  useStore
+  usePagination,
+  useSort,
+  SortDir,
+  SortField,
+  useRouteName,
+  useResourcesStore
 } from '@ownclouders/web-pkg'
-import { determineSortFields as determineResourceTableSortFields } from '@ownclouders/web-pkg'
-import { determineSortFields as determineResourceTilesSortFields } from '../../helpers/ui/resourceTiles'
+import { useSideBar } from '@ownclouders/web-pkg'
+import { queryItemAsString, useRouteQuery } from '@ownclouders/web-pkg'
+import {
+  determineResourceTableSortFields,
+  determineResourceTilesSortFields
+} from '@ownclouders/web-pkg'
 import { Task } from 'vue-concurrency'
 import { Resource } from '@ownclouders/web-client'
 import { useSelectedResources, SelectedResourcesResult } from '@ownclouders/web-pkg'
@@ -20,7 +23,7 @@ import {
   useFileListHeaderPosition,
   useViewMode,
   useViewSize,
-  ViewModeConstants
+  FolderViewModeConstants
 } from '@ownclouders/web-pkg'
 
 import { ScrollToResult, useScrollTo } from '@ownclouders/web-pkg'
@@ -29,7 +32,7 @@ interface ResourcesViewDefaultsOptions<T, U extends any[]> {
   loadResourcesTask?: Task<T, U>
 }
 
-type ResourcesViewDefaultsResult<T, TT, TU extends any[]> = {
+type ResourcesViewDefaultsResult<T extends Resource, TT, TU extends any[]> = {
   fileListHeaderY: Ref<any>
   refreshFileListHeaderPosition(): void
   loadResourcesTask: Task<TT, TU>
@@ -45,7 +48,7 @@ type ResourcesViewDefaultsResult<T, TT, TU extends any[]> = {
   viewMode: ReadOnlyRef<string>
   viewSize: ReadOnlyRef<number>
   selectedResources: Ref<Resource[]>
-  selectedResourcesIds: Ref<(string | number)[]>
+  selectedResourcesIds: Ref<string[]>
   isResourceInSelection(resource: Resource): boolean
 
   isSideBarOpen: Ref<boolean>
@@ -53,7 +56,7 @@ type ResourcesViewDefaultsResult<T, TT, TU extends any[]> = {
 } & SelectedResourcesResult &
   ScrollToResult
 
-export const useResourcesViewDefaults = <T, TT, TU extends any[]>(
+export const useResourcesViewDefaults = <T extends Resource, TT, TU extends any[]>(
   options: ResourcesViewDefaultsOptions<TT, TU> = {}
 ): ResourcesViewDefaultsResult<T, TT, TU> => {
   const loadResourcesTask = options.loadResourcesTask || folderService.getTask()
@@ -61,15 +64,15 @@ export const useResourcesViewDefaults = <T, TT, TU extends any[]>(
     return loadResourcesTask.isRunning || !loadResourcesTask.last
   })
 
-  const store = useStore()
-  const { refresh: refreshFileListHeaderPosition, y: fileListHeaderY } = useFileListHeaderPosition()
+  const resourcesStore = useResourcesStore()
+  const storeItems = computed(() => resourcesStore.activeResources) as unknown as Ref<T[]>
 
-  const storeItems = computed((): T[] => store.getters['Files/activeFiles'] || [])
+  const { refresh: refreshFileListHeaderPosition, y: fileListHeaderY } = useFileListHeaderPosition()
 
   const currentRoute = useRouteName()
   const currentViewModeQuery = useRouteQuery(
-    `${unref(currentRoute)}-view-mode`,
-    ViewModeConstants.defaultModeName
+    `${unref(currentRoute)}-${FolderViewModeConstants.queryName}`,
+    FolderViewModeConstants.defaultModeName
   )
   const currentViewMode = computed((): string => queryItemAsString(currentViewModeQuery.value))
   const viewMode = useViewMode(currentViewMode)
@@ -79,22 +82,30 @@ export const useResourcesViewDefaults = <T, TT, TU extends any[]>(
   const viewSize = useViewSize(currentTilesSize)
 
   const sortFields = computed((): SortField[] => {
-    if (unref(viewMode) === ViewModeConstants.tilesView.name) {
+    if (unref(viewMode) === FolderViewModeConstants.name.tiles) {
       return determineResourceTilesSortFields(unref(storeItems)[0])
     }
     return determineResourceTableSortFields(unref(storeItems)[0])
   })
 
-  const { sortBy, sortDir, items, handleSort } = useSort({ items: storeItems, fields: sortFields })
+  const { sortBy, sortDir, items, handleSort } = useSort<T>({
+    items: storeItems,
+    fields: sortFields
+  })
   const {
     items: paginatedResources,
     total: paginationPages,
     page: paginationPage
-  } = usePagination({ items, perPageStoragePrefix: 'files' })
+  } = usePagination<T>({ items, perPageStoragePrefix: 'files' })
 
-  useMutationSubscription(['Files/UPSERT_RESOURCE'], async ({ payload }) => {
+  const accentuateItem = async (id: string) => {
     await nextTick()
-    fileList.accentuateItem(payload.id)
+    fileList.accentuateItem(id)
+  }
+  resourcesStore.$onAction((action) => {
+    if (action.name === 'upsertResource') {
+      accentuateItem(action.args[0].id)
+    }
   })
 
   return {
@@ -112,7 +123,7 @@ export const useResourcesViewDefaults = <T, TT, TU extends any[]>(
     handleSort,
     sortBy,
     sortDir,
-    ...useSelectedResources({ store }),
+    ...useSelectedResources(),
     ...useSideBar(),
     ...useScrollTo()
   }

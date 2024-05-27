@@ -1,8 +1,8 @@
 import { useTask } from 'vue-concurrency'
 import { ClientService } from '../../services/client'
 import { useClientService } from '../clientService'
-import { buildSpace, buildWebDavSpacesPath } from '@ownclouders/web-client/src/helpers'
-import { DavProperty, DavPropertyValue } from '@ownclouders/web-client/src/webdav/constants'
+import { buildSpace, buildWebDavSpacesPath } from '@ownclouders/web-client'
+import { DavProperty, DavPropertyValue } from '@ownclouders/web-client/webdav'
 
 export interface LoadFileInfoByIdOptions {
   clientService?: ClientService
@@ -18,7 +18,7 @@ export const useLoadFileInfoById = (options: LoadFileInfoByIdOptions) => {
     DavProperty.ResourceType
   ]
 
-  const loadFileInfoByIdTask = useTask(function* (signal, fileId: string | number) {
+  const loadFileInfoByIdTask = useTask(function* (signal, fileId: string) {
     const space = buildSpace({
       id: fileId.toString(),
       name: '',

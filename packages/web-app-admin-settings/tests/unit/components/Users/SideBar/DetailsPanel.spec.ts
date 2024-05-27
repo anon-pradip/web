@@ -1,7 +1,8 @@
+import { User } from '@ownclouders/web-client/graph/generated'
 import DetailsPanel from '../../../../../src/components/Users/SideBar/DetailsPanel.vue'
-import { defaultPlugins, shallowMount } from 'web-test-helpers'
+import { PartialComponentProps, defaultPlugins, shallowMount } from 'web-test-helpers'
 
-const defaultUser = { displayName: 'user', memberOf: [] }
+const defaultUser = { displayName: 'user', memberOf: [] } as User
 
 describe('DetailsPanel', () => {
   describe('computed method "user"', () => {
@@ -54,10 +55,14 @@ describe('DetailsPanel', () => {
   })
 })
 
-function getWrapper({ props = {} } = {}) {
+function getWrapper({ props }: { props: PartialComponentProps<typeof DetailsPanel> }) {
   return {
     wrapper: shallowMount(DetailsPanel, {
-      props: { ...props },
+      props: {
+        users: [],
+        roles: [],
+        ...props
+      },
       global: {
         plugins: [...defaultPlugins()]
       }

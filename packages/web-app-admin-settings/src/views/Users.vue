@@ -16,7 +16,7 @@
       <template #topbarActions>
         <div>
           <oc-button
-            v-if="createUserAction.isEnabled()"
+            v-if="createUserAction.isVisible()"
             id="create-user-btn"
             class="oc-mr-s"
             variation="primary"
@@ -29,103 +29,96 @@
         </div>
       </template>
       <template #mainContent>
-        <app-loading-spinner v-if="loadResourcesTask.isRunning || !loadResourcesTask.last" />
-        <div v-else>
-          <UsersList
-            :users="users"
-            :roles="roles"
-            :class="{ 'users-table-squashed': isSideBarOpen }"
-            :selected-users="selectedUsers"
-            @toggle-select-user="toggleSelectUser"
-            @select-users="selectUsers"
-            @un-select-all-users="unselectAllUsers"
-          >
-            <template #contextMenu>
-              <context-actions :items="selectedUsers" />
-            </template>
-            <template #filter>
-              <div class="oc-flex oc-flex-middle">
-                <div class="oc-mr-m oc-flex oc-flex-middle">
-                  <oc-icon name="filter-2" class="oc-mr-xs" />
-                  <span v-text="$gettext('Filter:')" />
-                </div>
-                <item-filter
-                  :allow-multiple="true"
-                  :filter-label="$gettext('Groups')"
-                  :filterable-attributes="['displayName']"
-                  :items="groups"
-                  :option-filter-label="$gettext('Filter groups')"
-                  :show-option-filter="true"
-                  class="oc-mr-s"
-                  display-name-attribute="displayName"
-                  filter-name="groups"
-                  @selection-change="filterGroups"
-                >
-                  <template #image="{ item }">
-                    <avatar-image :width="32" :userid="item.id" :user-name="item.displayName" />
-                  </template>
-                  <template #item="{ item }">
-                    <div v-text="item.displayName" />
-                  </template>
-                </item-filter>
-                <item-filter
-                  :allow-multiple="true"
-                  :filter-label="$gettext('Roles')"
-                  :filterable-attributes="['displayName']"
-                  :items="roles"
-                  :option-filter-label="$gettext('Filter roles')"
-                  :show-option-filter="true"
-                  display-name-attribute="displayName"
-                  filter-name="roles"
-                  @selection-change="filterRoles"
-                >
-                  <template #image="{ item }">
-                    <avatar-image
-                      :width="32"
-                      :userid="item.id"
-                      :user-name="$gettext(item.displayName)"
-                    />
-                  </template>
-                  <template #item="{ item }">
-                    <div v-text="$gettext(item.displayName)" />
-                  </template>
-                </item-filter>
+        <users-list
+          :is-loading="isLoading"
+          :roles="roles"
+          :class="{ 'users-table-squashed': isSideBarOpen }"
+        >
+          <template #contextMenu>
+            <context-actions :items="selectedUsers" />
+          </template>
+          <template #filter>
+            <div class="oc-flex oc-flex-middle">
+              <div class="oc-mr-m oc-flex oc-flex-middle">
+                <oc-icon name="filter-2" class="oc-mr-xs" />
+                <span v-text="$gettext('Filter:')" />
               </div>
-              <div class="oc-flex oc-flex-middle">
-                <oc-text-input
-                  id="users-filter"
-                  v-model.trim="filterTermDisplayName"
-                  :label="$gettext('Search')"
-                  autocomplete="off"
-                  @keypress.enter="filterDisplayName"
-                />
-                <oc-button
-                  id="users-filter-confirm"
-                  class="oc-ml-xs"
-                  appearance="raw"
-                  @click="filterDisplayName"
-                >
-                  <oc-icon name="search" fill-type="line" />
-                </oc-button>
-              </div>
-            </template>
-            <template #noResults>
-              <no-content-message
-                v-if="isFilteringMandatory && !isFilteringActive"
-                icon="error-warning"
+              <item-filter
+                :allow-multiple="true"
+                :filter-label="$gettext('Groups')"
+                :filterable-attributes="['displayName']"
+                :items="groups"
+                :option-filter-label="$gettext('Filter groups')"
+                :show-option-filter="true"
+                class="oc-mr-s"
+                display-name-attribute="displayName"
+                filter-name="groups"
+                @selection-change="filterGroups"
               >
-                <template #message>
-                  <span v-text="$gettext('Please specify a filter to see results')" />
+                <template #image="{ item }">
+                  <avatar-image :width="32" :userid="item.id" :user-name="item.displayName" />
                 </template>
-              </no-content-message>
-              <no-content-message v-else icon="user">
-                <template #message>
-                  <span v-text="$gettext('No users in here')" />
+                <template #item="{ item }">
+                  <div v-text="item.displayName" />
                 </template>
-              </no-content-message>
-            </template>
-          </UsersList>
-        </div>
+              </item-filter>
+              <item-filter
+                :allow-multiple="true"
+                :filter-label="$gettext('Roles')"
+                :filterable-attributes="['displayName']"
+                :items="roles"
+                :option-filter-label="$gettext('Filter roles')"
+                :show-option-filter="true"
+                display-name-attribute="displayName"
+                filter-name="roles"
+                @selection-change="filterRoles"
+              >
+                <template #image="{ item }">
+                  <avatar-image
+                    :width="32"
+                    :userid="item.id"
+                    :user-name="$gettext(item.displayName)"
+                  />
+                </template>
+                <template #item="{ item }">
+                  <div v-text="$gettext(item.displayName)" />
+                </template>
+              </item-filter>
+            </div>
+            <div class="oc-flex oc-flex-middle">
+              <oc-text-input
+                id="users-filter"
+                v-model.trim="filterTermDisplayName"
+                :label="$gettext('Search')"
+                autocomplete="off"
+                @keypress.enter="filterDisplayName"
+              />
+              <oc-button
+                id="users-filter-confirm"
+                class="oc-ml-xs"
+                appearance="raw"
+                @click="filterDisplayName"
+              >
+                <oc-icon name="search" fill-type="line" />
+              </oc-button>
+            </div>
+          </template>
+          <template #noResults>
+            <no-content-message
+              v-if="isFilteringMandatory && !isFilteringActive"
+              icon="error-warning"
+            >
+              <template #message>
+                <span v-text="$gettext('Please specify a filter to see results')" />
+              </template>
+            </no-content-message>
+            <no-content-message v-else icon="user">
+              <template #message>
+                <span v-text="$gettext('No users in here')" />
+              </template>
+            </no-content-message>
+          </template>
+        </users-list>
       </template>
     </app-template>
   </div>
@@ -145,24 +138,22 @@ import {
   useUserActionsEditQuota,
   useUserActionsCreateUser
 } from '../composables'
-import { Drive, User, Group } from '@ownclouders/web-client/src/generated'
+import { User, Group, AppRole, Quota } from '@ownclouders/web-client/graph/generated'
 import {
-  AppLoadingSpinner,
   ItemFilter,
   NoContentMessage,
   eventBus,
   queryItemAsString,
-  useAccessToken,
-  useCapabilitySpacesMaxQuota,
   useClientService,
-  useConfigurationManager,
   useRoute,
   useRouteQuery,
   useRouter,
   useSideBar,
-  useStore,
   SideBarPanel,
-  SideBarPanelContext
+  SideBarPanelContext,
+  useCapabilityStore,
+  useConfigStore,
+  QueryValue
 } from '@ownclouders/web-pkg'
 import {
   computed,
@@ -172,20 +163,22 @@ import {
   onMounted,
   unref,
   watch,
-  nextTick
+  nextTick,
+  Ref
 } from 'vue'
 import { useTask } from 'vue-concurrency'
 import { useGettext } from 'vue3-gettext'
-import { diff } from 'deep-object-diff'
 import Mark from 'mark.js'
 import { format } from 'util'
-import { isEqual, isEmpty, omit } from 'lodash-es'
+import { omit } from 'lodash-es'
+import { storeToRefs } from 'pinia'
+
+import { useUserSettingsStore } from '../composables/stores/userSettings'
 
 export default defineComponent({
   name: 'UsersView',
   components: {
     NoContentMessage,
-    AppLoadingSpinner,
     AppTemplate,
     UsersList,
     ContextActions,
@@ -195,20 +188,13 @@ export default defineComponent({
     const { $gettext } = useGettext()
     const router = useRouter()
     const route = useRoute()
-    const store = useStore()
-    const accessToken = useAccessToken({ store })
+    const capabilityStore = useCapabilityStore()
+    const capabilityRefs = storeToRefs(capabilityStore)
     const clientService = useClientService()
-    const configurationManager = useConfigurationManager()
+    const configStore = useConfigStore()
 
-    const currentPageQuery = useRouteQuery('page', '1')
-    const currentPage = computed(() => {
-      return parseInt(queryItemAsString(unref(currentPageQuery)))
-    })
-
-    const itemsPerPageQuery = useRouteQuery('admin-settings-items-per-page', '1')
-    const itemsPerPage = computed(() => {
-      return parseInt(queryItemAsString(unref(itemsPerPageQuery)))
-    })
+    const userSettingsStore = useUserSettingsStore()
+    const { users, selectedUsers } = storeToRefs(userSettingsStore)
 
     const writableGroups = computed<Group[]>(() => {
       return unref(groups).filter((g) => !g.groupTypes?.includes('ReadOnly'))
@@ -217,7 +203,7 @@ export default defineComponent({
     const { actions: createUserActions } = useUserActionsCreateUser()
     const createUserAction = computed(() => unref(createUserActions)[0])
 
-    const { actions: deleteActions } = useUserActionsDelete({ store })
+    const { actions: deleteActions } = useUserActionsDelete()
     const { actions: removeFromGroupsActions } = useUserActionsRemoveFromGroups({
       groups: writableGroups
     })
@@ -227,29 +213,28 @@ export default defineComponent({
     const { actions: editLoginActions } = useUserActionsEditLogin()
     const { actions: editQuotaActions } = useUserActionsEditQuota()
 
-    const users = ref([])
     const groups = ref([])
     const roles = ref([])
-    const selectedUsers = ref<User[]>([])
     const additionalUserDataLoadedForUserIds = ref([])
     const applicationId = ref()
     const selectedUserIds = computed(() =>
       unref(selectedUsers).map((selectedUser) => selectedUser.id)
     )
-    const isFilteringMandatory = ref(configurationManager.options.userListRequiresFilter)
+    const isFilteringMandatory = ref(configStore.options.userListRequiresFilter)
+
     const sideBarLoading = ref(false)
     const template = ref()
     const displayNameQuery = useRouteQuery('q_displayName')
     const filterTermDisplayName = ref(queryItemAsString(unref(displayNameQuery)))
     const markInstance = ref(null)
 
-    let loadResourcesEventToken: string
     let editQuotaActionEventToken: string
-    let addUserEventToken: string
-    let updateUsersEventToken: string
 
     const loadGroupsTask = useTask(function* (signal) {
-      const groupsResponse = yield clientService.graphAuthenticated.groups.listGroups('displayName')
+      const groupsResponse = yield clientService.graphAuthenticated.groups.listGroups(
+        'displayName',
+        ['members']
+      )
       groups.value = groupsResponse.data.value
     })
 
@@ -262,11 +247,11 @@ export default defineComponent({
 
     const loadUsersTask = useTask(function* (signal) {
       if (unref(isFilteringMandatory) && !unref(isFilteringActive)) {
-        return (users.value = [])
+        return userSettingsStore.setUsers([])
       }
 
       const filter = Object.values(filters)
-        .reduce((acc, f: any) => {
+        .reduce((acc, f) => {
           if ('value' in f) {
             if (unref(f.value)) {
               acc.push(format(f.query, unref(f.value)))
@@ -287,9 +272,19 @@ export default defineComponent({
 
       const usersResponse = yield clientService.graphAuthenticated.users.listUsers(
         'displayName',
-        filter
+        filter,
+        ['appRoleAssignments']
       )
-      users.value = usersResponse.data.value || []
+      userSettingsStore.setUsers(usersResponse.data.value || [])
+    })
+
+    const isLoading = computed(() => {
+      return (
+        loadUsersTask.isRunning ||
+        !loadUsersTask.last ||
+        loadResourcesTask.isRunning ||
+        !loadResourcesTask.last
+      )
     })
 
     const loadResourcesTask = useTask(function* (signal) {
@@ -317,15 +312,14 @@ export default defineComponent({
       Object.assign(user, data)
     })
 
-    const currentUser = computed(() => {
-      return store.state.user
-    })
-
     const resetPagination = () => {
       return router.push({ ...unref(route), query: { ...unref(route).query, page: '1' } })
     }
 
-    const filters = {
+    const filters: Record<
+      string,
+      { param: Ref<QueryValue>; query: string; ids?: Ref<string[]>; value?: Ref<string> }
+    > = {
       groups: {
         param: useRouteQuery('q_groups'),
         query: `memberOf/any(m:m/id eq '%s')`,
@@ -350,17 +344,17 @@ export default defineComponent({
         unref(filters.displayName.value)?.length
       )
     })
-    const filterGroups = (groups) => {
+    const filterGroups = (groups: Group[]) => {
       filters.groups.ids.value = groups.map((g) => g.id)
       loadUsersTask.perform()
-      selectedUsers.value = []
+      userSettingsStore.setSelectedUsers([])
       additionalUserDataLoadedForUserIds.value = []
       return resetPagination()
     }
-    const filterRoles = (roles) => {
+    const filterRoles = (roles: AppRole[]) => {
       filters.roles.ids.value = roles.map((r) => r.id)
       loadUsersTask.perform()
-      selectedUsers.value = []
+      userSettingsStore.setSelectedUsers([])
       additionalUserDataLoadedForUserIds.value = []
       return resetPagination()
     }
@@ -374,7 +368,7 @@ export default defineComponent({
       })
       filters.displayName.value.value = unref(filterTermDisplayName)
       loadUsersTask.perform()
-      selectedUsers.value = []
+      userSettingsStore.setSelectedUsers([])
       additionalUserDataLoadedForUserIds.value = []
       return resetPagination()
     }
@@ -394,19 +388,13 @@ export default defineComponent({
         ...unref(addToGroupsActions),
         ...unref(removeFromGroupsActions),
         ...unref(editLoginActions)
-      ].filter((item) => item.isEnabled({ resources: unref(selectedUsers) }))
+      ].filter((item) => item.isVisible({ resources: unref(selectedUsers) }))
     })
 
-    const updateSpaceQuota = ({ spaceId, quota }) => {
-      const userIndex = unref(users).findIndex((u) => u.drive?.id === spaceId)
-      if (userIndex >= 0) {
-        unref(users)[userIndex].drive.quota = quota
-      }
-
-      const selectedIndex = unref(selectedUsers).findIndex((u) => u.drive?.id === spaceId)
-      if (selectedIndex >= 0) {
-        unref(selectedUsers)[selectedIndex].drive.quota = quota
-      }
+    const updateSpaceQuota = ({ spaceId, quota }: { spaceId: string; quota: Quota }) => {
+      const user = unref(users).find((u) => u.drive?.id === spaceId)
+      user.drive.quota = quota
+      userSettingsStore.upsertUser(user)
     }
 
     onMounted(async () => {
@@ -420,16 +408,6 @@ export default defineComponent({
       }
 
       await loadResourcesTask.perform()
-      loadResourcesEventToken = eventBus.subscribe('app.admin-settings.list.load', async () => {
-        await loadResourcesTask.perform()
-        selectedUsers.value = []
-
-        const pageCount = Math.ceil(unref(users).length / unref(itemsPerPage))
-        if (unref(currentPage) > 1 && unref(currentPage) > pageCount) {
-          // reset pagination to avoid empty lists (happens when deleting all items on the last page)
-          currentPageQuery.value = pageCount.toString()
-        }
-      })
 
       watch(
         [users, displayNameQuery],
@@ -447,14 +425,6 @@ export default defineComponent({
         }
       )
 
-      addUserEventToken = eventBus.subscribe('app.admin-settings.users.add', (user) => {
-        users.value.push(user)
-      })
-      updateUsersEventToken = eventBus.subscribe(
-        'app.admin-settings.users.update',
-        updateLocalUsers
-      )
-
       editQuotaActionEventToken = eventBus.subscribe(
         'app.admin-settings.users.user.quota.updated',
         updateSpaceQuota
@@ -462,122 +432,10 @@ export default defineComponent({
     })
 
     onBeforeUnmount(() => {
-      eventBus.unsubscribe('app.admin-settings.list.load', loadResourcesEventToken)
-      eventBus.unsubscribe('app.admin-settings.users.add', addUserEventToken)
-      eventBus.unsubscribe('app.admin-settings.users.update', updateUsersEventToken)
+      userSettingsStore.reset()
 
       eventBus.unsubscribe('app.admin-settings.users.user.quota.updated', editQuotaActionEventToken)
     })
-
-    const updateLocalUsers = (usersToUpdate: User[]) => {
-      for (const _user of usersToUpdate) {
-        const userIndex = unref(users).findIndex((user) => user.id === _user.id)
-        unref(users)[userIndex] = _user
-        const selectedUserIndex = unref(selectedUsers).findIndex((user) => user.id === _user.id)
-        if (selectedUserIndex >= 0) {
-          selectedUsers.value = [...unref(selectedUsers).filter(({ id }) => id !== _user.id), _user]
-        }
-      }
-    }
-
-    const onEditUser = async ({ user, editUser }) => {
-      try {
-        const client = clientService.graphAuthenticated
-        const graphEditUserPayloadExtractor = (user) => {
-          return omit(user, ['drive', 'appRoleAssignments', 'memberOf'])
-        }
-        const graphEditUserPayload = diff(
-          graphEditUserPayloadExtractor(user),
-          graphEditUserPayloadExtractor(editUser)
-        )
-
-        if (!isEmpty(graphEditUserPayload)) {
-          await client.users.editUser(editUser.id, graphEditUserPayload)
-        }
-
-        if (!isEqual(user.drive?.quota?.total, editUser.drive?.quota?.total)) {
-          await onUpdateUserDrive(editUser)
-        }
-
-        if (!isEqual(user.memberOf, editUser.memberOf)) {
-          await onUpdateUserGroupAssignments(user, editUser)
-        }
-
-        if (
-          !isEqual(user.appRoleAssignments[0]?.appRoleId, editUser.appRoleAssignments[0]?.appRoleId)
-        ) {
-          await onUpdateUserAppRoleAssignments(user, editUser)
-        }
-
-        const { data: updatedUser } = await client.users.getUser(user.id)
-        const userIndex = unref(users).findIndex((user) => user.id === updatedUser.id)
-        users.value[userIndex] = updatedUser
-        const selectedUserIndex = unref(selectedUsers).findIndex(
-          (user) => user.id === updatedUser.id
-        )
-        if (selectedUserIndex >= 0) {
-          // FIXME: why do we need to update selectedUsers?
-          selectedUsers.value[selectedUserIndex] = updatedUser
-        }
-
-        eventBus.publish('sidebar.entity.saved')
-
-        return updatedUser
-      } catch (error) {
-        console.error(error)
-        store.dispatch('showErrorMessage', {
-          title: $gettext('Failed to edit user'),
-          error
-        })
-      }
-    }
-
-    const onUpdateUserDrive = async (editUser: User) => {
-      const client = clientService.graphAuthenticated
-      const updateDriveResponse = await client.drives.updateDrive(
-        editUser.drive.id,
-        { quota: { total: editUser.drive.quota.total } } as Drive,
-        {}
-      )
-
-      if (editUser.id === unref(currentUser).uuid) {
-        // Load current user quota
-        store.commit('runtime/spaces/UPDATE_SPACE_FIELD', {
-          id: editUser.drive.id,
-          field: 'spaceQuota',
-          value: updateDriveResponse.data.quota
-        })
-      }
-    }
-    const onUpdateUserAppRoleAssignments = (user: User, editUser: User) => {
-      const client = clientService.graphAuthenticated
-      return client.users.createUserAppRoleAssignment(user.id, {
-        appRoleId: editUser.appRoleAssignments[0].appRoleId,
-        resourceId: unref(applicationId),
-        principalId: editUser.id
-      })
-    }
-    const onUpdateUserGroupAssignments = (user: User, editUser: User) => {
-      const client = clientService.graphAuthenticated
-      const groupsToAdd = editUser.memberOf.filter(
-        (editUserGroup) => !user.memberOf.some((g) => g.id === editUserGroup.id)
-      )
-      const groupsToDelete = user.memberOf.filter(
-        (editUserGroup) => !editUser.memberOf.some((g) => g.id === editUserGroup.id)
-      )
-      const requests = []
-
-      for (const groupToAdd of groupsToAdd) {
-        requests.push(
-          client.groups.addMember(groupToAdd.id, user.id, configurationManager.serverUrl)
-        )
-      }
-      for (const groupToDelete of groupsToDelete) {
-        requests.push(client.groups.deleteMember(groupToDelete.id, user.id))
-      }
-
-      return Promise.all(requests)
-    }
 
     const sideBarPanelContext = computed<SideBarPanelContext<unknown, unknown, User>>(() => {
       return {
@@ -589,7 +447,7 @@ export default defineComponent({
       {
         name: 'DetailsPanel',
         icon: 'user',
-        title: () => $gettext('User details'),
+        title: () => $gettext('Details'),
         component: DetailsPanel,
         componentAttrs: ({ items }) => ({
           user: items.length === 1 ? items[0] : null,
@@ -609,25 +467,24 @@ export default defineComponent({
           user: items.length === 1 ? items[0] : null,
           roles: unref(roles),
           groups: unref(groups),
-          onConfirm: onEditUser
+          applicationId: unref(applicationId)
         })
       }
     ] satisfies SideBarPanel<unknown, unknown, User>[]
 
     return {
       ...useSideBar(),
-      maxQuota: useCapabilitySpacesMaxQuota(),
+      maxQuota: capabilityRefs.spacesMaxQuota,
       template,
       selectedUsers,
       sideBarLoading,
       users,
       roles,
       groups,
-      applicationId,
+      isLoading,
       loadResourcesTask,
       loadAdditionalUserDataTask,
       clientService,
-      accessToken,
       batchActions,
       filterGroups,
       filterRoles,
@@ -638,8 +495,8 @@ export default defineComponent({
       isFilteringMandatory,
       sideBarPanelContext,
       sideBarAvailablePanels,
-      onEditUser,
-      createUserAction
+      createUserAction,
+      userSettingsStore
     }
   },
   computed: {
@@ -648,30 +505,12 @@ export default defineComponent({
         { text: this.$gettext('Administration Settings'), to: { path: '/admin-settings' } },
         {
           text: this.$gettext('Users'),
-          onClick: () => eventBus.publish('app.admin-settings.list.load')
+          onClick: () => {
+            this.userSettingsStore.setSelectedUsers([])
+            this.loadResourcesTask.perform()
+          }
         }
       ]
-    }
-  },
-  methods: {
-    selectUsers(users) {
-      this.selectedUsers.splice(0, this.selectedUsers.length, ...users)
-    },
-    toggleSelectUser(toggledUser, deselect = false) {
-      if (deselect) {
-        this.selectedUsers.splice(0, this.selectedUsers.length)
-      }
-      const isUserSelected = this.selectedUsers.find((user) => user.id === toggledUser.id)
-
-      if (!isUserSelected) {
-        return this.selectedUsers.push(this.users.find((u) => u.id === toggledUser.id))
-      }
-
-      const index = this.selectedUsers.findIndex((user) => user.id === toggledUser.id)
-      this.selectedUsers.splice(index, 1)
-    },
-    unselectAllUsers() {
-      this.selectedUsers.splice(0, this.selectedUsers.length)
     }
   }
 })

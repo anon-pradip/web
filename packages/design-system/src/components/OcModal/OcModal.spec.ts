@@ -1,5 +1,6 @@
-import { shallowMount } from 'web-test-helpers'
+import { defaultPlugins, mount, shallowMount } from 'web-test-helpers'
 import Modal from './OcModal.vue'
+import OcButton from './../OcButton/OcButton.vue'
 
 const defaultProps = {
   title: 'Example title',
@@ -20,7 +21,7 @@ describe('OcModal', () => {
         ...defaultProps,
         variation: 'danger'
       },
-      global: { renderStubDefaultSlot: true }
+      global: { renderStubDefaultSlot: true, plugins: [...defaultPlugins()] }
     })
 
     expect(wrapper.findAll('.oc-modal-danger').length).toBe(1)
@@ -28,7 +29,7 @@ describe('OcModal', () => {
 
   it('hides icon if not specified', () => {
     const wrapper = shallowMount(Modal, {
-      global: { renderStubDefaultSlot: true },
+      global: { renderStubDefaultSlot: true, plugins: [...defaultPlugins()] },
       props: {
         ...defaultProps
       }
@@ -40,7 +41,7 @@ describe('OcModal', () => {
 
   it('overrides props message with slot', () => {
     const wrapper = shallowMount(Modal, {
-      global: { renderStubDefaultSlot: true },
+      global: { renderStubDefaultSlot: true, plugins: [...defaultPlugins()] },
       props: {
         ...defaultProps
       },
@@ -55,7 +56,7 @@ describe('OcModal', () => {
 
   it('matches snapshot', () => {
     const wrapper = shallowMount(Modal, {
-      global: { renderStubDefaultSlot: true },
+      global: { renderStubDefaultSlot: true, plugins: [...defaultPlugins()] },
       props: {
         ...defaultProps,
         icon: 'info'
@@ -67,11 +68,54 @@ describe('OcModal', () => {
 
   it('displays input', () => {
     const wrapper = shallowMount(Modal, {
-      global: { renderStubDefaultSlot: true },
+      global: { renderStubDefaultSlot: true, plugins: [...defaultPlugins()] },
       props: inputProps
     })
 
     expect(wrapper.findAll('.oc-modal-body-input').length).toBe(1)
+    expect(wrapper.html()).toMatchSnapshot()
+  })
+
+  it('displays loading state', async () => {
+    const waitForSpinnerToShow = async () => {
+      await wrapper.vm.$nextTick()
+      return new Promise((resolve) => setTimeout(resolve, 1000))
+    }
+
+    const wrapper = mount(Modal, {
+      global: {
+        renderStubDefaultSlot: true,
+        plugins: [...defaultPlugins()],
+        stubs: {
+          'focus-trap': true
+        }
+      },
+      props: {
+        ...defaultProps,
+        isLoading: true
+      }
+    })
+
+    const cancelButton = wrapper.find('.oc-modal-body-actions-cancel')
+    const confirmButton = wrapper.find('.oc-modal-body-actions-confirm')
+
+    expect(cancelButton.attributes('disabled')).toBeDefined()
+    expect(confirmButton.attributes('disabled')).toBeDefined()
+    expect(
+      wrapper.findComponent<typeof OcButton>('.oc-modal-body-actions-confirm').props('showSpinner')
+    ).toBeFalsy()
+    expect(
+      wrapper.findComponent<typeof OcButton>('.oc-modal-body-actions-confirm').props('appearance')
+    ).toEqual('filled')
+
+    await waitForSpinnerToShow()
+
+    expect(
+      wrapper.findComponent<typeof OcButton>('.oc-modal-body-actions-confirm').props('showSpinner')
+    ).toBeTruthy()
+    expect(
+      wrapper.findComponent<typeof OcButton>('.oc-modal-body-actions-confirm').props('appearance')
+    ).toEqual('outline')
     expect(wrapper.html()).toMatchSnapshot()
   })
 })

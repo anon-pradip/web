@@ -1,4 +1,4 @@
-import { Audio, GeoCoordinates } from '../../generated'
+import { Audio, GeoCoordinates, Image, Photo } from '../../graph/generated'
 
 export abstract class DavPermission {
   static readonly Shared: string = 'S'
@@ -60,10 +60,18 @@ const DavPropertyMapping = {
     value: 'location',
     type: null as GeoCoordinates
   },
+  Image: {
+    value: 'image',
+    type: null as Image
+  },
+  Photo: {
+    value: 'photo',
+    type: null as Photo
+  },
   ETag: defString('getetag' as const),
   MimeType: defString('getcontenttype' as const),
   ResourceType: defStringArray('resourcetype' as const),
-  LockDiscovery: defString('lockdiscovery' as const),
+  LockDiscovery: { value: 'lockdiscovery', type: null as Record<string, unknown> },
   LockOwnerName: defString('ownername' as const),
   LockTime: defString('locktime' as const),
   ActiveLock: {
@@ -73,10 +81,11 @@ const DavPropertyMapping = {
   DownloadURL: defString('downloadURL' as const),
   Highlights: defString('highlights' as const),
   MetaPathForUser: defString('meta-path-for-user' as const),
+  RemoteItemId: defString('remote-item-id' as const),
 
   ShareId: defString('shareid' as const),
   ShareRoot: defString('shareroot' as const),
-  ShareTypes: defStringArray('share-types' as const),
+  ShareTypes: { value: 'share-types', type: null as Record<string, number[]> },
   SharePermissions: defString('share-permissions' as const),
 
   TrashbinOriginalFilename: defString('trashbin-original-filename' as const),
@@ -115,7 +124,7 @@ export abstract class DavProperties {
     DavProperty.ActiveLock,
     DavProperty.OwnerId,
     DavProperty.OwnerDisplayName,
-    DavProperty.ShareId,
+    DavProperty.RemoteItemId,
     DavProperty.ShareRoot,
     DavProperty.ShareTypes,
     DavProperty.PrivateLink,
@@ -128,7 +137,9 @@ export abstract class DavProperties {
     DavProperty.DownloadURL,
     DavProperty.Tags,
     DavProperty.Audio,
-    DavProperty.Location
+    DavProperty.Location,
+    DavProperty.Image,
+    DavProperty.Photo
   ]
 
   static readonly PublicLink: DavPropertyValue[] = DavProperties.Default.concat([

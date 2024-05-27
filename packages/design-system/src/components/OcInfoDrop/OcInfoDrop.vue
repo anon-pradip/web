@@ -10,18 +10,19 @@
     <div class="info-drop-content">
       <div v-if="title" class="oc-flex oc-flex-between info-header oc-border-b oc-pb-s">
         <h4 class="oc-m-rm info-title" v-text="$gettext(title)" />
-        <oc-button appearance="raw">
+        <oc-button
+          v-oc-tooltip="$gettext('Close')"
+          appearance="raw"
+          :aria-label="$gettext('Close')"
+        >
           <oc-icon name="close" fill-type="line" size="medium" variation="inherit" />
         </oc-button>
       </div>
       <p class="info-text" v-text="$gettext(text)" />
       <dl v-if="list.length" class="info-list">
-        <component
-          :is="item.headline ? 'dt' : 'dd'"
-          v-for="(item, index) in list"
-          :key="index"
-          v-text="$gettext(item.text)"
-        />
+        <component :is="item.headline ? 'dt' : 'dd'" v-for="(item, index) in list" :key="index">
+          {{ $gettext(item.text) }}
+        </component>
       </dl>
       <p v-if="endText" class="info-text-end" v-text="$gettext(endText)" />
       <oc-button
@@ -32,8 +33,9 @@
         class="info-more-link"
         :href="readMoreLink"
         target="_blank"
-        v-text="$gettext('Read more')"
-      />
+      >
+        {{ $gettext('Read more') }}
+      </oc-button>
     </div>
   </oc-drop>
 </template>
@@ -48,7 +50,7 @@ import uniqueId from '../../utils/uniqueId'
 
 export type ListElement = {
   text: string
-  headline?: string
+  headline?: boolean
 }
 
 export default defineComponent({
@@ -115,7 +117,7 @@ export default defineComponent({
     list: {
       type: Array as PropType<ListElement[]>,
       required: false,
-      default: () => []
+      default: (): ListElement[] => []
     },
     /**
      * Text at the end

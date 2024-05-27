@@ -1,29 +1,23 @@
-import {
-  createStore,
-  defaultStoreMockOptions,
-  defaultComponentMocks,
-  getComposableWrapper,
-  RouteLocation
-} from 'web-test-helpers'
+import { defaultComponentMocks, getComposableWrapper, RouteLocation } from 'web-test-helpers'
 import { unref } from 'vue'
 import { Resource } from '@ownclouders/web-client'
-import { mock, mockDeep } from 'jest-mock-extended'
+import { mock, mockDeep } from 'vitest-mock-extended'
 import { extensions } from '../../src/extensions'
-import { ApplicationSetupOptions, UppyService } from '@ownclouders/web-pkg'
+import { ActionExtension, ApplicationSetupOptions, UppyService } from '@ownclouders/web-pkg'
 
 const getAction = (opts: ApplicationSetupOptions) => {
-  const { action } = unref(extensions(opts))[0]
-  return action
+  const importFileExtension = unref(extensions(opts))[0] as ActionExtension
+  return importFileExtension.action
 }
 
 describe('useFileActionsImport', () => {
-  describe('isEnabled', () => {
+  describe('isVisible', () => {
     it('is false when no companion url is given', () => {
       getWrapper({
         currentFolder: mock<Resource>({ canUpload: () => true }),
         setup: () => {
-          const action = unref(extensions({ applicationConfig: {} }))[0].action
-          expect(action.isEnabled()).toBeFalsy()
+          const action = getAction({ applicationConfig: {} })
+          expect(action.isVisible()).toBeFalsy()
         }
       })
     })
@@ -37,7 +31,7 @@ describe('useFileActionsImport', () => {
             }
           })
 
-          expect(action.isEnabled()).toBeFalsy()
+          expect(action.isVisible()).toBeFalsy()
         }
       })
     })
@@ -50,7 +44,7 @@ describe('useFileActionsImport', () => {
               companionUrl: 'companionUrl'
             }
           })
-          expect(action.isEnabled()).toBeFalsy()
+          expect(action.isVisible()).toBeFalsy()
         }
       })
     })
@@ -58,15 +52,13 @@ describe('useFileActionsImport', () => {
       getWrapper({
         currentFolder: mock<Resource>({ canUpload: () => true }),
         setup: () => {
-          const action = unref(
-            extensions({
-              applicationConfig: {
-                companionUrl: 'companionUrl',
-                supportedClouds: []
-              }
-            })
-          )[0].action
-          expect(action.isEnabled()).toBeFalsy()
+          const action = getAction({
+            applicationConfig: {
+              companionUrl: 'companionUrl',
+              supportedClouds: []
+            }
+          })
+          expect(action.isVisible()).toBeFalsy()
         }
       })
     })
@@ -79,7 +71,7 @@ describe('useFileActionsImport', () => {
               companionUrl: 'companionUrl'
             }
           })
-          expect(action.isEnabled()).toBeTruthy()
+          expect(action.isVisible()).toBeTruthy()
         }
       })
     })
@@ -141,15 +133,12 @@ function getWrapper({
     ...defaultComponentMocks({ currentRoute: mock<RouteLocation>({ name: routeName }) }),
     $uppyService: uppyService
   }
-  const storeOptions = defaultStoreMockOptions
-  storeOptions.modules.Files.getters.currentFolder.mockReturnValue(currentFolder)
-  storeOptions.modules.runtime.modules.auth.getters.isPublicLinkContextReady.mockReturnValue(false)
-  const store = createStore(storeOptions)
+
   return {
     wrapper: getComposableWrapper(setup, {
       mocks,
       provide: mocks,
-      store
+      pluginOptions: { piniaOptions: { resourcesStore: { currentFolder } } }
     })
   }
 }

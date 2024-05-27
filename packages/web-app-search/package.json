@@ -5,6 +5,7 @@
   "description": "ownCloud web search",
   "license": "AGPL-3.0",
   "devDependencies": {
+    "@types/mark.js": "8.11.12",
     "web-test-helpers": "workspace:*"
   },
   "dependencies": {
@@ -14,7 +15,9 @@
     "@ownclouders/web-client": "workspace:*",
     "@ownclouders/web-pkg": "workspace:*",
     "lodash-es": "^4.17.21",
+    "pinia": "2.1.7",
     "vue3-gettext": "2.4.0",
+    "vue-router": "4.2.5",
     "web-app-files": "workspace:*"
   }
 }

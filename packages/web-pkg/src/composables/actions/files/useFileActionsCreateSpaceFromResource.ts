@@ -1,4 +1,3 @@
-import { Store } from 'vuex'
 import { computed, unref } from 'vue'
 import { useGettext } from 'vue3-gettext'
 import { FileAction, FileActionOptions } from '../../actions'
@@ -6,36 +5,51 @@ import { FileAction, FileActionOptions } from '../../actions'
 import { useAbility } from '../../ability'
 import { useClientService } from '../../clientService'
 import { useRouter } from '../../router'
-import { useLoadingService } from '../../loadingService'
-import { isPersonalSpaceResource } from '@ownclouders/web-client/src/helpers'
+import { Resource, SpaceResource, isPersonalSpaceResource } from '@ownclouders/web-client'
 import { isLocationSpacesActive } from '../../../router'
 import { useCreateSpace } from '../../spaces'
 import { useSpaceHelpers } from '../../spaces'
 import PQueue from 'p-queue'
-import { useConfigurationManager } from '../../configuration'
+import {
+  useConfigStore,
+  useMessages,
+  useModals,
+  useResourcesStore,
+  useSpacesStore
+} from '../../piniaStores'
 
-export const useFileActionsCreateSpaceFromResource = ({ store }: { store?: Store<any> } = {}) => {
+export const useFileActionsCreateSpaceFromResource = () => {
+  const { showMessage, showErrorMessage } = useMessages()
   const { can } = useAbility()
   const { $gettext, $ngettext } = useGettext()
-  const loadingService = useLoadingService()
   const { createSpace } = useCreateSpace()
   const { checkSpaceNameModalInput } = useSpaceHelpers()
   const clientService = useClientService()
   const router = useRouter()
   const hasCreatePermission = computed(() => can('create-all', 'Drive'))
-  const configurationManager = useConfigurationManager()
+  const { dispatchModal } = useModals()
+  const configStore = useConfigStore()
+  const spacesStore = useSpacesStore()
+  const resourcesStore = useResourcesStore()
 
-  const confirmAction = async ({ spaceName, resources, space }) => {
+  const confirmAction = async ({
+    spaceName,
+    resources,
+    space
+  }: {
+    spaceName: string
+    resources: Resource[]
+    space: SpaceResource
+  }) => {
     const { webdav } = clientService
-    store.dispatch('hideModal')
     const queue = new PQueue({
-      concurrency: configurationManager.options.concurrentRequests.resourceBatchActions
+      concurrency: configStore.options.concurrentRequests.resourceBatchActions
     })
     const copyOps = []
 
     try {
       const createdSpace = await createSpace(spaceName)
-      store.commit('runtime/spaces/UPSERT_SPACE', createdSpace)
+      spacesStore.upsertSpace(createdSpace)
 
       if (resources.length === 1 && resources[0].isFolder) {
         //If a single folder is selected we copy it's content to the Space's root folder
@@ -49,21 +63,18 @@ export const useFileActionsCreateSpaceFromResource = ({ store }: { store?: Store
       }
 
       await Promise.all(copyOps)
-      store.dispatch('Files/resetFileSelection')
-      store.dispatch('showMessage', {
-        title: $gettext('Space was created successfully')
-      })
+      resourcesStore.resetSelection()
+      showMessage({ title: $gettext('Space was created successfully') })
     } catch (error) {
       console.error(error)
-      store.dispatch('showErrorMessage', {
+      showErrorMessage({
         title: $gettext('Creating space failed…'),
-        error
+        errors: [error]
       })
     }
   }
   const handler = ({ resources, space }: FileActionOptions) => {
-    const modal = {
-      variation: 'passive',
+    dispatchModal({
       title: $ngettext(
         'Create Space from "%{resourceName}"',
         'Create Space from selection',
@@ -85,17 +96,12 @@ export const useFileActionsCreateSpaceFromResource = ({ store }: { store?: Store
         title: $gettext('Restrictions'),
         text: $gettext('Shares, versions and tags will not be copied.')
       },
-      cancelText: $gettext('Cancel'),
       confirmText: $gettext('Create'),
       hasInput: true,
       inputLabel: $gettext('Space name'),
       onInput: checkSpaceNameModalInput,
-      onCancel: () => store.dispatch('hideModal'),
-      onConfirm: (spaceName) =>
-        loadingService.addTask(() => confirmAction({ spaceName, space, resources }))
-    }
-
-    store.dispatch('createModal', modal)
+      onConfirm: (spaceName: string) => confirmAction({ spaceName, space, resources })
+    })
   }
 
   const actions = computed((): FileAction[] => {
@@ -107,7 +113,7 @@ export const useFileActionsCreateSpaceFromResource = ({ store }: { store?: Store
         label: () => {
           return $gettext('Create Space from selection')
         },
-        isEnabled: ({ resources, space }) => {
+        isVisible: ({ resources, space }) => {
           if (!resources.length) {
             return false
           }

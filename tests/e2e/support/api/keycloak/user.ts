@@ -58,7 +58,15 @@ export const createUser = async ({ user, admin }: { user: User; admin: User }): 
   return user
 }
 
-export const assignRole = async ({ admin, uuid, role }) => {
+export const assignRole = async ({
+  admin,
+  uuid,
+  role
+}: {
+  admin: User
+  uuid: string
+  role: string
+}) => {
   return request({
     method: 'POST',
     path: join(realmBasePath, 'users', uuid, 'role-mappings', 'realm'),
@@ -72,7 +80,11 @@ export const assignRole = async ({ admin, uuid, role }) => {
 }
 
 const initializeUser = async (username: string): Promise<void> => {
-  return getTokenFromLogin({ browser: state.browser, username, waitForSelector: '#web-content' })
+  return await getTokenFromLogin({
+    browser: state.browser,
+    username,
+    waitForSelector: '#web-content'
+  })
 }
 
 export const deleteUser = async ({ user, admin }: { user: User; admin: User }): Promise<User> => {

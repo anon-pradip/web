@@ -1,65 +1,24 @@
 import Groups from '../../../src/views/Groups.vue'
-import { mockAxiosResolve, mockAxiosReject } from 'web-test-helpers/src/mocks'
-import { mock, mockDeep } from 'jest-mock-extended'
-import { ClientService, eventBus } from '@ownclouders/web-pkg'
-import {
-  createStore,
-  defaultComponentMocks,
-  defaultPlugins,
-  defaultStoreMockOptions,
-  mount
-} from 'web-test-helpers'
-import { Group } from '@ownclouders/web-client/src/generated'
+import { mockAxiosResolve } from 'web-test-helpers/src/mocks'
+import { mockDeep } from 'vitest-mock-extended'
+import { ClientService } from '@ownclouders/web-pkg'
+import { defaultComponentMocks, defaultPlugins, mount } from 'web-test-helpers'
+import { Group } from '@ownclouders/web-client/graph/generated'
 
 const selectors = { batchActionsStub: 'batch-actions-stub' }
 const getClientServiceMock = () => {
   const clientService = mockDeep<ClientService>()
-  clientService.graphAuthenticated.groups.listGroups.mockImplementation(() =>
+  clientService.graphAuthenticated.groups.listGroups.mockResolvedValue(
     mockAxiosResolve({ value: [{ id: '1', name: 'users', groupTypes: [] }] })
   )
   return clientService
 }
-jest.mock('@ownclouders/web-pkg', () => ({
-  ...jest.requireActual('@ownclouders/web-pkg'),
-  useAppDefaults: jest.fn()
+vi.mock('@ownclouders/web-pkg', async (importOriginal) => ({
+  ...(await importOriginal<any>()),
+  useAppDefaults: vi.fn()
 }))
 
 describe('Groups view', () => {
-  describe('method "onEditGroup"', () => {
-    it('should emit event on success', async () => {
-      const clientService = getClientServiceMock()
-      clientService.graphAuthenticated.groups.editGroup.mockImplementation(() => mockAxiosResolve())
-      clientService.graphAuthenticated.groups.getGroup.mockImplementation(() =>
-        mockAxiosResolve({ id: '1', displayName: 'administrators' })
-      )
-      const { wrapper } = getWrapper({ clientService })
-
-      const editGroup = {
-        id: '1',
-        name: 'administrators'
-      }
-
-      const busStub = jest.spyOn(eventBus, 'publish')
-      await wrapper.vm.loadResourcesTask.last
-
-      const updatedGroup = await wrapper.vm.onEditGroup(editGroup)
-
-      expect(updatedGroup.id).toEqual('1')
-      expect(updatedGroup.displayName).toEqual('administrators')
-      expect(busStub).toHaveBeenCalled()
-    })
-
-    it('should show message on error', async () => {
-      jest.spyOn(console, 'error').mockImplementation(() => undefined)
-      const clientService = getClientServiceMock()
-      clientService.graphAuthenticated.groups.editGroup.mockImplementation(() => mockAxiosReject())
-      const { wrapper, storeOptions } = getWrapper({ clientService })
-      await wrapper.vm.onEditGroup({})
-
-      expect(storeOptions.actions.showErrorMessage).toHaveBeenCalled()
-    })
-  })
-
   describe('computed method "sideBarAvailablePanels"', () => {
     describe('EditPanel', () => {
       it('should be available when one group is selected', () => {
@@ -106,31 +65,37 @@ describe('Groups view', () => {
       expect(wrapper.find(selectors.batchActionsStub).exists()).toBeFalsy()
     })
     it('display when one group selected', async () => {
-      const { wrapper } = getWrapper()
+      const { wrapper } = getWrapper({ selectedGroups: [{ id: '1' }] })
       await wrapper.vm.loadResourcesTask.last
-      wrapper.vm.toggleSelectGroup({ id: '1' })
       await wrapper.vm.$nextTick()
       expect(wrapper.find(selectors.batchActionsStub).exists()).toBeTruthy()
     })
     it('display when more than one groups selected', async () => {
-      const { wrapper } = getWrapper()
+      const { wrapper } = getWrapper({ selectedGroups: [{ id: '1' }, { id: '2' }] })
       await wrapper.vm.loadResourcesTask.last
-      wrapper.vm.selectGroups([mock<Group>({ groupTypes: [] }), mock<Group>({ groupTypes: [] })])
       await wrapper.vm.$nextTick()
       expect(wrapper.find(selectors.batchActionsStub).exists()).toBeTruthy()
     })
   })
 })
 
-function getWrapper({ clientService = getClientServiceMock() } = {}) {
+function getWrapper({
+  clientService = getClientServiceMock(),
+  groups = [],
+  selectedGroups = []
+}: { clientService?: ClientService; groups?: Group[]; selectedGroups?: Group[] } = {}) {
   const mocks = { ...defaultComponentMocks(), $clientService: clientService }
-  const storeOptions = { ...defaultStoreMockOptions }
-  const store = createStore(storeOptions)
+
   return {
-    storeOptions,
     wrapper: mount(Groups, {
       global: {
-        plugins: [...defaultPlugins(), store],
+        plugins: [
+          ...defaultPlugins({
+            piniaOptions: {
+              groupSettingsStore: { groups, selectedGroups }
+            }
+          })
+        ],
         mocks,
         provide: mocks,
         stubs: {

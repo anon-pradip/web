@@ -1,24 +1,20 @@
 import UserMenu from 'web-runtime/src/components/Topbar/UserMenu.vue'
 import {
-  createStore,
   defaultPlugins,
   defaultStubs,
   mount,
-  defaultStoreMockOptions,
   defaultComponentMocks,
   RouteLocation
 } from 'web-test-helpers'
-import { mock } from 'jest-mock-extended'
-import { createCustomThemeStore } from 'web-test-helpers/src/mocks/pinia'
+import { mock } from 'vitest-mock-extended'
+import { SpaceResource } from '@ownclouders/web-client'
+import { Quota } from '@ownclouders/web-client/graph/generated'
+import { MenuItem } from 'web-runtime/src/helpers/menuItems'
 
 const totalQuota = 1000
 const basicQuota = 300
 const warningQuota = 810
 const dangerQuota = 910
-
-const basicRelativeQuota = (basicQuota / totalQuota) * 100
-const warningRelativeQuota = (warningQuota / totalQuota) * 100
-const dangerRelativeQuota = (dangerQuota / totalQuota) * 100
 
 const noEmail = ''
 const email = 'test@test.de'
@@ -32,10 +28,7 @@ describe('User Menu component', () => {
   })
   describe('when quota and no email is set', () => {
     it('renders a navigation without email', () => {
-      const wrapper = getMountedWrapper(
-        { used: basicQuota, total: totalQuota, relative: basicRelativeQuota },
-        noEmail
-      )
+      const wrapper = getMountedWrapper({ used: basicQuota, total: totalQuota }, noEmail)
       expect(wrapper.html()).toMatchSnapshot()
     })
   })
@@ -56,9 +49,7 @@ describe('User Menu component', () => {
       const wrapper = getMountedWrapper(
         {
           used: basicQuota,
-          total: totalQuota,
-          relative: basicRelativeQuota,
-          definition: 'default'
+          total: totalQuota
         },
         email
       )
@@ -70,9 +61,7 @@ describe('User Menu component', () => {
       const wrapper = getMountedWrapper(
         {
           used: warningQuota,
-          total: totalQuota,
-          relative: warningRelativeQuota,
-          definition: 'default'
+          total: totalQuota
         },
         email
       )
@@ -84,9 +73,7 @@ describe('User Menu component', () => {
       const wrapper = getMountedWrapper(
         {
           used: dangerQuota,
-          total: totalQuota,
-          relative: dangerRelativeQuota,
-          definition: 'default'
+          total: totalQuota
         },
         email
       )
@@ -98,7 +85,7 @@ describe('User Menu component', () => {
       const wrapper = getMountedWrapper(
         {
           used: basicQuota,
-          definition: 'default'
+          total: 0
         },
         email
       )
@@ -110,9 +97,7 @@ describe('User Menu component', () => {
       const wrapper = getMountedWrapper(
         {
           used: dangerQuota,
-          total: totalQuota,
-          relative: dangerRelativeQuota,
-          definition: 'none'
+          total: 0
         },
         email
       )
@@ -124,9 +109,7 @@ describe('User Menu component', () => {
       const wrapper = getMountedWrapper(
         {
           used: dangerQuota,
-          total: totalQuota,
-          relative: dangerRelativeQuota,
-          definition: 'none'
+          total: totalQuota
         },
         email,
         false,
@@ -141,26 +124,18 @@ describe('User Menu component', () => {
   })
 })
 
-const getMountedWrapper = (quota, userEmail, noUser = false, areThemeUrlsSet = false) => {
+const getMountedWrapper = (
+  quota: Quota,
+  userEmail: string,
+  noUser = false,
+  areThemeUrlsSet = false
+) => {
   const mocks = {
     ...defaultComponentMocks({
       currentRoute: mock<RouteLocation>({ path: '/files', fullPath: '/files' })
     })
   }
-  const storeOptions = defaultStoreMockOptions
 
-  storeOptions.getters.quota.mockImplementation(() => quota)
-  storeOptions.getters.user.mockImplementation(() => {
-    return noUser
-      ? {}
-      : {
-          id: 'einstein',
-          username: 'einstein',
-          userDisplayName: 'Albert Einstein',
-          userEmail
-        }
-  })
-  const store = createStore(storeOptions)
   return mount(UserMenu, {
     props: {
       applicationsList: [
@@ -168,18 +143,16 @@ const getMountedWrapper = (quota, userEmail, noUser = false, areThemeUrlsSet = f
           icon: 'application',
           path: '/settings',
           title: 'Settings'
-        }
+        } as MenuItem
       ]
     },
     global: {
       provide: mocks,
       renderStubDefaultSlot: true,
       plugins: [
-        ...defaultPlugins(),
-        store,
-        createCustomThemeStore({
-          initialState: {
-            theme: {
+        ...defaultPlugins({
+          piniaOptions: {
+            themeState: {
               currentTheme: {
                 common: {
                   urls: {
@@ -188,6 +161,25 @@ const getMountedWrapper = (quota, userEmail, noUser = false, areThemeUrlsSet = f
                   }
                 }
               }
+            },
+            userState: {
+              user: noUser
+                ? {}
+                : {
+                    id: '1',
+                    onPremisesSamAccountName: 'einstein',
+                    displayName: 'Albert Einstein',
+                    mail: userEmail || ''
+                  }
+            },
+            spacesState: {
+              spaces: [
+                mock<SpaceResource>({
+                  spaceQuota: quota,
+                  isOwner: () => true,
+                  driveType: 'personal'
+                })
+              ]
             }
           }
         })

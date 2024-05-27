@@ -1,11 +1,8 @@
+import { mock } from 'vitest-mock-extended'
 import SetLinkPasswordModal from '../../../../src/components/Modals/SetLinkPasswordModal.vue'
-import {
-  createStore,
-  defaultComponentMocks,
-  defaultPlugins,
-  defaultStoreMockOptions,
-  shallowMount
-} from 'web-test-helpers'
+import { defaultComponentMocks, defaultPlugins, shallowMount } from 'web-test-helpers'
+import { Modal, useMessages, useSharesStore } from '@ownclouders/web-pkg'
+import { Resource, LinkShare, SpaceResource } from '@ownclouders/web-client'
 
 describe('SetLinkPasswordModal', () => {
   it('should render a text input field for the password', () => {
@@ -15,37 +12,40 @@ describe('SetLinkPasswordModal', () => {
   })
   describe('method "onConfirm"', () => {
     it('updates the link', async () => {
-      const { wrapper, storeOptions } = getWrapper()
+      const { wrapper } = getWrapper()
       await wrapper.vm.onConfirm()
 
-      expect(storeOptions.modules.Files.actions.updateLink).toHaveBeenCalled()
-      expect(storeOptions.actions.showMessage).toHaveBeenCalled()
+      const sharesStore = useSharesStore()
+      expect(sharesStore.updateLink).toHaveBeenCalled()
+      const { showMessage } = useMessages()
+      expect(showMessage).toHaveBeenCalled()
     })
     it('shows an error message on error', async () => {
-      const { wrapper, storeOptions } = getWrapper()
-      storeOptions.modules.Files.actions.updateLink.mockRejectedValue(new Error(''))
+      const { wrapper } = getWrapper()
+      const sharesStore = useSharesStore()
+      vi.mocked(sharesStore.updateLink).mockRejectedValue(new Error(''))
       await wrapper.vm.onConfirm()
 
-      expect(storeOptions.actions.showErrorMessage).toHaveBeenCalled()
+      const { showErrorMessage } = useMessages()
+      expect(showErrorMessage).toHaveBeenCalled()
     })
   })
 })
 
-function getWrapper({ link = {} } = {}) {
+function getWrapper() {
   const mocks = { ...defaultComponentMocks() }
-
-  const storeOptions = defaultStoreMockOptions
-  const store = createStore(storeOptions)
 
   return {
     mocks,
-    storeOptions,
     wrapper: shallowMount(SetLinkPasswordModal, {
       props: {
-        link
+        modal: mock<Modal>(),
+        link: mock<LinkShare>(),
+        space: mock<SpaceResource>(),
+        resource: mock<Resource>()
       },
       global: {
-        plugins: [...defaultPlugins(), store],
+        plugins: [...defaultPlugins()],
         mocks,
         provide: mocks
       }

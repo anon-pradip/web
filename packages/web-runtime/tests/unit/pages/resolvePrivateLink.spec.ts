@@ -2,27 +2,20 @@ import resolvePrivateLink from '../../../src/pages/resolvePrivateLink.vue'
 import {
   defaultPlugins,
   defaultComponentMocks,
-  createStore,
   shallowMount,
-  defaultStoreMockOptions
+  mockAxiosResolve
 } from 'web-test-helpers'
-import { mock } from 'jest-mock-extended'
-import {
-  ConfigurationManager,
-  queryItemAsString,
-  useConfigurationManager,
-  useGetResourceContext
-} from '@ownclouders/web-pkg'
-import { Resource, SpaceResource } from '@ownclouders/web-client'
-import { SHARE_JAIL_ID } from '@ownclouders/web-client/src/helpers'
+import { mock } from 'vitest-mock-extended'
+import { queryItemAsString, useGetResourceContext } from '@ownclouders/web-pkg'
+import { Resource, SHARE_JAIL_ID, SpaceResource } from '@ownclouders/web-client'
+import { DriveItem } from '@ownclouders/web-client/graph/generated'
 
-jest.mock('@ownclouders/web-pkg', () => ({
-  ...jest.requireActual('@ownclouders/web-pkg'),
-  useRouteQuery: jest.fn((str) => str),
-  useRouteParam: jest.fn((str) => str),
-  queryItemAsString: jest.fn(),
-  useGetResourceContext: jest.fn(),
-  useConfigurationManager: jest.fn()
+vi.mock('@ownclouders/web-pkg', async (importOriginal) => ({
+  ...(await importOriginal<any>()),
+  useRouteQuery: vi.fn((str) => str),
+  useRouteParam: vi.fn((str) => str),
+  queryItemAsString: vi.fn(),
+  useGetResourceContext: vi.fn()
 }))
 
 const selectors = {
@@ -81,7 +74,7 @@ describe('resolvePrivateLink', () => {
         driveType: 'share',
         getDriveAliasAndItem: () => driveAliasAndItem
       })
-      const resource = mock<Resource>({ fileId, type: 'file' })
+      const resource = mock<Resource>({ fileId, id: fileId, type: 'file' })
       const { wrapper, mocks } = getWrapper({
         space,
         resource,
@@ -162,8 +155,17 @@ function getWrapper({
   hiddenShare = false,
   openWithDefaultAppQuery = 'true',
   openLinksWithDefaultApp = true
+}: {
+  space?: SpaceResource
+  resource?: Resource
+  path?: string
+  fileId?: string
+  details?: string
+  hiddenShare?: boolean
+  openWithDefaultAppQuery?: string
+  openLinksWithDefaultApp?: boolean
 } = {}) {
-  jest.mocked(queryItemAsString).mockImplementation((str: string) => {
+  vi.mocked(queryItemAsString).mockImplementation((str) => {
     if (str === 'fileId') {
       return fileId
     }
@@ -173,33 +175,29 @@ function getWrapper({
     if (str === 'details') {
       return details
     }
-    return str
+    return str.toString()
   })
 
-  jest.mocked(useGetResourceContext).mockReturnValue({
-    getResourceContext: jest.fn().mockResolvedValue({ space, resource, path })
+  vi.mocked(useGetResourceContext).mockReturnValue({
+    getResourceContext: vi.fn().mockResolvedValue({ space, resource, path })
   })
-  jest.mocked(useConfigurationManager).mockImplementation(() =>
-    mock<ConfigurationManager>({
-      options: {
-        openLinksWithDefaultApp
-      }
-    })
-  )
 
   const mocks = { ...defaultComponentMocks() }
-  mocks.$clientService.owncloudSdk.shares.getShare.mockResolvedValue({
-    shareInfo: { hidden: hiddenShare ? 'true' : 'false' }
-  })
-
-  const storeOptions = defaultStoreMockOptions
-  const store = createStore(storeOptions)
+  mocks.$clientService.graphAuthenticated.drives.listSharedWithMe.mockResolvedValue(
+    mockAxiosResolve({
+      value: [{ remoteItem: { id: '1' }, '@UI.Hidden': hiddenShare } as DriveItem]
+    })
+  )
 
   return {
     mocks,
     wrapper: shallowMount(resolvePrivateLink, {
       global: {
-        plugins: [...defaultPlugins(), store],
+        plugins: [
+          ...defaultPlugins({
+            piniaOptions: { configState: { options: { openLinksWithDefaultApp } } }
+          })
+        ],
         mocks,
         provide: mocks
       }

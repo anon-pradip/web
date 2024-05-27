@@ -1,24 +1,20 @@
 import { mockAxiosResolve } from 'web-test-helpers/src/mocks'
-import { Graph } from '@ownclouders/web-client'
-import { mockDeep } from 'jest-mock-extended'
+import { SpaceResource } from '@ownclouders/web-client'
+import { Graph } from '@ownclouders/web-client/graph'
+import { mock, mockDeep } from 'vitest-mock-extended'
 import { ClientService, useAppDefaults } from '@ownclouders/web-pkg'
-import {
-  createStore,
-  defaultComponentMocks,
-  defaultPlugins,
-  defaultStoreMockOptions,
-  mount
-} from 'web-test-helpers'
+import { defaultComponentMocks, defaultPlugins, mount } from 'web-test-helpers'
 import Spaces from '../../../src/views/Spaces.vue'
 import { useAppDefaultsMock } from 'web-test-helpers/src/mocks/useAppDefaultsMock'
+import { Drive } from '@ownclouders/web-client/graph/generated'
 
-jest.mock('@ownclouders/web-pkg', () => ({
-  ...jest.requireActual('@ownclouders/web-pkg'),
-  queryItemAsString: jest.fn(),
-  useAppDefaults: jest.fn(),
-  useRouteQueryPersisted: jest.fn()
+vi.mock('@ownclouders/web-pkg', async (importOriginal) => ({
+  ...(await importOriginal<any>()),
+  queryItemAsString: vi.fn(),
+  useAppDefaults: vi.fn(),
+  useRouteQueryPersisted: vi.fn()
 }))
-jest.mocked(useAppDefaults).mockImplementation(() => useAppDefaultsMock({}))
+vi.mocked(useAppDefaults).mockImplementation(() => useAppDefaultsMock({}))
 
 const selectors = {
   loadingSpinnerStub: 'app-loading-spinner-stub',
@@ -34,7 +30,8 @@ describe('Spaces view', () => {
       expect(wrapper.find(selectors.loadingSpinnerStub).exists()).toBeTruthy()
     })
     it('should render spaces list after loading has been finished', async () => {
-      const { wrapper } = getWrapper()
+      const spaces = [{ id: '1', name: 'Some Space' }] as SpaceResource[]
+      const { wrapper } = getWrapper({ spaces })
       await wrapper.vm.loadResourcesTask.last
       expect(wrapper.html()).toMatchSnapshot()
       expect(wrapper.find(selectors.spacesListStub).exists()).toBeTruthy()
@@ -42,50 +39,10 @@ describe('Spaces view', () => {
   })
   it('should render no content message if no spaces found', async () => {
     const graph = mockDeep<Graph>()
-    graph.drives.listAllDrives.mockImplementation(() => mockAxiosResolve({ value: [] }))
+    graph.drives.listAllDrives.mockResolvedValue(mockAxiosResolve({ value: [] }))
     const { wrapper } = getWrapper({ spaces: [] })
     await wrapper.vm.loadResourcesTask.last
     expect(wrapper.find(selectors.noContentMessageStub).exists()).toBeTruthy()
-  })
-  describe('toggle selection', () => {
-    describe('selectSpaces method', () => {
-      it('selects all spaces', async () => {
-        const spaces = [{ name: 'Some Space' }, { name: 'Some other Space' }]
-        const { wrapper } = getWrapper({ spaces })
-        await wrapper.vm.loadResourcesTask.last
-        wrapper.vm.selectSpaces(spaces)
-        expect(wrapper.vm.selectedSpaces.length).toBe(spaces.length)
-      })
-    })
-    describe('toggleSelectSpace method', () => {
-      it('selects a space', async () => {
-        const spaces = [{ name: 'Some Space' }]
-        const { wrapper } = getWrapper()
-        await wrapper.vm.loadResourcesTask.last
-        wrapper.vm.toggleSelectSpace(spaces[0])
-        expect(wrapper.vm.selectedSpaces).toEqual(
-          expect.arrayContaining([expect.objectContaining({ name: spaces[0].name })])
-        )
-      })
-      it('de-selects a selected space', async () => {
-        const spaces = [{ name: 'Some Space' }]
-        const { wrapper } = getWrapper()
-        await wrapper.vm.loadResourcesTask.last
-        wrapper.vm.selectedSpaces = spaces
-        wrapper.vm.toggleSelectSpace(spaces[0])
-        expect(wrapper.vm.selectedSpaces.length).toBe(0)
-      })
-    })
-    describe('unselectAllSpaces method', () => {
-      it('de-selects all selected spaces', async () => {
-        const spaces = [{ name: 'Some Space' }]
-        const { wrapper } = getWrapper({ spaces })
-        await wrapper.vm.loadResourcesTask.last
-        wrapper.vm.selectedSpaces = spaces
-        wrapper.vm.unselectAllSpaces()
-        expect(wrapper.vm.selectedSpaces.length).toBe(0)
-      })
-    })
   })
   describe('batch actions', () => {
     it('do not display when no space selected', async () => {
@@ -94,41 +51,56 @@ describe('Spaces view', () => {
       expect(wrapper.find(selectors.batchActionsStub).exists()).toBeFalsy()
     })
     it('display when one space selected', async () => {
-      const spaces = [{ name: 'Some Space' }]
-      const { wrapper } = getWrapper({ spaces })
+      const spaces = [{ id: '1', name: 'Some Space' }] as SpaceResource[]
+      const { wrapper } = getWrapper({ spaces, selectedSpaces: spaces })
       await wrapper.vm.loadResourcesTask.last
-      wrapper.vm.toggleSelectSpace(spaces[0])
       await wrapper.vm.$nextTick()
       expect(wrapper.find(selectors.batchActionsStub).exists()).toBeTruthy()
     })
     it('display when more than one space selected', async () => {
-      const spaces = [{ name: 'Some Space' }, { name: 'Some other Space' }]
-      const { wrapper } = getWrapper({ spaces })
+      const spaces = [
+        { id: '1', name: 'Some Space' },
+        { id: '1', name: 'Some other Space' }
+      ] as SpaceResource[]
+      const { wrapper } = getWrapper({ spaces, selectedSpaces: spaces })
       await wrapper.vm.loadResourcesTask.last
-      wrapper.vm.selectSpaces(spaces)
       await wrapper.vm.$nextTick()
       expect(wrapper.find(selectors.batchActionsStub).exists()).toBeTruthy()
     })
   })
 })
 
-function getWrapper({ spaces = [{ name: 'Some Space' }] } = {}) {
+function getWrapper({
+  spaces = [
+    {
+      id: '1',
+      name: 'space'
+    } as SpaceResource
+  ],
+  selectedSpaces = []
+}: { spaces?: SpaceResource[]; selectedSpaces?: SpaceResource[] } = {}) {
   const $clientService = mockDeep<ClientService>()
-  $clientService.graphAuthenticated.drives.listAllDrives.mockImplementation(() =>
-    mockAxiosResolve({ value: spaces })
+  $clientService.graphAuthenticated.drives.listAllDrives.mockResolvedValue(
+    mockAxiosResolve({ value: spaces.map((s) => mock<Drive>()) })
   )
   const mocks = {
     ...defaultComponentMocks(),
     $clientService
   }
 
-  const storeOptions = { ...defaultStoreMockOptions }
-  const store = createStore(storeOptions)
-
   return {
     wrapper: mount(Spaces, {
       global: {
-        plugins: [...defaultPlugins(), store],
+        plugins: [
+          ...defaultPlugins({
+            piniaOptions: {
+              spaceSettingsStore: {
+                spaces,
+                selectedSpaces
+              }
+            }
+          })
+        ],
         mocks,
         provide: mocks,
         stubs: {

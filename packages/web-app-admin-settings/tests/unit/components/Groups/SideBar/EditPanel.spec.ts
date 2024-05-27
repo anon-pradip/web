@@ -1,14 +1,14 @@
 import EditPanel from '../../../../../src/components/Groups/SideBar/EditPanel.vue'
 import {
-  createStore,
   defaultComponentMocks,
   defaultPlugins,
-  defaultStoreMockOptions,
   mockAxiosReject,
+  mockAxiosResolve,
   mount
 } from 'web-test-helpers'
-import { mock } from 'jest-mock-extended'
+import { mock } from 'vitest-mock-extended'
 import { AxiosResponse } from 'axios'
+import { eventBus, useMessages } from '@ownclouders/web-pkg'
 
 describe('EditPanel', () => {
   it('renders all available inputs', () => {
@@ -18,7 +18,7 @@ describe('EditPanel', () => {
   describe('method "revertChanges"', () => {
     it('should revert changes on property editGroup', () => {
       const { wrapper } = getWrapper()
-      wrapper.vm.editGroup.dispayName = 'users'
+      wrapper.vm.editGroup.displayName = 'users'
       wrapper.vm.revertChanges()
       expect(wrapper.vm.editGroup.displayName).toEqual('group')
     })
@@ -63,6 +63,41 @@ describe('EditPanel', () => {
     })
   })
 
+  describe('method "onEditGroup"', () => {
+    it('should emit event on success', async () => {
+      const { wrapper, mocks } = getWrapper()
+
+      const clientService = mocks.$clientService
+      clientService.graphAuthenticated.groups.editGroup.mockResolvedValue(mockAxiosResolve())
+      clientService.graphAuthenticated.groups.getGroup.mockResolvedValue(
+        mockAxiosResolve({ id: '1', displayName: 'administrators' })
+      )
+
+      const editGroup = {
+        id: '1',
+        name: 'administrators'
+      }
+
+      const busStub = vi.spyOn(eventBus, 'publish')
+      const updatedGroup = await wrapper.vm.onEditGroup(editGroup)
+
+      expect(updatedGroup.id).toEqual('1')
+      expect(updatedGroup.displayName).toEqual('administrators')
+      expect(busStub).toHaveBeenCalled()
+    })
+
+    it('should show message on error', async () => {
+      vi.spyOn(console, 'error').mockImplementation(() => undefined)
+      const { wrapper, mocks } = getWrapper()
+      const clientService = mocks.$clientService
+      clientService.graphAuthenticated.groups.editGroup.mockImplementation(() => mockAxiosReject())
+      await wrapper.vm.onEditGroup({})
+
+      const { showErrorMessage } = useMessages()
+      expect(showErrorMessage).toHaveBeenCalled()
+    })
+  })
+
   describe('computed method "invalidFormData"', () => {
     it('should be false if formData is invalid', () => {
       const { wrapper } = getWrapper()
@@ -79,8 +114,6 @@ describe('EditPanel', () => {
 
 function getWrapper() {
   const mocks = defaultComponentMocks()
-  const storeOptions = defaultStoreMockOptions
-  const store = createStore(storeOptions)
 
   return {
     mocks,
@@ -91,7 +124,7 @@ function getWrapper() {
       global: {
         mocks,
         provide: mocks,
-        plugins: [...defaultPlugins(), store],
+        plugins: [...defaultPlugins()],
         stubs: {
           'oc-text-input': true,
           'avatar-image': true,

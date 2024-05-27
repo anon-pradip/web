@@ -193,7 +193,7 @@ When(
   async function (this: World, stepUser: string, stepTable: DataTable): Promise<void> {
     const { page } = this.actorsEnvironment.getActor({ key: stepUser })
     const resourceObject = new objects.applicationFiles.Resource({ page })
-    const fileInfo = stepTable.hashes().reduce((acc, stepRow) => {
+    const fileInfo = stepTable.hashes().reduce<Record<string, any>>((acc, stepRow) => {
       const { to, resource, version, openDetailsPanel } = stepRow
 
       if (!acc[to]) {
@@ -208,7 +208,7 @@ When(
       acc[to]['openDetailsPanel'] = openDetailsPanel === 'true'
 
       return acc
-    }, [])
+    }, {})
     for (const folder of Object.keys(fileInfo)) {
       await resourceObject.restoreVersion({
         folder,
@@ -224,7 +224,7 @@ When(
   async function (this: World, stepUser: string, stepTable: DataTable): Promise<void> {
     const { page } = this.actorsEnvironment.getActor({ key: stepUser })
     const resourceObject = new objects.applicationFiles.Resource({ page })
-    const fileInfo = stepTable.hashes().reduce((acc, stepRow) => {
+    const fileInfo = stepTable.hashes().reduce<Record<string, File[]>>((acc, stepRow) => {
       const { to, resource } = stepRow
 
       if (!acc[to]) {
@@ -234,7 +234,7 @@ When(
       acc[to].push(this.filesEnvironment.getFile({ name: resource }))
 
       return acc
-    }, [])
+    }, {})
 
     for (const folder of Object.keys(fileInfo)) {
       await resourceObject.downloadVersion({ folder, files: fileInfo[folder] })
@@ -425,17 +425,19 @@ export const processDelete = async (
   actionType: string
 ) => {
   let files, parentFolder
-  const deleteInfo = stepTable.hashes().reduce((acc, stepRow) => {
-    const { resource, from } = stepRow
-    const resourceInfo = {
-      name: resource
-    }
-    if (!acc[from]) {
-      acc[from] = []
-    }
-    acc[from].push(resourceInfo)
-    return acc
-  }, [])
+  const deleteInfo = stepTable
+    .hashes()
+    .reduce<Record<string, { name: string }[]>>((acc, stepRow) => {
+      const { resource, from } = stepRow
+      const resourceInfo = {
+        name: resource
+      }
+      if (!acc[from]) {
+        acc[from] = []
+      }
+      acc[from].push(resourceInfo)
+      return acc
+    }, {})
 
   for (const folder of Object.keys(deleteInfo)) {
     files = deleteInfo[folder]
@@ -454,21 +456,23 @@ export const processDownload = async (
   actionType: string
 ) => {
   let downloads, files, parentFolder
-  const downloadedResources = []
-  const downloadInfo = stepTable.hashes().reduce((acc, stepRow) => {
-    const { resource, from, type } = stepRow
-    const resourceInfo = {
-      name: resource,
-      type: type
-    }
-    if (!acc[from]) {
-      acc[from] = []
-    }
+  const downloadedResources: string[] = []
+  const downloadInfo = stepTable
+    .hashes()
+    .reduce<Record<string, { name: string; type: string }[]>>((acc, stepRow) => {
+      const { resource, from, type } = stepRow
+      const resourceInfo = {
+        name: resource,
+        type: type
+      }
+      if (!acc[from]) {
+        acc[from] = []
+      }
 
-    acc[from].push(resourceInfo)
+      acc[from].push(resourceInfo)
 
-    return acc
-  }, [])
+      return acc
+    }, {})
 
   for (const folder of Object.keys(downloadInfo)) {
     files = downloadInfo[folder]
@@ -665,7 +669,7 @@ Then(
   async function (this: World, stepUser: string, stepTable: DataTable): Promise<void> {
     const { page } = this.actorsEnvironment.getActor({ key: stepUser })
     const resourceObject = new objects.applicationFiles.Resource({ page })
-    const fileInfo = stepTable.hashes().reduce<File[]>((acc, stepRow) => {
+    const fileInfo = stepTable.hashes().reduce<Record<string, File[]>>((acc, stepRow) => {
       const { to, resource } = stepRow
 
       if (!acc[to]) {
@@ -675,10 +679,36 @@ Then(
       acc[to].push(this.filesEnvironment.getFile({ name: resource }))
 
       return acc
-    }, [])
+    }, {})
 
     for (const folder of Object.keys(fileInfo)) {
       await resourceObject.checkThatFileVersionIsNotAvailable({ folder, files: fileInfo[folder] })
+    }
+  }
+)
+
+Then(
+  '{string} should not see the version panel for the file(s)',
+  async function (this: World, stepUser: string, stepTable: DataTable): Promise<void> {
+    const { page } = this.actorsEnvironment.getActor({ key: stepUser })
+    const resourceObject = new objects.applicationFiles.Resource({ page })
+    const fileInfo = stepTable.hashes().reduce<Record<string, File[]>>((acc, stepRow) => {
+      const { to, resource } = stepRow
+
+      if (!acc[to]) {
+        acc[to] = []
+      }
+
+      acc[to].push(this.filesEnvironment.getFile({ name: resource }))
+
+      return acc
+    }, {})
+
+    for (const folder of Object.keys(fileInfo)) {
+      await resourceObject.checkThatFileVersionPanelIsNotAvailable({
+        folder,
+        files: fileInfo[folder]
+      })
     }
   }
 )
@@ -830,24 +860,6 @@ When(
 )
 
 Then(
-  /^"([^"]*)" (should|should not) be able to edit content of following resources?$/,
-  async function (
-    this: World,
-    stepUser: string,
-    actionType: string,
-    stepTable: DataTable
-  ): Promise<void> {
-    const { page } = this.actorsEnvironment.getActor({ key: stepUser })
-    const resourceObject = new objects.applicationFiles.Resource({ page })
-
-    for (const info of stepTable.hashes()) {
-      const canEdit = await resourceObject.canEditContent({ type: info.type })
-      expect(canEdit).toBe(actionType === 'should')
-    }
-  }
-)
-
-Then(
   /^"([^"]*)" (should|should not) be able to edit (?:folder|file) "([^"]*)"$/,
   async function (
     this: World,
@@ -880,5 +892,23 @@ Then(
     actionType === 'should'
       ? await expect(showShareIndicator).toBeVisible()
       : await expect(showShareIndicator).not.toBeVisible()
+  }
+)
+
+Then(
+  /^"([^"]*)" (should|should not) be able to edit content of following resources?$/,
+  async function (
+    this: World,
+    stepUser: string,
+    actionType: string,
+    stepTable: DataTable
+  ): Promise<void> {
+    const { page } = this.actorsEnvironment.getActor({ key: stepUser })
+    const resourceObject = new objects.applicationFiles.Resource({ page })
+
+    for (const info of stepTable.hashes()) {
+      const canEdit = await resourceObject.canEditContent({ type: info.type })
+      expect(canEdit).toBe(actionType === 'should')
+    }
   }
 )

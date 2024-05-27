@@ -1,56 +1,57 @@
 import DesignSystem from '../../design-system'
 import { createGettext } from 'vue3-gettext'
-import { h } from 'vue'
+import { App, Plugin, h } from 'vue'
 import { abilitiesPlugin } from '@casl/vue'
 import { createMongoAbility } from '@casl/ability'
 import { AbilityRule } from '../../web-client/src/helpers/resource/types'
-import { createPinia } from 'pinia'
+import { PiniaMockOptions, createMockStore } from './mocks'
 
 export interface DefaultPluginsOptions {
   abilities?: AbilityRule[]
   designSystem?: boolean
   gettext?: boolean
   pinia?: boolean
+  piniaOptions?: PiniaMockOptions
 }
 
 export const defaultPlugins = ({
   abilities = [],
   designSystem = true,
   gettext = true,
-  pinia = true
-}: DefaultPluginsOptions = {}) => {
+  pinia = true,
+  piniaOptions = {}
+}: DefaultPluginsOptions = {}): Plugin[] => {
   const plugins = []
 
   plugins.push({
-    install(app) {
+    install(app: App) {
       app.use(abilitiesPlugin, createMongoAbility(abilities))
     }
   })
 
   if (designSystem) {
-    plugins.push(DesignSystem)
+    plugins.push(DesignSystem as unknown as Plugin)
   }
 
   if (gettext) {
     plugins.push(createGettext({ translations: {}, silent: true }))
   } else {
     plugins.push({
-      install(app) {
+      install(app: App) {
         // mock `v-translate` directive
         app.directive('translate', {
-          inserted: () => undefined
+          mounted: () => undefined
         })
       }
     })
   }
 
   if (pinia) {
-    const pinia = createPinia()
-    plugins.push(pinia)
+    plugins.push(createMockStore(piniaOptions))
   }
 
   plugins.push({
-    install(app) {
+    install(app: App) {
       app.component('RouterLink', {
         name: 'RouterLink',
         props: {

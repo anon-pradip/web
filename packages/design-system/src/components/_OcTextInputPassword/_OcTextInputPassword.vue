@@ -16,7 +16,8 @@
     />
     <oc-button
       v-if="password && !disabled"
-      v-oc-tooltip="$gettext('Show password')"
+      v-oc-tooltip="showPassword ? $gettext('Hide password') : $gettext('Show password')"
+      :aria-label="showPassword ? $gettext('Hide password') : $gettext('Show password')"
       class="oc-text-input-show-password-toggle oc-px-s oc-background-default"
       appearance="raw"
       size="small"
@@ -27,6 +28,7 @@
     <oc-button
       v-if="password && !disabled"
       v-oc-tooltip="$gettext('Copy password')"
+      :aria-label="$gettext('Copy password')"
       class="oc-text-input-copy-password-button oc-px-s oc-background-default"
       appearance="raw"
       size="small"
@@ -37,6 +39,7 @@
     <oc-button
       v-if="generatePasswordMethod && !disabled"
       v-oc-tooltip="$gettext('Generate password')"
+      :aria-label="$gettext('Generate password')"
       class="oc-text-input-generate-password-button oc-px-s oc-background-default"
       appearance="raw"
       size="small"
@@ -75,7 +78,7 @@ import { computed, defineComponent, PropType, ref, unref, watch } from 'vue'
 import OcIcon from '../OcIcon/OcIcon.vue'
 import OcButton from '../OcButton/OcButton.vue'
 import { useGettext } from 'vue3-gettext'
-import { PasswordPolicy } from '../../helpers'
+import { PasswordPolicy, PasswordPolicyRule } from '../../helpers'
 export default defineComponent({
   name: 'OCTextInputPassword',
   components: { OcButton, OcIcon },
@@ -131,11 +134,11 @@ export default defineComponent({
       return props.passwordPolicy.missing(unref(password))
     })
 
-    const getPasswordPolicyRuleMessage = (rule) => {
-      const paramObj = {}
+    const getPasswordPolicyRuleMessage = (rule: PasswordPolicyRule) => {
+      const paramObj: Record<string, string> = {}
 
       for (let formatKey = 0; formatKey < rule.format.length; formatKey++) {
-        paramObj[`param${formatKey + 1}`] = rule.format[formatKey]
+        paramObj[`param${formatKey + 1}`] = rule.format[formatKey]?.toString()
       }
 
       return $gettext(rule.message, paramObj, true)

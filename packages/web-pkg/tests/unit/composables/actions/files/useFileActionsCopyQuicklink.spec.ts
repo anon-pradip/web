@@ -3,42 +3,40 @@ import {
   useFileActionsCopyQuickLink,
   useFileActionsCreateLink
 } from '../../../../../src/composables/actions/files'
-import {
-  createStore,
-  defaultComponentMocks,
-  defaultStoreMockOptions,
-  getComposableWrapper
-} from 'web-test-helpers'
-import { mock } from 'jest-mock-extended'
+import { defaultComponentMocks, getComposableWrapper, mockAxiosResolve } from 'web-test-helpers'
+import { mock } from 'vitest-mock-extended'
 import { FileAction } from '../../../../../src/composables/actions'
 import { useCanShare } from '../../../../../src/composables/shares'
-import { Resource } from '@ownclouders/web-client'
-import { Share, buildShare } from '@ownclouders/web-client/src/helpers/share'
+import { Resource, SpaceResource } from '@ownclouders/web-client'
+import { LinkShare } from '@ownclouders/web-client'
+import { buildLinkShare } from '@ownclouders/web-client'
 import { useClipboard } from '../../../../../src/composables/clipboard'
+import { useMessages } from '../../../../../src/composables/piniaStores'
+import { Permission } from '@ownclouders/web-client/graph/generated'
 
-jest.mock('../../../../../src/composables/shares', () => ({
-  useCanShare: jest.fn()
+vi.mock('../../../../../src/composables/shares', () => ({
+  useCanShare: vi.fn()
 }))
 
-jest.mock('../../../../../src/composables/actions/files/useFileActionsCreateLink', () => ({
-  useFileActionsCreateLink: jest.fn()
+vi.mock('../../../../../src/composables/actions/files/useFileActionsCreateLink', () => ({
+  useFileActionsCreateLink: vi.fn()
 }))
 
-jest.mock('../../../../../src/composables/clipboard', () => ({
-  useClipboard: jest.fn()
+vi.mock('../../../../../src/composables/clipboard', () => ({
+  useClipboard: vi.fn()
 }))
 
-jest.mock('@ownclouders/web-client/src/helpers/share', () => ({
-  ...jest.requireActual('@ownclouders/web-client/src/helpers/share'),
-  buildShare: jest.fn()
+vi.mock('@ownclouders/web-client', async (importOriginal) => ({
+  ...(await importOriginal<any>()),
+  buildLinkShare: vi.fn()
 }))
 
 describe('useFileActionsCopyQuickLink', () => {
-  describe('isEnabled property', () => {
+  describe('isVisible property', () => {
     it('should return false if no resource selected', () => {
       getWrapper({
         setup: ({ actions }) => {
-          expect(unref(actions)[0].isEnabled({ space: null, resources: [] })).toBeFalsy()
+          expect(unref(actions)[0].isVisible({ space: null, resources: [] })).toBeFalsy()
         }
       })
     })
@@ -46,14 +44,18 @@ describe('useFileActionsCopyQuickLink', () => {
       getWrapper({
         canShare: false,
         setup: ({ actions }) => {
-          expect(unref(actions)[0].isEnabled({ resources: [mock<Resource>()] })).toBeFalsy()
+          expect(
+            unref(actions)[0].isVisible({ resources: [mock<Resource>()], space: undefined })
+          ).toBeFalsy()
         }
       })
     })
     it('should return true if resource can be shared', () => {
       getWrapper({
         setup: ({ actions }) => {
-          expect(unref(actions)[0].isEnabled({ resources: [mock<Resource>()] })).toBeTruthy()
+          expect(
+            unref(actions)[0].isVisible({ resources: [mock<Resource>()], space: undefined })
+          ).toBeTruthy()
         }
       })
     })
@@ -62,52 +64,87 @@ describe('useFileActionsCopyQuickLink', () => {
     it('should create a new link if quick link does not yet exist', () => {
       getWrapper({
         setup: async ({ actions }, { mocks }) => {
-          await unref(actions)[0].handler({ resources: [mock<Resource>()] })
+          await unref(actions)[0].handler({
+            resources: [mock<Resource>()],
+            space: mock<SpaceResource>()
+          })
           expect(mocks.createLinkMock).toHaveBeenCalledTimes(1)
+          expect(
+            mocks.$clientService.graphAuthenticated.permissions.listPermissions
+          ).toHaveBeenCalled()
         }
       })
     })
     it('should not create a new link if quick link does already exist', () => {
       getWrapper({
         quickLinkExists: true,
-        setup: async ({ actions }, { mocks, storeOptions }) => {
-          await unref(actions)[0].handler({ resources: [mock<Resource>()] })
+        setup: async ({ actions }, { mocks }) => {
+          await unref(actions)[0].handler({
+            resources: [mock<Resource>()],
+            space: mock<SpaceResource>()
+          })
           expect(mocks.createLinkMock).not.toHaveBeenCalled()
-          expect(storeOptions.actions.showMessage).toHaveBeenCalledTimes(1)
+          const { showMessage } = useMessages()
+          expect(showMessage).toHaveBeenCalledTimes(1)
+        }
+      })
+    })
+    it('calls the graph root endpoint for spaces', () => {
+      getWrapper({
+        setup: async ({ actions }, { mocks }) => {
+          await unref(actions)[0].handler({
+            resources: [mock<SpaceResource>({ type: 'space' })],
+            space: mock<SpaceResource>()
+          })
+          expect(mocks.createLinkMock).toHaveBeenCalledTimes(1)
+          expect(
+            mocks.$clientService.graphAuthenticated.permissions.listPermissionsSpaceRoot
+          ).toHaveBeenCalled()
         }
       })
     })
   })
 })
 
-function getWrapper({ setup, canShare = true, quickLinkExists = false }) {
-  const createLinkMock = jest.fn()
-  jest.mocked(useFileActionsCreateLink).mockReturnValue({
+function getWrapper({
+  setup,
+  canShare = true,
+  quickLinkExists = false
+}: {
+  setup: (
+    instance: ReturnType<typeof useFileActionsCopyQuickLink>,
+    mocks: Record<string, any>
+  ) => void
+  canShare?: boolean
+  quickLinkExists?: boolean
+}) {
+  const createLinkMock = vi.fn()
+  vi.mocked(useFileActionsCreateLink).mockReturnValue({
     actions: computed(() => [
       mock<FileAction>({ name: 'create-quick-links', handler: createLinkMock })
     ])
   })
-  jest.mocked(useCanShare).mockReturnValue({ canShare: jest.fn(() => canShare) })
-  jest.mocked(buildShare).mockReturnValue(mock<Share>({ quicklink: quickLinkExists }))
-  jest.mocked(useClipboard).mockReturnValue({ copyToClipboard: jest.fn() })
+  vi.mocked(useCanShare).mockReturnValue({ canShare: vi.fn(() => canShare) })
+  vi.mocked(buildLinkShare).mockReturnValue(mock<LinkShare>({ isQuickLink: quickLinkExists }))
+  vi.mocked(useClipboard).mockReturnValue({ copyToClipboard: vi.fn() })
 
   const mocks = { ...defaultComponentMocks(), createLinkMock }
-  mocks.$clientService.owncloudSdk.shares.getShares.mockResolvedValue([{}])
 
-  const storeOptions = defaultStoreMockOptions
-  const store = createStore(storeOptions)
+  const resolvedData = mockAxiosResolve({
+    value: [mock<Permission>({ link: { '@libre.graph.quickLink': quickLinkExists } })]
+  })
+  const graphClientMock = mocks.$clientService.graphAuthenticated
+  graphClientMock.permissions.listPermissions.mockResolvedValue(resolvedData)
+  graphClientMock.permissions.listPermissionsSpaceRoot.mockResolvedValue(resolvedData)
 
   return {
     wrapper: getComposableWrapper(
       () => {
-        const instance = useFileActionsCopyQuickLink({
-          store
-        })
-        setup(instance, { storeOptions, mocks })
+        const instance = useFileActionsCopyQuickLink()
+        setup(instance, { mocks })
       },
       {
         mocks,
-        store,
         provide: mocks
       }
     )

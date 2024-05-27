@@ -26,36 +26,30 @@
         <oc-list id="create-list" :class="areFileExtensionsShown ? 'expanded-list' : null">
           <li class="create-list-folder oc-menu-item-hover">
             <oc-button id="new-folder-btn" appearance="raw" @click="createNewFolderAction">
-              <oc-resource-icon :resource="folderIconResource" size="medium" />
+              <resource-icon :resource="folderIconResource" size="medium" />
               <span v-text="$gettext('Folder')" />
             </oc-button>
           </li>
-          <template v-if="mimetypesAllowedForCreation">
+          <template v-if="externalFileActions">
             <li
-              v-for="(mimeTypeAction, key) in createNewFileMimeTypeActions"
+              v-for="(fileAction, key) in externalFileActions"
               :key="`file-creation-item-external-${key}`"
               class="create-list-file oc-menu-item-hover"
             >
-              <oc-button appearance="raw" @click="mimeTypeAction.handler">
-                <oc-resource-icon :resource="getIconResource(mimeTypeAction)" size="medium" />
+              <oc-button appearance="raw" @click="fileAction.handler">
+                <resource-icon :resource="getIconResource(fileAction)" size="medium" />
+                <span class="create-list-file-item-text" v-text="fileAction.label()" />
                 <span
-                  class="create-list-file-item-text"
-                  v-text="$gettext(mimeTypeAction.label())"
-                />
-                <span
-                  v-if="areFileExtensionsShown && mimeTypeAction.ext"
+                  v-if="areFileExtensionsShown && fileAction.ext"
                   class="create-list-file-item-extension"
-                  v-text="mimeTypeAction.ext"
+                  v-text="fileAction.ext"
                 />
               </oc-button>
             </li>
           </template>
+          <li v-if="externalFileActions.length && appFileActions.length" class="bottom-seperator" />
           <li
-            v-if="mimetypesAllowedForCreation && createNewFileMimeTypeActions.length > 0"
-            class="bottom-seperator"
-          />
-          <li
-            v-for="(fileAction, key) in createNewFileActions"
+            v-for="(fileAction, key) in appFileActions"
             :key="`file-creation-item-${key}`"
             class="create-list-file oc-menu-item-hover"
           >
@@ -64,7 +58,7 @@
               :class="['new-file-btn-' + fileAction.ext]"
               @click="fileAction.handler"
             >
-              <oc-resource-icon :resource="getIconResource(fileAction)" size="medium" />
+              <resource-icon :resource="getIconResource(fileAction)" size="medium" />
               <span class="create-list-file-item-text">{{ fileAction.label() }}</span>
               <span
                 v-if="areFileExtensionsShown && fileAction.ext"
@@ -169,7 +163,7 @@
       <oc-button
         :disabled="uploadOrFileCreationBlocked"
         class="paste-files-btn"
-        @click="pasteFileAction({ space })"
+        @click="pasteFileAction"
       >
         <oc-icon fill-type="line" name="clipboard" />
         <span v-text="$gettext('Paste here')" />
@@ -177,7 +171,7 @@
       <oc-button
         :disabled="uploadOrFileCreationBlocked"
         class="clear-clipboard-btn"
-        @click="clearClipboardFiles"
+        @click="clearClipboard"
       >
         <oc-icon fill-type="line" name="close" />
       </oc-button>
@@ -186,12 +180,17 @@
 </template>
 
 <script lang="ts">
-import { mapActions, mapGetters } from 'vuex'
 import {
+  FileAction,
   isLocationPublicActive,
   isLocationSpacesActive,
+  useClipboardStore,
   useFileActions,
-  useFileActionsCreateNewShortcut
+  useFileActionsCreateNewShortcut,
+  useMessages,
+  useResourcesStore,
+  useSpacesStore,
+  useUserStore
 } from '@ownclouders/web-pkg'
 import { useActiveLocation } from '@ownclouders/web-pkg'
 import {
@@ -199,10 +198,6 @@ import {
   useFileActionsCreateNewFolder,
   useFileActionsPaste,
   useRequest,
-  useCapabilityShareJailEnabled,
-  useCapabilitySpacesEnabled,
-  useStore,
-  useUserContext,
   useClientService
 } from '@ownclouders/web-pkg'
 
@@ -219,17 +214,25 @@ import {
   ref
 } from 'vue'
 import { eventBus } from '@ownclouders/web-pkg'
-import { Resource, SpaceResource, isShareSpaceResource } from '@ownclouders/web-client/src/helpers'
-import { useService, useUpload, UppyService, UppyResource } from '@ownclouders/web-pkg'
+import {
+  Resource,
+  SpaceResource,
+  isPublicSpaceResource,
+  isShareSpaceResource
+} from '@ownclouders/web-client'
+import { useService, useUpload, UppyService, UploadResult } from '@ownclouders/web-pkg'
 import { HandleUpload } from 'web-app-files/src/HandleUpload'
 import { useRoute } from 'vue-router'
 import { useGettext } from 'vue3-gettext'
-import { ActionExtension, useExtensionRegistry } from '@ownclouders/web-pkg'
-import { Action } from '@ownclouders/web-pkg'
+import { useExtensionRegistry } from '@ownclouders/web-pkg'
+import { Action, ResourceIcon } from '@ownclouders/web-pkg'
 import { v4 as uuidv4 } from 'uuid'
+import { storeToRefs } from 'pinia'
+import { uploadMenuExtensionPoint } from '../../extensionPoints'
 
 export default defineComponent({
   components: {
+    ResourceIcon,
     ResourceUpload
   },
   props: {
@@ -256,77 +259,71 @@ export default defineComponent({
   setup(props) {
     const uppyService = useService<UppyService>('$uppyService')
     const clientService = useClientService()
-    const store = useStore()
+    const userStore = useUserStore()
+    const spacesStore = useSpacesStore()
+    const messageStore = useMessages()
     const route = useRoute()
     const language = useGettext()
-    const hasSpaces = useCapabilitySpacesEnabled(store)
-    const areFileExtensionsShown = computed(() => unref(store.state.Files.areFileExtensionsShown))
+
+    const clipboardStore = useClipboardStore()
+    const { clearClipboard } = clipboardStore
+    const { resources: clipboardResources } = storeToRefs(clipboardStore)
+
+    const resourcesStore = useResourcesStore()
+    const { currentFolder } = storeToRefs(resourcesStore)
+
+    const areFileExtensionsShown = computed(() => unref(resourcesStore.areFileExtensionsShown))
+
+    const space = computed(() => props.space)
 
     useUpload({ uppyService })
 
     if (!uppyService.getPlugin('HandleUpload')) {
       uppyService.addPlugin(HandleUpload, {
         clientService,
-        hasSpaces,
         language,
         route,
-        space: props.space,
-        store,
+        space,
+        userStore,
+        spacesStore,
+        messageStore,
+        resourcesStore,
         uppyService
       })
     }
 
-    let uploadCompletedSub
+    let uploadCompletedSub: string
 
-    const { actions: pasteFileActions } = useFileActionsPaste({ store })
-    const pasteFileAction = unref(pasteFileActions)[0].handler
+    const { actions: pasteFileActions } = useFileActionsPaste()
+    const pasteFileAction = () => {
+      return unref(pasteFileActions)[0].handler({ space: unref(space) })
+    }
 
-    const { actions: createNewFolder } = useFileActionsCreateNewFolder({
-      store,
-      space: props.space
-    })
+    const { actions: createNewFolder } = useFileActionsCreateNewFolder({ space })
     const createNewFolderAction = computed(() => unref(createNewFolder)[0].handler)
 
-    const { actions: createNewShortcut } = useFileActionsCreateNewShortcut({ space: props.space })
-
+    const { actions: createNewShortcut } = useFileActionsCreateNewShortcut({ space })
     const createNewShortcutAction = computed(() => unref(createNewShortcut)[0].handler)
 
-    const newFileHandlers = computed(() => store.getters.newFileHandlers)
+    const { actions: createNewFileActions } = useFileActionsCreateNewFile({ space })
 
-    const { actions: createNewFileActions } = useFileActionsCreateNewFile({
-      store,
-      space: props.space,
-      newFileHandlers: newFileHandlers
-    })
+    const appFileActions = computed(() =>
+      unref(createNewFileActions).filter(({ isExternal }) => !isExternal)
+    )
 
-    const mimetypesAllowedForCreation = computed(() => {
-      const mimeTypes = store.getters['External/mimeTypes']
-      if (!mimeTypes) {
-        return []
-      }
-      return mimeTypes.filter((mimetype) => mimetype.allow_creation) || []
-    })
-
-    const { actions: createNewFileMimeTypeActions } = useFileActionsCreateNewFile({
-      store,
-      space: props.space,
-      mimetypesAllowedForCreation: mimetypesAllowedForCreation
-    })
+    const externalFileActions = computed(() =>
+      unref(createNewFileActions).filter(({ isExternal }) => isExternal)
+    )
 
     const extensionRegistry = useExtensionRegistry()
     const extensionActions = computed(() => {
       return [
-        ...extensionRegistry
-          .requestExtensions<ActionExtension>('action', ['upload-menu'])
-          .map((e) => e.action)
-      ].filter((e) => e.isEnabled())
+        ...extensionRegistry.requestExtensions(uploadMenuExtensionPoint).map((e) => e.action)
+      ].filter((e) => e.isVisible())
     })
 
-    const currentFolder = computed(() => {
-      return store.getters['Files/currentFolder']
-    })
     const canUpload = computed(() => {
-      return unref(currentFolder)?.canUpload({ user: store.getters.user })
+      return unref(currentFolder)?.canUpload({ user: userStore.user })
     })
 
     const actionKeySuffix = ref(uuidv4())
@@ -338,13 +335,13 @@ export default defineComponent({
       return action.isDisabled ? action.isDisabled() : false
     }
 
-    const handlePasteFileEvent = (event) => {
+    const handlePasteFileEvent = (event: ClipboardEvent) => {
       // Ignore file in clipboard if there are already files from owncloud in the clipboard
-      if (store.state.Files.clipboardResources.length || !unref(canUpload)) {
+      if (unref(clipboardResources).length || !unref(canUpload)) {
         return
       }
       // Browsers only allow single files to be pasted for security reasons
-      const items = (event.clipboardData || event.originalEvent.clipboardData).items
+      const items = event.clipboardData.items
       const fileItem = [...items].find((i) => i.kind === 'file')
       if (!fileItem) {
         return
@@ -354,39 +351,36 @@ export default defineComponent({
       event.preventDefault()
     }
 
-    const onUploadComplete = async (result) => {
+    const onUploadComplete = async (result: UploadResult) => {
       if (result.successful) {
-        const file = result.successful[0] as UppyResource
+        const file = result.successful[0]
 
         if (!file) {
           return
         }
 
-        store.dispatch('hideModal')
         const { spaceId, currentFolder, currentFolderId, driveType } = file.meta
-        if (unref(hasSpaces)) {
-          const spaces = store.getters['runtime/spaces/spaces']
-          const user = store.getters['user']
-          const isOwnSpace = spaces.find((space) => space.id === spaceId)?.isOwner(user)
+        if (!isPublicSpaceResource(unref(space))) {
+          const isOwnSpace = spacesStore.spaces
+            .find(({ id }) => id === spaceId)
+            ?.isOwner(userStore.user)
+
           if (driveType === 'project' || isOwnSpace) {
             const client = clientService.graphAuthenticated
-            const driveResponse = await client.drives.getDrive(spaceId.toString())
-            store.commit('runtime/spaces/UPDATE_SPACE_FIELD', {
+            const driveResponse = await client.drives.getDrive(spaceId)
+            spacesStore.updateSpaceField({
               id: driveResponse.data.id,
               field: 'spaceQuota',
               value: driveResponse.data.quota
             })
           }
-        } else {
-          const user = await clientService.owncloudSdk.users.getUser(store.getters.user.id)
-          store.commit('SET_QUOTA', user.quota)
         }
 
         const sameFolder =
-          props.itemId && !isShareSpaceResource(props.space)
+          props.itemId && !isShareSpaceResource(unref(space))
             ? props.itemId.toString().startsWith(currentFolderId.toString())
             : currentFolder === props.item
-        const fileIsInCurrentPath = spaceId === props.space.id && sameFolder
+        const fileIsInCurrentPath = spaceId === unref(space).id && sameFolder
         if (fileIsInCurrentPath) {
           eventBus.publish('app.files.list.load')
         }
@@ -418,20 +412,16 @@ export default defineComponent({
     )
 
     return {
-      ...useFileActions({ store }),
+      ...useFileActions(),
       ...useRequest(),
       clientService,
       isPublicLocation: useActiveLocation(isLocationPublicActive, 'files-public-link'),
       isSpacesGenericLocation: useActiveLocation(isLocationSpacesActive, 'files-spaces-generic'),
-      hasShareJail: useCapabilityShareJailEnabled(),
-      hasSpaces: useCapabilitySpacesEnabled(),
-      isUserContext: useUserContext({ store }),
       canUpload,
       currentFolder,
-      createNewFileActions,
-      createNewFileMimeTypeActions,
       createNewFolder,
-      mimetypesAllowedForCreation,
+      appFileActions,
+      externalFileActions,
       createNewFolderAction,
       createNewShortcutAction,
       extensionActions,
@@ -440,17 +430,14 @@ export default defineComponent({
       actionKeySuffix,
       showDrop,
       areFileExtensionsShown,
+      clearClipboard,
+      clipboardResources,
 
       // HACK: exported for unit tests:
       onUploadComplete
     }
   },
   computed: {
-    ...mapGetters(['capabilities', 'configuration', 'newFileHandlers', 'user']),
-    ...mapGetters('Files', ['files', 'selectedFiles', 'clipboardResources']),
-    ...mapGetters('runtime/ancestorMetaData', ['ancestorMetaData']),
-    ...mapGetters('runtime/spaces', ['spaces']),
-
     showPasteHereButton() {
       return this.clipboardResources && this.clipboardResources.length !== 0
     },
@@ -463,7 +450,7 @@ export default defineComponent({
     },
 
     createFileActionsAvailable() {
-      return this.newFileHandlers.length > 0 || this.mimetypesAllowedForCreation.length > 0
+      return this.appFileActions.length > 0 || this.externalFileActions.length > 0
     },
     newButtonTooltip() {
       if (!this.canUpload) {
@@ -499,19 +486,12 @@ export default defineComponent({
       return !this.canUpload
     },
 
-    loadIndicatorsForNewFile() {
-      return this.isSpacesGenericLocation && this.space.driveType !== 'share'
-    },
-
     folderIconResource() {
       return { isFolder: true, extension: '' } as Resource
     }
   },
   methods: {
-    ...mapActions('Files', ['clearClipboardFiles']),
-    ...mapActions(['showMessage', 'createModal', 'hideModal']),
-
-    getIconResource(fileHandler) {
+    getIconResource(fileHandler: FileAction) {
       return { type: 'file', extension: fileHandler.ext } as Resource
     }
   }

@@ -1,16 +1,15 @@
-import { computed, unref } from 'vue'
+import { computed } from 'vue'
 import { useGettext } from 'vue3-gettext'
-import { UserAction, useCapabilityReadOnlyUserAttributes, useStore } from '@ownclouders/web-pkg'
+import { UserAction, useModals, useCapabilityStore, UserActionOptions } from '@ownclouders/web-pkg'
 import LoginModal from '../../../components/Users/LoginModal.vue'
 
 export const useUserActionsEditLogin = () => {
-  const store = useStore()
-  const readOnlyUserAttributes = useCapabilityReadOnlyUserAttributes()
+  const { dispatchModal } = useModals()
+  const capabilityStore = useCapabilityStore()
   const { $gettext, $ngettext } = useGettext()
 
-  const handler = ({ resources }) => {
-    return store.dispatch('createModal', {
-      variation: 'passive',
+  const handler = ({ resources }: UserActionOptions) => {
+    dispatchModal({
       title: $ngettext(
         'Edit login for "%{user}"',
         'Edit login for %{userCount} users',
@@ -20,7 +19,6 @@ export const useUserActionsEditLogin = () => {
           userCount: resources.length.toString()
         }
       ),
-      hideActions: true,
       customComponent: LoginModal,
       customComponentAttrs: () => ({
         users: resources
@@ -35,8 +33,8 @@ export const useUserActionsEditLogin = () => {
       componentType: 'button',
       class: 'oc-users-actions-edit-login-trigger',
       label: () => $gettext('Edit login'),
-      isEnabled: ({ resources }) => {
-        if (unref(readOnlyUserAttributes).includes('user.accountEnabled')) {
+      isVisible: ({ resources }) => {
+        if (capabilityStore.graphUsersReadOnlyAttributes.includes('user.accountEnabled')) {
           return false
         }
 

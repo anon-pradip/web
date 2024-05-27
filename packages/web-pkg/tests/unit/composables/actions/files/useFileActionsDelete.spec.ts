@@ -1,25 +1,18 @@
-import { mock } from 'jest-mock-extended'
+import { mock } from 'vitest-mock-extended'
 import { unref } from 'vue'
 import {
   useFileActionsDeleteResources,
   useFileActionsDelete
 } from '../../../../../src/composables/actions'
 import { Resource, SpaceResource } from '@ownclouders/web-client'
-import { useStore } from '../../../../../src/composables/store'
+import { defaultComponentMocks, RouteLocation, getComposableWrapper } from 'web-test-helpers'
+import { CapabilityStore } from '../../../../../src/composables/piniaStores'
 
-import {
-  createStore,
-  defaultComponentMocks,
-  defaultStoreMockOptions,
-  RouteLocation,
-  getComposableWrapper
-} from 'web-test-helpers'
-
-jest.mock('../../../../../src/composables/actions/helpers/useFileActionsDeleteResources')
+vi.mock('../../../../../src/composables/actions/helpers/useFileActionsDeleteResources')
 
 describe('delete', () => {
   describe('computed property "actions"', () => {
-    describe('delete isEnabled property of returned element', () => {
+    describe('delete isVisible property of returned element', () => {
       it.each([
         {
           resources: [{ canBeDeleted: () => true }] as Resource[],
@@ -42,21 +35,20 @@ describe('delete', () => {
           expectedStatus: false
         }
       ])('should be set correctly', (inputData) => {
-        const { wrapper } = getWrapper({
+        getWrapper({
           invalidLocation: inputData.invalidLocation,
           setup: () => {
-            const store = useStore()
-            const { actions } = useFileActionsDelete({ store })
+            const { actions } = useFileActionsDelete()
 
             const resources = inputData.resources
-            expect(unref(actions)[0].isEnabled({ space: null, resources })).toBe(
+            expect(unref(actions)[0].isVisible({ space: null, resources })).toBe(
               inputData.expectedStatus
             )
           }
         })
       })
     })
-    describe('delete-permanent isEnabled property of returned element', () => {
+    describe('delete-permanent isVisible property of returned element', () => {
       it.each([
         {
           resources: [{}] as Resource[],
@@ -77,15 +69,14 @@ describe('delete', () => {
           expectedStatus: false
         }
       ])('should be set correctly', (inputData) => {
-        const { wrapper } = getWrapper({
+        getWrapper({
           deletePermanent: true,
           invalidLocation: inputData.invalidLocation,
           setup: () => {
-            const store = useStore()
-            const { actions } = useFileActionsDelete({ store })
+            const { actions } = useFileActionsDelete()
 
             const resources = inputData.resources
-            expect(unref(actions)[1].isEnabled({ space: mock<SpaceResource>(), resources })).toBe(
+            expect(unref(actions)[1].isVisible({ space: mock<SpaceResource>(), resources })).toBe(
               inputData.expectedStatus
             )
           }
@@ -116,14 +107,13 @@ describe('delete', () => {
             deletableResourceIds: ['1', '2', '3']
           }
         ])('should filter non deletable resources', ({ resources, deletableResourceIds }) => {
-          const filesListDeleteMock = jest.fn()
+          const filesListDeleteMock = vi.fn()
 
-          const { wrapper } = getWrapper({
+          getWrapper({
             searchLocation: true,
             filesListDeleteMock,
             setup: () => {
-              const store = useStore()
-              const { actions } = useFileActionsDelete({ store })
+              const { actions } = useFileActionsDelete()
 
               unref(actions)[0].handler({ space: null, resources })
 
@@ -142,7 +132,7 @@ function getWrapper({
   deletePermanent = false,
   invalidLocation = false,
   searchLocation = false,
-  filesListDeleteMock = jest.fn(),
+  filesListDeleteMock = vi.fn(),
   setup = () => undefined
 } = {}) {
   const routeName = invalidLocation
@@ -152,21 +142,26 @@ function getWrapper({
       : searchLocation
         ? 'files-common-search'
         : 'files-spaces-generic'
-  jest
-    .mocked(useFileActionsDeleteResources)
-    .mockImplementation(() => ({ filesList_delete: filesListDeleteMock, displayDialog: jest.fn() }))
+  vi.mocked(useFileActionsDeleteResources).mockImplementation(() => ({
+    filesList_delete: filesListDeleteMock,
+    displayDialog: vi.fn()
+  }))
   const mocks = {
     ...defaultComponentMocks({ currentRoute: mock<RouteLocation>({ name: routeName }) }),
-    space: { driveType: 'personal', spaceRoles: { viewer: [], editor: [], manager: [] } }
+    space: {
+      driveType: 'personal',
+      spaceRoles: { viewer: [], editor: [], manager: [] }
+    } as unknown as SpaceResource
   }
-  const storeOptions = { ...defaultStoreMockOptions }
-  storeOptions.getters.capabilities.mockImplementation(() => ({ spaces: { enabled: true } }))
-  const store = createStore(storeOptions)
+  const capabilities = {
+    spaces: { enabled: true }
+  } satisfies Partial<CapabilityStore['capabilities']>
+
   return {
     wrapper: getComposableWrapper(setup, {
       mocks,
       provide: mocks,
-      store
+      pluginOptions: { piniaOptions: { capabilityState: { capabilities } } }
     })
   }
 }

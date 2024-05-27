@@ -3,31 +3,38 @@ import { eventBus } from '@ownclouders/web-pkg'
 import { KeyboardActions } from '@ownclouders/web-pkg'
 import { findIndex, find } from 'lodash-es'
 import { Resource } from '@ownclouders/web-client'
+import { Item } from '@ownclouders/web-client'
 
 export const useKeyboardTableMouseActions = (
   keyActions: KeyboardActions,
-  paginatedResources: Ref<{ id: string }[]>,
-  selectedRows: any,
+  paginatedResources: Ref<Item[]>,
+  selectedRows: Ref<Item[]>,
   lastSelectedRowIndex: Ref<number>,
   lastSelectedRowId: Ref<string | null>
 ) => {
-  let resourceListClickedMetaEvent
-  let resourceListClickedShiftEvent
+  let resourceListClickedMetaEvent: string
+  let resourceListClickedShiftEvent: string
 
   const handleCtrlClickAction = (resource: Resource) => {
-    const rowIndex = findIndex(selectedRows, { id: resource.id })
+    const rowIndex = findIndex(unref(selectedRows), { id: resource.id })
     if (rowIndex >= 0) {
-      selectedRows.splice(rowIndex, 1)
+      selectedRows.value = unref(selectedRows).filter((item) => item.id != resource.id)
     } else {
-      selectedRows.push(resource)
+      unref(selectedRows).push(resource)
     }
     keyActions.resetSelectionCursor()
 
-    lastSelectedRowIndex.value = rowIndex >= 0 ? rowIndex : selectedRows.length - 1
+    lastSelectedRowIndex.value = rowIndex >= 0 ? rowIndex : unref(selectedRows).length - 1
     lastSelectedRowId.value = String(resource.id)
   }
 
-  const handleShiftClickAction = ({ resource, skipTargetSelection }) => {
+  const handleShiftClickAction = ({
+    resource,
+    skipTargetSelection
+  }: {
+    resource: Item
+    skipTargetSelection: boolean
+  }) => {
     const parent = document.querySelectorAll(`[data-item-id='${resource.id}']`)[0]
     const resourceNodes = Object.values(parent.parentNode.children)
     const latestNode = resourceNodes.find(
@@ -47,10 +54,10 @@ export const useKeyboardTableMouseActions = (
       if (skipTargetSelection && nodeId === resource.id) {
         continue
       }
-      const selectedRowIndex = findIndex(selectedRows, { id: nodeId })
+      const selectedRowIndex = findIndex(unref(selectedRows), { id: nodeId })
       if (selectedRowIndex === -1) {
         const selectedRow = find(paginatedResources.value, { id: nodeId })
-        selectedRows.push(selectedRow)
+        unref(selectedRows).push(selectedRow)
       }
     }
 

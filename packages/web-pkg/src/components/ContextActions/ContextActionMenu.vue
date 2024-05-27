@@ -23,7 +23,7 @@
 <script lang="ts">
 import { defineComponent, PropType } from 'vue'
 import ActionMenuItem from './ActionMenuItem.vue'
-import { Action, ActionOptions } from '../../composables/actions'
+import { Action, ActionOptions } from '../../composables'
 
 type MenuSection = {
   name: string
@@ -52,8 +52,8 @@ export default defineComponent({
     }
   },
   methods: {
-    getSectionClasses(index) {
-      const classes = []
+    getSectionClasses(index: number) {
+      const classes: string[] = []
       if (!this.menuSections.length) {
         return classes
       }

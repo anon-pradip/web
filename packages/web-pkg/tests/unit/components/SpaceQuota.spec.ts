@@ -1,5 +1,7 @@
+import { OcProgress } from 'design-system/src/components'
 import { SpaceQuota } from '../../../src/components'
 import { defaultPlugins, shallowMount } from 'web-test-helpers'
+import { Quota } from '@ownclouders/web-client/graph/generated'
 
 describe('SpaceQuota component', () => {
   it('renders the space storage quota label', () => {
@@ -14,13 +16,13 @@ describe('SpaceQuota component', () => {
     { state: 'exceeded', expectedVariation: 'danger' }
   ])('renders the progress variant correctly', (dataSet) => {
     const { wrapper } = getWrapper({ total: 10, used: 1, state: dataSet.state })
-    const progressBar = wrapper.findComponent<any>('.space-quota oc-progress-stub')
+    const progressBar = wrapper.findComponent<typeof OcProgress>('.space-quota oc-progress-stub')
     expect(progressBar.exists()).toBeTruthy()
     expect(progressBar.props().variation).toBe(dataSet.expectedVariation)
   })
 })
 
-function getWrapper(spaceQuota) {
+function getWrapper(spaceQuota: Quota) {
   return {
     wrapper: shallowMount(SpaceQuota, {
       props: {

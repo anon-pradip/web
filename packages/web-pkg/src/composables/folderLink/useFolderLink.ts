@@ -4,19 +4,18 @@ import {
   isProjectSpaceResource,
   isShareRoot,
   isShareSpaceResource
-} from '@ownclouders/web-client/src/helpers'
+} from '@ownclouders/web-client'
 import { useGettext } from 'vue3-gettext'
 import { unref } from 'vue'
-import { useCapabilityProjectSpacesEnabled, useCapabilityShareJailEnabled } from '../capability'
 import { useGetMatchingSpace } from '../spaces'
 import path, { dirname } from 'path'
 import { ResourceRouteResolverOptions, useResourceRouteResolver } from '../filesList'
 import { createLocationShares, createLocationSpaces } from '../../router'
+import { useCapabilityStore } from '../piniaStores'
 
 export const useFolderLink = (options: ResourceRouteResolverOptions = {}) => {
+  const capabilityStore = useCapabilityStore()
   const { $gettext } = useGettext()
-  const hasShareJail = useCapabilityShareJailEnabled()
-  const hasProjectSpaces = useCapabilityProjectSpacesEnabled()
   const { getInternalSpace, getMatchingSpace, isResourceAccessible } = useGetMatchingSpace()
   const { createFolderLink } = useResourceRouteResolver(options)
 
@@ -47,7 +46,7 @@ export const useFolderLink = (options: ResourceRouteResolverOptions = {}) => {
       space,
       path: dirname(resource.path)
     })
-    if ((resource.shareId && resource.path === '/') || !parentFolderAccessible) {
+    if ((resource.remoteItemId && resource.path === '/') || !parentFolderAccessible) {
       return createLocationShares('files-shares-with-me')
     }
     if (isProjectSpaceResource(resource)) {
@@ -79,17 +78,13 @@ export const useFolderLink = (options: ResourceRouteResolverOptions = {}) => {
       return space.name
     }
 
-    if (unref(hasProjectSpaces)) {
+    if (capabilityStore.spacesProjects) {
       if (isProjectSpaceResource(resource)) {
         return $gettext('Spaces')
       }
       if (space?.driveType === 'project') {
         return space.name
       }
-    }
-
-    if (!unref(hasShareJail)) {
-      return $gettext('All files and folders')
     }
 
     return $gettext('Personal')

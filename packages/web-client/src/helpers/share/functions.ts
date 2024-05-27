@@ -1,352 +1,284 @@
-import { orderBy } from 'lodash-es'
-import { DateTime } from 'luxon'
+import { Resource } from '../resource'
 import {
-  Resource,
-  buildWebDavFilesPath,
-  extractDomSelector,
-  extractExtensionFromFile,
-  extractStorageId
-} from '../resource'
+  ShareResource,
+  OutgoingShareResource,
+  IncomingShareResource,
+  CollaboratorShare,
+  GraphSharePermission,
+  LinkShare
+} from './types'
+import { extractDomSelector, extractExtensionFromFile, extractStorageId } from '../resource'
 import { ShareTypes } from './type'
-import path from 'path'
-import { SHARE_JAIL_ID, SpaceResource, buildWebDavSpacesPath } from '../space'
-import { ShareStatus } from './status'
-import { SharePermissions } from './permission'
-import { Share } from './share'
-import { buildSpaceShare } from './space'
-import { LinkShareRoles, PeopleShareRoles } from './role'
+import { buildWebDavSpacesPath } from '../space'
+import { DriveItem, Identity, Permission, UnifiedRoleDefinition, User } from '../../graph/generated'
+import { urlJoin } from '../../utils'
+import { uniq } from 'lodash-es'
 
-/**
- * Transforms given shares into a resource format and returns only their unique occurences
- */
-export function aggregateResourceShares({
-  shares,
-  spaces,
-  allowSharePermission = true,
-  hasShareJail = true,
-  incomingShares = false,
-  fullShareOwnerPaths = false
+export const isShareResource = (resource: Resource): resource is ShareResource => {
+  return Object.hasOwn(resource, 'sharedWith')
+}
+
+export const isOutgoingShareResource = (resource: Resource): resource is OutgoingShareResource => {
+  return isShareResource(resource) && resource.outgoing
+}
+
+export const isIncomingShareResource = (resource: Resource): resource is IncomingShareResource => {
+  return isShareResource(resource) && !resource.outgoing
+}
+
+export const getShareResourceRoles = ({
+  driveItem,
+  graphRoles
 }: {
-  shares: Share[]
-  spaces: SpaceResource[]
-  allowSharePermission?: boolean
-  hasShareJail?: boolean
-  incomingShares?: boolean
-  fullShareOwnerPaths?: boolean
-}): Resource[] {
-  shares.sort((a, b) => a.path.localeCompare(b.path))
-  if (spaces.length) {
-    shares = addMatchingSpaceToShares(shares, spaces)
-  }
-  if (incomingShares) {
-    shares = addSharedWithToShares(shares)
-    return orderBy(shares, ['file_source', 'permissions'], ['asc', 'desc']).map((share) => {
-      const resource = buildSharedResource(
-        share,
-        incomingShares,
-        allowSharePermission,
-        hasShareJail
-      )
-      resource.shareId = share.id
-
-      if (fullShareOwnerPaths) {
-        resource.path = spaces.find(
-          (space) =>
-            space.driveType === 'mountpoint' &&
-            space.id === `${SHARE_JAIL_ID}$${SHARE_JAIL_ID}!${resource.shareId}`
-        )?.root.remoteItem.path
-        resource.shareRoot = resource.path
+  driveItem: DriveItem
+  graphRoles: UnifiedRoleDefinition[]
+}) => {
+  return driveItem.remoteItem?.permissions.reduce<UnifiedRoleDefinition[]>((acc, permission) => {
+    permission.roles?.forEach((roleId) => {
+      const role = graphRoles.find(({ id }) => id === roleId)
+      if (role && !acc.some(({ id }) => id === role.id)) {
+        acc.push(role)
       }
-      return resource
     })
+
+    return acc
+  }, [])
+}
+
+export const getShareResourcePermissions = ({
+  driveItem,
+  shareRoles
+}: {
+  driveItem: DriveItem
+  shareRoles: UnifiedRoleDefinition[]
+}): GraphSharePermission[] => {
+  if (!shareRoles.length) {
+    // the server lists plain permissions if it doesn't find a corresponding role
+    const permissions = driveItem.remoteItem?.permissions.reduce<GraphSharePermission[]>(
+      (acc, permission) => {
+        const permissions = permission['@libre.graph.permissions.actions'] as GraphSharePermission[]
+        if (permissions) {
+          acc.push(...permissions)
+        }
+
+        return acc
+      },
+      []
+    )
+    return [...new Set(permissions)]
   }
 
-  const resources = addSharedWithToShares(shares)
-  return resources.map((share) =>
-    buildSharedResource(share, incomingShares, allowSharePermission, hasShareJail)
+  const permissions = shareRoles.reduce((acc, role) => {
+    role.rolePermissions.forEach((permission) => {
+      acc.push(...permission.allowedResourceActions)
+    })
+    return acc
+  }, [])
+
+  return [...new Set(permissions)]
+}
+
+export function buildIncomingShareResource({
+  driveItem,
+  graphRoles
+}: {
+  driveItem: DriveItem
+  graphRoles: UnifiedRoleDefinition[]
+}): IncomingShareResource {
+  const resourceName = driveItem.name || driveItem.remoteItem.name
+  const storageId = extractStorageId(driveItem.remoteItem.id)
+
+  const shareTypes = uniq(
+    driveItem.remoteItem.permissions.map((p) =>
+      p.grantedToV2.group ? ShareTypes.group.value : ShareTypes.user.value
+    )
   )
-}
 
-function addSharedWithToShares(shares) {
-  const resources = []
-  let previousShare = null
-  for (const share of shares) {
-    if (
-      previousShare?.storage_id === share.storage_id &&
-      previousShare?.file_source === share.file_source
-    ) {
-      if (ShareTypes.containsAnyValue(ShareTypes.authenticated, [parseInt(share.share_type)])) {
-        if (share.stime > previousShare.stime) {
-          previousShare.stime = share.stime
-        }
-        previousShare.sharedWith.push({
-          username: share.share_with,
-          name: share.share_with_displayname,
-          displayName: share.share_with_displayname,
-          avatar: undefined,
-          shareType: parseInt(share.share_type)
-        })
-      } else if (parseInt(share.share_type) === ShareTypes.link.value) {
-        previousShare.sharedWith.push({
-          name: share.name || share.token,
-          link: true,
-          shareType: parseInt(share.share_type)
-        })
-      }
-
-      continue
+  const sharedWith = driveItem.remoteItem.permissions.map(({ grantedToV2 }) => {
+    const identity = grantedToV2.group || grantedToV2.user
+    return {
+      ...identity,
+      shareType: grantedToV2.group ? ShareTypes.group.value : ShareTypes.user.value
     }
+  })
 
-    if (ShareTypes.containsAnyValue(ShareTypes.authenticated, [parseInt(share.share_type)])) {
-      share.sharedWith = [
-        {
-          username: share.share_with,
-          displayName: share.share_with_displayname,
-          name: share.share_with_displayname,
-          avatar: undefined,
-          shareType: parseInt(share.share_type)
-        }
-      ]
-    } else if (parseInt(share.share_type) === ShareTypes.link.value) {
-      share.sharedWith = [
-        {
-          name: share.name || share.token,
-          link: true,
-          shareType: parseInt(share.share_type)
-        }
-      ]
+  const sharedBy = driveItem.remoteItem.permissions.reduce<Identity[]>((acc, permission) => {
+    const sharedBy = permission.invitation.invitedBy.user
+    if (!acc.some(({ id }) => id === sharedBy.id)) {
+      acc.push(sharedBy)
     }
+    return acc
+  }, [])
 
-    previousShare = share
-    resources.push(share)
-  }
-  return resources
-}
+  const shareRoles = getShareResourceRoles({ driveItem, graphRoles })
+  const sharePermissions = getShareResourcePermissions({ driveItem, shareRoles })
 
-function addMatchingSpaceToShares(shares, spaces) {
-  const resources = []
-  for (const share of shares) {
-    let matchingSpace
-    if (share.path === '/') {
-      const storageId = extractStorageId(share.item_source)
-      matchingSpace = spaces.find((s) => s.id === storageId && s.driveType === 'project')
-    }
-    resources.push({ ...share, matchingSpace })
-  }
-  return resources
-}
-
-export function buildSharedResource(
-  share,
-  incomingShares = false,
-  allowSharePermission = true,
-  hasShareJail = false
-): Resource {
-  const isFolder = share.item_type === 'folder'
-  const isRemoteShare = parseInt(share.share_type) === ShareTypes.remote.value
-  let resource: Resource = {
-    id: share.id,
-    fileId: share.item_source,
-    storageId: extractStorageId(share.item_source),
-    parentFolderId: share.file_parent,
-    type: share.item_type,
-    mimeType: share.mimetype,
-    isFolder,
-    sdate: DateTime.fromSeconds(parseInt(share.stime)).toRFC2822(),
+  const resource: IncomingShareResource = {
+    id: driveItem.id,
+    remoteItemId: driveItem.remoteItem.id,
+    driveId: driveItem.parentReference?.driveId,
+    path: '/',
+    name: resourceName,
+    fileId: driveItem.remoteItem.id,
+    storageId,
+    parentFolderId: driveItem.parentReference?.id,
+    sdate: driveItem.remoteItem.permissions[0].createdDateTime,
     indicators: [],
     tags: [],
-    path: undefined,
-    webDavPath: undefined,
-    processing: share.processing || false
-  }
-
-  if (incomingShares) {
-    resource.resourceOwner = {
-      username: share.uid_file_owner as string,
-      displayName: share.displayname_file_owner as string
-    }
-    resource.owner = [
-      {
-        username: share.uid_owner as string,
-        displayName: share.displayname_owner as string,
-        avatar: undefined,
-        shareType: ShareTypes.user.value
-      }
-    ]
-    resource.sharedWith = share.sharedWith || []
-    resource.status = parseInt(share.state)
-    resource.hidden = share.hidden === 'true' || share.hidden === true
-    resource.name = isRemoteShare ? share.name : path.basename(share.file_target)
-    if (isRemoteShare) {
-      resource.path = '/'
-      resource.webDavPath = buildWebDavSpacesPath(share.space_id, '/')
-    } else if (hasShareJail) {
-      // FIXME, HACK 1: path needs to be '/' because the share has it's own webdav endpoint (we access it's root). should ideally be removed backend side.
-      // FIXME, HACK 2: webDavPath points to `files/<user>/Shares/xyz` but now needs to point to a shares webdav root. should ideally be changed backend side.
-      resource.path = '/'
-      resource.webDavPath = buildWebDavSpacesPath([SHARE_JAIL_ID, resource.id].join('!'), '/')
-    } else {
-      resource.path = share.file_target
-      resource.webDavPath = buildWebDavFilesPath(share.share_with, share.file_target)
-    }
-    resource.canDownload = () => parseInt(share.state) === ShareStatus.accepted
-    resource.canShare = () => SharePermissions.share.enabled(share.permissions)
-    resource.canRename = () => parseInt(share.state) === ShareStatus.accepted
-    resource.canBeDeleted = () => SharePermissions.delete.enabled(share.permissions)
-    resource.canEditTags = () =>
-      parseInt(share.state) === ShareStatus.accepted &&
-      SharePermissions.update.enabled(share.permissions)
-  } else {
-    resource.sharedWith = share.sharedWith || []
-    resource.shareOwner = share.uid_owner
-    resource.shareOwnerDisplayname = share.displayname_owner
-    resource.name = isRemoteShare ? share.name : path.basename(share.path)
-    resource.path = share.path
-    resource.webDavPath = hasShareJail
-      ? buildWebDavSpacesPath(resource.storageId, share.path)
-      : buildWebDavFilesPath(share.uid_owner, share.path)
-    resource.canDownload = () => true
-    resource.canShare = () => true
-    resource.canRename = () => true
-    resource.canBeDeleted = () => true
-    resource.canEditTags = () => true
+    webDavPath: buildWebDavSpacesPath(driveItem.remoteItem.id, '/'),
+    sharedBy,
+    owner: driveItem.remoteItem.createdBy?.user,
+    sharedWith,
+    shareTypes,
+    isFolder: !!driveItem.folder,
+    type: !!driveItem.folder ? 'folder' : 'file',
+    mimeType: driveItem.file?.mimeType || 'httpd/unix-directory',
+    syncEnabled: driveItem['@client.synchronize'],
+    hidden: driveItem['@UI.Hidden'],
+    shareRoles,
+    sharePermissions,
+    outgoing: false,
+    canRename: () => driveItem['@client.synchronize'],
+    canDownload: () => sharePermissions.includes(GraphSharePermission.readBasic),
+    canUpload: () => sharePermissions.includes(GraphSharePermission.createUpload),
+    canCreate: () => sharePermissions.includes(GraphSharePermission.createChildren),
+    canBeDeleted: () => sharePermissions.includes(GraphSharePermission.deleteStandard),
+    canEditTags: () => sharePermissions.includes(GraphSharePermission.createChildren),
+    isMounted: () => false,
+    isReceivedShare: () => true,
+    canShare: () => false,
+    canDeny: () => false,
+    getDomSelector: () => extractDomSelector(driveItem.id)
   }
 
   resource.extension = extractExtensionFromFile(resource)
-  resource.isReceivedShare = () => incomingShares
-  resource.canUpload = () => SharePermissions.create.enabled(share.permissions)
-  resource.canCreate = () => SharePermissions.create.enabled(share.permissions)
-  resource.isMounted = () => false
-  resource.share = buildShare(share, resource, allowSharePermission)
-  resource.canDeny = () => SharePermissions.denied.enabled(share.permissions)
-  resource.getDomSelector = () => extractDomSelector(share.id)
-
-  if (share.matchingSpace) {
-    resource = { ...resource, ...share.matchingSpace }
-  }
 
   return resource
 }
 
-export function buildShare(s, file, allowSharePermission): Share {
-  if (parseInt(s.share_type) === ShareTypes.link.value) {
-    return _buildLink(s)
-  }
-  if ([ShareTypes.spaceUser.value, ShareTypes.spaceGroup.value].includes(parseInt(s.share_type))) {
-    return buildSpaceShare(s, file)
+export function buildOutgoingShareResource({
+  driveItem,
+  user
+}: {
+  driveItem: DriveItem
+  user: User
+}): OutgoingShareResource {
+  const storageId = extractStorageId(driveItem.id)
+  const path = urlJoin(driveItem.parentReference.path, driveItem.name)
+
+  const resource: OutgoingShareResource = {
+    id: driveItem.id,
+    driveId: driveItem.parentReference?.driveId,
+    path,
+    name: driveItem.name,
+    fileId: driveItem.id,
+    storageId,
+    parentFolderId: driveItem.parentReference?.id,
+    sdate: driveItem.permissions[0].createdDateTime,
+    indicators: [],
+    tags: [],
+    webDavPath: buildWebDavSpacesPath(storageId, path),
+    sharedBy: [{ id: user.id, displayName: user.displayName }],
+    owner: { id: user.id, displayName: user.displayName },
+    sharedWith: driveItem.permissions.map((p) => {
+      if (p.link) {
+        return {
+          id: p.id,
+          displayName: p.link['@libre.graph.displayName'],
+          shareType: ShareTypes.link.value
+        }
+      }
+      if (p.grantedToV2.group) {
+        return { ...p.grantedToV2.group, shareType: ShareTypes.group.value }
+      }
+      return { ...p.grantedToV2.user, shareType: ShareTypes.user.value }
+    }),
+    shareTypes: driveItem.permissions.map((p) => {
+      if (p.link) {
+        return ShareTypes.link.value
+      }
+      if (p.grantedToV2.group) {
+        return ShareTypes.group.value
+      }
+      return ShareTypes.user.value
+    }),
+    isFolder: !!driveItem.folder,
+    type: !!driveItem.folder ? 'folder' : 'file',
+    mimeType: driveItem.file?.mimeType || 'httpd/unix-directory',
+    outgoing: true,
+    canRename: () => true,
+    canDownload: () => true,
+    canUpload: () => true,
+    canCreate: () => true,
+    canBeDeleted: () => true,
+    canEditTags: () => true,
+    isMounted: () => false,
+    isReceivedShare: () => true,
+    canShare: () => true,
+    canDeny: () => true,
+    getDomSelector: () => extractDomSelector(driveItem.id)
   }
 
-  return buildCollaboratorShare(s, file, allowSharePermission)
+  resource.extension = extractExtensionFromFile(resource)
+
+  return resource
 }
 
-function _buildLink(link): Share {
-  let description = ''
-  const permissions = parseInt(link.permissions)
-
-  const role = LinkShareRoles.getByBitmask(permissions, link.item_type === 'folder')
-  if (role) {
-    description = role.label
-  }
-
-  const quicklinkOc10 = ((): boolean => {
-    if (typeof link.attributes !== 'string') {
-      return false
-    }
-
-    return (
-      JSON.parse(link.attributes || '[]').find((attr) => attr.key === 'isQuickLink')?.enabled ===
-      'true'
-    )
-  })()
-  const quicklinkOcis = link.quicklink === 'true'
-  const quicklink = quicklinkOc10 || quicklinkOcis
+export function buildCollaboratorShare({
+  graphPermission,
+  graphRoles,
+  resourceId,
+  user,
+  indirect = false
+}: {
+  graphPermission: Permission
+  graphRoles: UnifiedRoleDefinition[]
+  resourceId: string
+  user: User
+  indirect?: boolean
+}): CollaboratorShare {
+  const role = graphRoles.find(({ id }) => id === graphPermission.roles?.[0])
 
   return {
-    shareType: parseInt(link.share_type),
-    id: link.id,
-    token: link.token as string,
-    url: link.url,
-    path: link.path,
-    permissions,
-    description,
-    quicklink,
-    stime: link.stime,
-    name: typeof link.name === 'string' ? link.name : (link.token as string),
-    password: !!(link.share_with && link.share_with_displayname),
-    expiration:
-      typeof link.expiration === 'string'
-        ? DateTime.fromFormat(link.expiration, 'yyyy-MM-dd HH:mm:ss').toFormat('yyyy-MM-dd')
-        : null,
-    itemSource: link.item_source,
-    file: {
-      parent: link.file_parent,
-      source: link.file_source,
-      target: link.file_target
-    },
-    notifyUploads: link.notify_uploads === 'true',
-    notifyUploadsExtraRecipients:
-      typeof link.notify_uploads_extra_recipients === 'string'
-        ? link.notify_uploads_extra_recipients
-        : null
+    id: graphPermission.id,
+    resourceId,
+    indirect,
+    shareType: graphPermission.grantedToV2.group ? ShareTypes.group.value : ShareTypes.user.value,
+    role,
+    sharedBy: { id: user.id, displayName: user.displayName },
+    sharedWith: graphPermission.grantedToV2.user || graphPermission.grantedToV2.group,
+    permissions: (graphPermission['@libre.graph.permissions.actions']
+      ? graphPermission['@libre.graph.permissions.actions']
+      : role.rolePermissions.flatMap((p) => p.allowedResourceActions)) as GraphSharePermission[],
+    createdDateTime: graphPermission.createdDateTime,
+    expirationDateTime: graphPermission.expirationDateTime
   }
 }
 
-function _fixAdditionalInfo(data) {
-  if (typeof data !== 'string') {
-    return null
+export function buildLinkShare({
+  graphPermission,
+  user,
+  resourceId,
+  indirect = false
+}: {
+  graphPermission: Permission
+  user: User
+  resourceId: string
+  indirect?: boolean
+}): LinkShare {
+  return {
+    id: graphPermission.id,
+    resourceId,
+    indirect,
+    shareType: ShareTypes.link.value,
+    sharedBy: { id: user.id, displayName: user.displayName },
+    hasPassword: graphPermission.hasPassword,
+    createdDateTime: graphPermission.createdDateTime,
+    expirationDateTime: graphPermission.expirationDateTime,
+    displayName: graphPermission.link['@libre.graph.displayName'],
+    isQuickLink: graphPermission.link['@libre.graph.quickLink'],
+    type: graphPermission.link.type,
+    webUrl: graphPermission.link.webUrl,
+    preventsDownload: graphPermission.link.preventsDownload
   }
-  return data
-}
-
-export function buildCollaboratorShare(s, file, allowSharePermission): Share {
-  const share: Share = {
-    shareType: parseInt(s.share_type),
-    id: s.id,
-    itemSource: s.item_source,
-    file: {
-      parent: s.file_parent,
-      source: s.file_source,
-      target: s.file_target
-    }
-  }
-  if (
-    ShareTypes.containsAnyValue(
-      [ShareTypes.user, ShareTypes.remote, ShareTypes.group, ShareTypes.guest],
-      [share.shareType]
-    )
-  ) {
-    // FIXME: SDK is returning empty object for additional info when empty
-    share.collaborator = {
-      name: s.share_with,
-      displayName: s.share_with_displayname,
-      additionalInfo: _fixAdditionalInfo(s.share_with_additional_info)
-    }
-    share.owner = {
-      name: s.uid_owner,
-      displayName: s.displayname_owner,
-      additionalInfo: _fixAdditionalInfo(s.additional_info_owner)
-    }
-    share.fileOwner = {
-      name: s.uid_file_owner,
-      displayName: s.displayname_file_owner,
-      additionalInfo: _fixAdditionalInfo(s.additional_info_file_owner)
-    }
-    share.stime = s.stime
-    share.permissions = parseInt(s.permissions)
-    share.customPermissions = SharePermissions.bitmaskToPermissions(s.permissions)
-    share.role = PeopleShareRoles.getByBitmask(
-      parseInt(s.permissions),
-      file.isFolder || file.type === 'folder',
-      allowSharePermission
-    )
-    // share.email = 'foo@djungle.com' // hm, where do we get the mail from? share_with_additional_info:Object?
-  }
-
-  // expiration:Object if unset, or string "2019-04-24 00:00:00"
-  if (typeof s.expiration === 'string' || s.expiration instanceof String) {
-    share.expires = new Date(s.expiration)
-  }
-  share.path = s.path
-
-  return share
 }

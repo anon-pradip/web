@@ -57,16 +57,18 @@ import OcApplicationIcon from 'design-system/src/components/OcApplicationIcon/Oc
 import { useGettext } from 'vue3-gettext'
 import * as uuid from 'uuid'
 import {
-  ApplicationInformation,
   EDITOR_MODE_EDIT,
   resolveFileNameDuplicate,
+  useAppsStore,
   useClientService,
   useFileActions,
   useGetMatchingSpace,
-  useStore
+  useResourcesStore,
+  useSpacesStore
 } from '@ownclouders/web-pkg'
-import { Resource } from '@ownclouders/web-client'
-import { urlJoin } from '@ownclouders/web-client/src/utils'
+import { urlJoin } from '@ownclouders/web-client'
+import { storeToRefs } from 'pinia'
+import { MenuItem } from '../../helpers/menuItems'
 
 export default defineComponent({
   components: {
@@ -74,18 +76,22 @@ export default defineComponent({
   },
   props: {
     applicationsList: {
-      type: Array as PropType<any[]>,
+      type: Array as PropType<MenuItem[]>,
       required: false,
-      default: () => []
+      default: (): MenuItem[] => []
     }
   },
   setup() {
-    const store = useStore()
     const { openEditor } = useFileActions()
     const clientService = useClientService()
     const { $gettext } = useGettext()
     const appIconKey = ref('')
-    const { getMatchingSpace, getPersonalSpace } = useGetMatchingSpace()
+    const { getMatchingSpace } = useGetMatchingSpace()
+    const spacesStore = useSpacesStore()
+    const appsStore = useAppsStore()
+
+    const resourcesStore = useResourcesStore()
+    const { resources, currentFolder } = storeToRefs(resourcesStore)
 
     const applicationSwitcherLabel = computed(() => {
       return $gettext('Application Switcher')
@@ -93,18 +99,14 @@ export default defineComponent({
     const updateAppIcons = () => {
       appIconKey.value = uuid.v4().replaceAll('-', '')
     }
-    const currentFolder = computed(() => {
-      return store.getters['Files/currentFolder']
-    })
-    const files = computed((): Array<Resource> => store.getters['Files/files'])
 
-    const onEditorApplicationClick = async (item: ApplicationInformation) => {
+    const onEditorApplicationClick = async (item: MenuItem) => {
       let destinationSpace = unref(currentFolder) ? getMatchingSpace(unref(currentFolder)) : null
-      let destinationFiles = unref(files)
+      let destinationFiles = unref(resources)
       let filePath = unref(currentFolder)?.path
 
       if (!destinationSpace || !unref(currentFolder).canCreate()) {
-        destinationSpace = getPersonalSpace()
+        destinationSpace = spacesStore.personalSpace
         destinationFiles = (await clientService.webdav.listFiles(destinationSpace)).children
         filePath = ''
       }
@@ -120,26 +122,22 @@ export default defineComponent({
       })
 
       const space = getMatchingSpace(emptyResource)
-
-      openEditor(
-        item,
-        space.getDriveAliasAndItem(emptyResource),
-        emptyResource.webDavPath,
-        emptyResource.id,
-        EDITOR_MODE_EDIT,
-        space.shareId
+      const appFileExtension = appsStore.fileExtensions.find(
+        ({ app, extension }) => app === item.id && extension === item.defaultExtension
       )
+
+      openEditor(appFileExtension, space, emptyResource, EDITOR_MODE_EDIT)
     }
-    const getAdditionalEventBindings = (item: ApplicationInformation) => {
-      if (item.applicationMenu?.openAsEditor) {
+    const getAdditionalEventBindings = (item: MenuItem) => {
+      if (item?.openAsEditor) {
         return {
           click: () => onEditorApplicationClick(item)
         }
       }
       return {}
     }
-    const getAdditionalAttributes = (item: any) => {
-      if (item.applicationMenu?.openAsEditor) {
+    const getAdditionalAttributes = (item: MenuItem) => {
+      if (item?.openAsEditor) {
         return {}
       }
       return {

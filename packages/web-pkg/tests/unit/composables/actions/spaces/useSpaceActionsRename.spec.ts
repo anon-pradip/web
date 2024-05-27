@@ -1,60 +1,62 @@
-import { useSpaceActionsRename } from '../../../../../src'
-import { mock } from 'jest-mock-extended'
+import { useSpaceActionsRename } from '../../../../../src/composables/actions/spaces'
+import { useMessages, useModals } from '../../../../../src/composables/piniaStores'
+import { mock } from 'vitest-mock-extended'
 import {
-  createStore,
   defaultComponentMocks,
   mockAxiosResolve,
-  defaultStoreMockOptions,
   RouteLocation,
   getComposableWrapper
 } from 'web-test-helpers'
 import { unref } from 'vue'
-import { SpaceResource } from '@ownclouders/web-client/src'
+import { SpaceResource } from '@ownclouders/web-client'
 
 describe('rename', () => {
   describe('handler', () => {
-    it('should trigger the rename modal window', async () => {
-      const { wrapper } = getWrapper({
-        setup: async ({ actions }, { storeOptions }) => {
+    it('should trigger the rename modal window', () => {
+      getWrapper({
+        setup: async ({ actions }) => {
+          const { dispatchModal } = useModals()
           await unref(actions)[0].handler({
             resources: [{ id: '1', name: 'renamed space' } as SpaceResource]
           })
 
-          expect(storeOptions.actions.createModal).toHaveBeenCalledTimes(1)
+          expect(dispatchModal).toHaveBeenCalledTimes(1)
         }
       })
     })
-    it('should not trigger the rename modal window without any resource', async () => {
-      const { wrapper } = getWrapper({
-        setup: async ({ actions }, { storeOptions }) => {
+    it('should not trigger the rename modal window without any resource', () => {
+      getWrapper({
+        setup: async ({ actions }) => {
+          const { dispatchModal } = useModals()
           await unref(actions)[0].handler({ resources: [] })
 
-          expect(storeOptions.actions.createModal).toHaveBeenCalledTimes(0)
+          expect(dispatchModal).toHaveBeenCalledTimes(0)
         }
       })
     })
   })
   describe('method "renameSpace"', () => {
-    it('should hide the modal and show message on success', async () => {
-      const { wrapper, mocks } = getWrapper({
-        setup: async ({ renameSpace }, { storeOptions, clientService }) => {
+    it('should show message on success', () => {
+      getWrapper({
+        setup: async ({ renameSpace }, { clientService }) => {
           clientService.graphAuthenticated.drives.updateDrive.mockResolvedValue(mockAxiosResolve())
-          await renameSpace(1, 'renamed space')
+          await renameSpace(mock<SpaceResource>({ id: '1' }), 'renamed space')
 
-          expect(storeOptions.actions.hideModal).toHaveBeenCalledTimes(1)
-          expect(storeOptions.actions.showMessage).toHaveBeenCalledTimes(1)
+          const { showMessage } = useMessages()
+          expect(showMessage).toHaveBeenCalledTimes(1)
         }
       })
     })
 
-    it('should show message on error', async () => {
-      jest.spyOn(console, 'error').mockImplementation(() => undefined)
-      const { wrapper } = getWrapper({
-        setup: async ({ renameSpace }, { storeOptions, clientService }) => {
+    it('should show message on error', () => {
+      vi.spyOn(console, 'error').mockImplementation(() => undefined)
+      getWrapper({
+        setup: async ({ renameSpace }, { clientService }) => {
           clientService.graphAuthenticated.drives.updateDrive.mockRejectedValue(new Error())
-          await renameSpace(1, 'renamed space')
+          await renameSpace(mock<SpaceResource>({ id: '1' }), 'renamed space')
 
-          expect(storeOptions.actions.showErrorMessage).toHaveBeenCalledTimes(1)
+          const { showErrorMessage } = useMessages()
+          expect(showErrorMessage).toHaveBeenCalledTimes(1)
         }
       })
     })
@@ -67,19 +69,12 @@ function getWrapper({
   setup: (
     instance: ReturnType<typeof useSpaceActionsRename>,
     {
-      storeOptions,
       clientService
     }: {
-      storeOptions: typeof defaultStoreMockOptions
       clientService: ReturnType<typeof defaultComponentMocks>['$clientService']
     }
   ) => void
 }) {
-  const storeOptions = {
-    ...defaultStoreMockOptions,
-    modules: { ...defaultStoreMockOptions.modules, user: { state: { id: 'alice', uuid: 1 } } }
-  }
-  const store = createStore(storeOptions)
   const mocks = defaultComponentMocks({
     currentRoute: mock<RouteLocation>({ name: 'files-spaces-projects' })
   })
@@ -87,11 +82,10 @@ function getWrapper({
     mocks,
     wrapper: getComposableWrapper(
       () => {
-        const instance = useSpaceActionsRename({ store })
-        setup(instance, { storeOptions, clientService: mocks.$clientService })
+        const instance = useSpaceActionsRename()
+        setup(instance, { clientService: mocks.$clientService })
       },
       {
-        store,
         mocks,
         provide: mocks
       }

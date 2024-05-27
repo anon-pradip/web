@@ -1,4 +1,3 @@
-import { Store } from 'vuex'
 import { dirname } from 'path'
 import { isLocationTrashActive } from '../../../router'
 
@@ -7,35 +6,35 @@ import {
   isProjectSpaceResource,
   extractExtensionFromFile,
   SpaceResource
-} from '@ownclouders/web-client/src/helpers'
+} from '@ownclouders/web-client'
 import {
   ResolveStrategy,
   ResolveConflict,
   resolveFileNameDuplicate,
   ConflictDialog
 } from '../../../helpers/resource'
-import { urlJoin } from '@ownclouders/web-client/src/utils'
-import { useCapabilitySpacesEnabled } from '../../capability'
+import { urlJoin } from '@ownclouders/web-client'
 import { useClientService } from '../../clientService'
 import { useLoadingService } from '../../loadingService'
 import { useRouter } from '../../router'
-import { useStore } from '../../store'
-import { computed, unref } from 'vue'
+import { computed } from 'vue'
 import { useGettext } from 'vue3-gettext'
 import { FileAction, FileActionOptions } from '../types'
 import { LoadingTaskCallbackArguments } from '../../../services'
+import { useMessages, useSpacesStore, useUserStore, useResourcesStore } from '../../piniaStores'
 
-export const useFileActionsRestore = ({ store }: { store?: Store<any> } = {}) => {
-  store = store || useStore()
+export const useFileActionsRestore = () => {
+  const { showMessage, showErrorMessage } = useMessages()
+  const userStore = useUserStore()
   const router = useRouter()
   const { $gettext, $ngettext } = useGettext()
   const clientService = useClientService()
   const loadingService = useLoadingService()
-
-  const hasSpacesEnabled = useCapabilitySpacesEnabled()
+  const spacesStore = useSpacesStore()
+  const resourcesStore = useResourcesStore()
 
   const collectConflicts = async (space: SpaceResource, sortedResources: Resource[]) => {
-    const existingResourcesCache = {}
+    const existingResourcesCache: Record<string, Resource[]> = {}
     const conflicts: Resource[] = []
     const resolvedResources: Resource[] = []
     const missingFolderPaths: string[] = []
@@ -91,14 +90,7 @@ export const useFileActionsRestore = ({ store }: { store?: Store<any> } = {}) =>
         continue
       }
       const remainingConflictCount = allConflictsCount - count
-      const conflictDialog = new ConflictDialog(
-        (...args) => store.dispatch('createModal', ...args),
-        (...args) => store.dispatch('hideModal', ...args),
-        (...args) => store.dispatch('showMessage', ...args),
-        (...args) => store.dispatch('showErrorMessage', ...args),
-        $gettext,
-        $ngettext
-      )
+      const conflictDialog = new ConflictDialog($gettext, $ngettext)
       const resolvedConflict: ResolveConflict = await conflictDialog.resolveFileExists(
         { name: conflict.name, isFolder } as Resource,
         remainingConflictCount,
@@ -152,11 +144,11 @@ export const useFileActionsRestore = ({ store }: { store?: Store<any> } = {}) =>
     missingFolderPaths: string[],
     { setProgress }: LoadingTaskCallbackArguments
   ) => {
-    const restoredResources = []
-    const failedResources = []
-    const errors = []
+    const restoredResources: Resource[] = []
+    const failedResources: Resource[] = []
+    const errors: Error[] = []
 
-    let createdFolderPaths = []
+    let createdFolderPaths: string[] = []
     for (const [i, resource] of resources.entries()) {
       const parentPath = dirname(resource.path)
       if (missingFolderPaths.includes(parentPath)) {
@@ -180,8 +172,9 @@ export const useFileActionsRestore = ({ store }: { store?: Store<any> } = {}) =>
 
     // success handler (for partial and full success)
     if (restoredResources.length) {
-      store.dispatch('Files/removeFilesFromTrashbin', restoredResources)
-      let title
+      resourcesStore.removeResources(restoredResources)
+      resourcesStore.resetSelection()
+      let title: string
       if (restoredResources.length === 1) {
         title = $gettext('%{resource} was restored successfully', {
           resource: restoredResources[0].name
@@ -191,41 +184,31 @@ export const useFileActionsRestore = ({ store }: { store?: Store<any> } = {}) =>
           resourceCount: restoredResources.length.toString()
         })
       }
-      store.dispatch('showMessage', {
-        title
-      })
+      showMessage({ title })
     }
 
     // failure handler (for partial and full failure)
     if (failedResources.length) {
       let translated
-      const translateParams: any = {}
+      const translateParams: Record<string, string> = {}
       if (failedResources.length === 1) {
         translateParams.resource = failedResources[0].name
         translated = $gettext('Failed to restore "%{resource}"', translateParams, true)
       } else {
-        translateParams.resourceCount = failedResources.length
+        translateParams.resourceCount = failedResources.length.toString()
         translated = $gettext('Failed to restore %{resourceCount} files', translateParams, true)
       }
-      store.dispatch('showErrorMessage', {
-        title: translated,
-        errors
-      })
+      showErrorMessage({ title: translated, errors })
     }
 
     // Reload quota
-    if (unref(hasSpacesEnabled)) {
-      const graphClient = clientService.graphAuthenticated
-      const driveResponse = await graphClient.drives.getDrive(space.id as string)
-      store.commit('runtime/spaces/UPDATE_SPACE_FIELD', {
-        id: driveResponse.data.id,
-        field: 'spaceQuota',
-        value: driveResponse.data.quota
-      })
-    } else {
-      const user = await clientService.owncloudSdk.users.getUser(store.getters.user.id)
-      store.commit('SET_QUOTA', user.quota)
-    }
+    const graphClient = clientService.graphAuthenticated
+    const driveResponse = await graphClient.drives.getDrive(space.id)
+    spacesStore.updateSpaceField({
+      id: driveResponse.data.id,
+      field: 'spaceQuota',
+      value: driveResponse.data.quota
+    })
   }
 
   const handler = async ({ space, resources }: FileActionOptions) => {
@@ -276,7 +259,7 @@ export const useFileActionsRestore = ({ store }: { store?: Store<any> } = {}) =>
       icon: 'arrow-go-back',
       label: () => $gettext('Restore'),
       handler,
-      isEnabled: ({ space, resources }) => {
+      isVisible: ({ space, resources }) => {
         if (!isLocationTrashActive(router, 'files-trash-generic')) {
           return false
         }
@@ -286,8 +269,8 @@ export const useFileActionsRestore = ({ store }: { store?: Store<any> } = {}) =>
 
         if (
           isProjectSpaceResource(space) &&
-          !space.isEditor(store.getters.user) &&
-          !space.isManager(store.getters.user)
+          !space.isEditor(userStore.user) &&
+          !space.isManager(userStore.user)
         ) {
           return false
         }
@@ -302,6 +285,7 @@ export const useFileActionsRestore = ({ store }: { store?: Store<any> } = {}) =>
   return {
     actions,
     // HACK: exported for unit tests:
-    restoreResources
+    restoreResources,
+    collectConflicts
   }
 }

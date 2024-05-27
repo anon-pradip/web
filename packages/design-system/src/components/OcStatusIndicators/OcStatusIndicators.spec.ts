@@ -5,7 +5,7 @@ const fileResource = {
   name: 'forest.jpg',
   path: 'nature/forest.jpg',
   thumbnail: 'https://cdn.pixabay.com/photo/2015/09/09/16/05/forest-931706_960_720.jpg',
-  indicators: [],
+  indicators: [] as unknown[],
   type: 'file',
   isFolder: false,
   extension: 'jpg'
@@ -14,11 +14,12 @@ const indicator = {
   id: 'testid',
   label: 'testlabel',
   type: 'testtype',
-  handler: jest.fn()
+  icon: 'icon',
+  handler: vi.fn()
 }
 describe('OcStatusIndicators', () => {
   it('does call indicator handler on click', () => {
-    const spyHandler = jest.spyOn(indicator, 'handler')
+    const spyHandler = vi.spyOn(indicator, 'handler')
     const wrapper = mount(StatusIndicators, {
       props: {
         resource: fileResource,

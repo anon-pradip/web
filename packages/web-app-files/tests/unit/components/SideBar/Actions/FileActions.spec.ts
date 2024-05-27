@@ -1,31 +1,60 @@
 import FileActions from 'web-app-files/src/components/SideBar/Actions/FileActions.vue'
-import { fileActions, editors, meta } from 'web-app-files/tests/__fixtures__/fileActions'
-import { Resource, SpaceResource } from '@ownclouders/web-client/src/helpers'
-import { mock } from 'jest-mock-extended'
+import { Resource, SpaceResource } from '@ownclouders/web-client'
+import { mock } from 'vitest-mock-extended'
 import {
-  createStore,
   defaultPlugins,
   defaultStubs,
   mount,
-  defaultStoreMockOptions,
   defaultComponentMocks,
   RouteLocation
 } from 'web-test-helpers'
 import { useFileActions } from '@ownclouders/web-pkg'
 import { Action } from '@ownclouders/web-pkg'
 
-jest.mock('@ownclouders/web-pkg', () => ({
-  ...jest.requireActual('@ownclouders/web-pkg'),
-  useFileActions: jest.fn()
+vi.mock('@ownclouders/web-pkg', async (importOriginal) => ({
+  ...(await importOriginal<any>()),
+  useFileActions: vi.fn()
 }))
+
+type ActionWithSelector = Action & { selector: string }
+const fileActions: Record<string, ActionWithSelector> = {
+  copy: mock<ActionWithSelector>({
+    handler: vi.fn(),
+    label: () => 'Copy',
+    componentType: 'button',
+    class: 'oc-files-actions-copy-trigger',
+    selector: '.oc-files-actions-copy-trigger'
+  }),
+  move: mock<ActionWithSelector>({
+    handler: vi.fn(),
+    label: () => 'Move',
+    componentType: 'button',
+    class: 'oc-files-actions-move-trigger',
+    selector: '.oc-files-actions-move-trigger'
+  }),
+  download: mock<ActionWithSelector>({
+    handler: vi.fn(),
+    label: () => 'Download',
+    componentType: 'button',
+    class: 'oc-files-actions-download-file-trigger',
+    selector: '.oc-files-actions-download-file-trigger'
+  }),
+  'text-editor': mock<ActionWithSelector>({
+    handler: vi.fn(),
+    label: () => 'Open in Text Editor',
+    componentType: 'button',
+    class: 'oc-files-actions-text-editor-trigger',
+    selector: '.oc-files-actions-text-editor-trigger'
+  })
+}
 
 describe('FileActions', () => {
   describe('when user is on personal route', () => {
     describe('action handlers', () => {
       it('renders action handlers as clickable elements', async () => {
-        jest.mocked(useFileActions).mockImplementation(() =>
+        vi.mocked(useFileActions).mockImplementation(() =>
           mock<ReturnType<typeof useFileActions>>({
-            getAllAvailableActions: () => Object.values(fileActions) as any as Action[]
+            getAllAvailableActions: () => Object.values(fileActions)
           })
         )
 
@@ -56,15 +85,10 @@ describe('FileActions', () => {
 })
 
 function getWrapper() {
-  const storeOptions = { ...defaultStoreMockOptions }
-  storeOptions.modules.Files.state.currentFolder = { path: '' }
-  storeOptions.modules.apps.state.fileEditors = editors
-  storeOptions.modules.apps.state.meta = meta
-  const store = createStore(storeOptions)
   return {
     wrapper: mount(FileActions, {
       global: {
-        plugins: [...defaultPlugins(), store],
+        plugins: [...defaultPlugins()],
         mocks: defaultComponentMocks({
           currentRoute: mock<RouteLocation>({
             name: 'files-spaces-generic',

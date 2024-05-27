@@ -1,6 +1,6 @@
 import { mount } from 'web-test-helpers'
 import OcIcon from './OcIcon.vue'
-import glob from 'glob'
+import { glob } from 'glob'
 import path from 'path'
 
 describe('OcIcon', () => {
@@ -9,12 +9,6 @@ describe('OcIcon', () => {
       name: path.basename(p, '.svg'),
       path: path.relative(__dirname, p)
     }))
-
-    for (const icon of icons) {
-      jest.doMock(icon.path, () => {
-        return `<svg><text>${icon.name}</text></svg>`
-      })
-    }
 
     const wrapper = mount(OcIcon)
     await wrapper.vm.$nextTick()
@@ -25,7 +19,6 @@ describe('OcIcon', () => {
       await inlineSvg.emitted('unloaded')
       await inlineSvg.emitted('loaded')
       expect(wrapper.find('text').text()).toBe(icon.name)
-      jest.unmock(icon.path)
     }
   })
 })

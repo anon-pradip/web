@@ -102,30 +102,43 @@
 
 <script lang="ts">
 import {
+  SearchProvider,
   createLocationCommon,
   isLocationCommonActive,
   isLocationSpacesActive,
-  queryItemAsString
+  queryItemAsString,
+  useAuthStore,
+  useCapabilityStore,
+  useResourcesStore
 } from '@ownclouders/web-pkg'
 import Mark from 'mark.js'
+import { storeToRefs } from 'pinia'
 import { debounce } from 'lodash-es'
-import { useRouteQuery, useRouter, useStore, useUserContext } from '@ownclouders/web-pkg'
+import { useRouteQuery, useRouter } from '@ownclouders/web-pkg'
 import { eventBus } from '@ownclouders/web-pkg'
 import { computed, defineComponent, GlobalComponents, inject, Ref, ref, unref, watch } from 'vue'
 import { SearchLocationFilterConstants } from '@ownclouders/web-pkg'
 import { SearchBarFilter } from '@ownclouders/web-pkg'
 import { useAvailableProviders } from '../composables'
+import { RouteLocationNormalizedLoaded } from 'vue-router'
 
 export default defineComponent({
   name: 'SearchBar',
   components: { SearchBarFilter },
   setup() {
-    const store = useStore()
     const router = useRouter()
+    const capabilityStore = useCapabilityStore()
     const showCancelButton = ref(false)
     const isMobileWidth = inject<Ref<boolean>>('isMobileWidth')
     const scopeQueryValue = useRouteQuery('scope')
     const availableProviders = useAvailableProviders()
+
+    const authStore = useAuthStore()
+    const { userContextReady, publicLinkContextReady } = storeToRefs(authStore)
+
+    const resourcesStore = useResourcesStore()
+    const { currentFolder } = storeToRefs(resourcesStore)
+
     const locationFilterId = ref(SearchLocationFilterConstants.allFiles)
     const optionsDropRef = ref(null)
     const activePreviewIndex = ref(null)
@@ -134,6 +147,9 @@ export default defineComponent({
     const searchResults = ref([])
     const loading = ref(false)
     const currentFolderAvailable = ref(false)
+    const markInstance = ref<Mark>()
+
+    const fullTextSearchEnabled = computed(() => capabilityStore.searchContent?.enabled)
 
     const listProviderAvailable = computed(() =>
       unref(availableProviders).some((p) => !!p.listSearch)
@@ -146,6 +162,10 @@ export default defineComponent({
 
     watch(isMobileWidth, () => {
       const searchBarEl = document.getElementById('files-global-search-bar')
+      if (!searchBarEl) {
+        return
+      }
+
       const optionDropVisible = !!document.querySelector('.tippy-box[data-state="visible"]')
 
       if (!unref(isMobileWidth)) {
@@ -167,10 +187,8 @@ export default defineComponent({
     })
 
     const scope = computed(() => {
-      const currentFolder = store.getters['Files/currentFolder']
-
-      if (unref(currentFolderAvailable) && currentFolder?.fileId) {
-        return currentFolder.fileId
+      if (unref(currentFolderAvailable) && unref(currentFolder)?.fileId) {
+        return unref(currentFolder).fileId
       }
 
       return queryItemAsString(unref(scopeQueryValue))
@@ -188,7 +206,15 @@ export default defineComponent({
       if (!unref(term)) {
         return
       }
-      const terms = [`name:"*${unref(term)}*"`]
+
+      const terms: string[] = []
+
+      let nameQuery = `name:"*${unref(term)}*"`
+      if (unref(fullTextSearchEnabled)) {
+        nameQuery = `(name:"*${unref(term)}*" OR content:"${unref(term)}")`
+      }
+
+      terms.push(nameQuery)
 
       if (unref(useScope)) {
         terms.push(`scope:${unref(scope)}`)
@@ -240,7 +266,7 @@ export default defineComponent({
       })
     }
 
-    const onLocationFilterChange = (event) => {
+    const onLocationFilterChange = (event: { value: { id: string } }) => {
       locationFilterId.value = event.value.id
       if (!unref(term)) {
         return
@@ -261,7 +287,7 @@ export default defineComponent({
       await search()
     }
 
-    const updateTerm = (input) => {
+    const updateTerm = (input: string) => {
       restoreSearchFromRoute.value = false
       term.value = input
       if (!unref(term)) {
@@ -270,14 +296,24 @@ export default defineComponent({
       return unref(optionsDrop).show()
     }
 
+    const debouncedSearch = debounce(search, 500)
+
+    watch(term, () => {
+      if (unref(restoreSearchFromRoute)) {
+        restoreSearchFromRoute.value = false
+        return
+      }
+      debouncedSearch()
+    })
+
     return {
-      isUserContext: useUserContext({ store }),
+      userContextReady,
+      publicLinkContextReady,
       showCancelButton,
       onLocationFilterChange,
       currentFolderAvailable,
       listProviderAvailable,
       locationFilterAvailable,
-      store,
       scopeQueryValue,
       optionsDrop,
       optionsDropRef,
@@ -288,6 +324,7 @@ export default defineComponent({
       searchResults,
       loading,
       availableProviders,
+      markInstance,
       search,
       showPreview,
       updateTerm,
@@ -299,8 +336,6 @@ export default defineComponent({
     return {
       activeProvider: undefined,
       optionsVisible: false,
-      markInstance: null,
-      debouncedSearch: undefined,
       clearTermEvent: null
     }
   },
@@ -310,7 +345,12 @@ export default defineComponent({
     },
 
     isSearchBarEnabled() {
-      return this.availableProviders.length && this.isUserContext
+      /**
+       * We don't show the search provider in public link context,
+       * since we are not able to provide search in the public link yet.
+       * Enable as soon this feature is available.
+       */
+      return this.availableProviders.length && this.userContextReady && !this.publicLinkContextReady
     },
     displayProviders() {
       /**
@@ -327,13 +367,6 @@ export default defineComponent({
   },
 
   watch: {
-    term() {
-      if (this.restoreSearchFromRoute) {
-        this.restoreSearchFromRoute = false
-        return
-      }
-      this.debouncedSearch(this)
-    },
     searchResults: {
       handler() {
         this.activePreviewIndex = null
@@ -343,7 +376,7 @@ export default defineComponent({
             return
           }
           if (this.optionsDrop) {
-            this.markInstance = new Mark(this.optionsDrop.$refs.drop)
+            this.markInstance = new Mark(this.optionsDrop.$refs.drop as HTMLElement)
             this.markInstance.unmark()
             this.markInstance.mark(this.term, {
               element: 'span',
@@ -363,8 +396,6 @@ export default defineComponent({
     }
   },
   created() {
-    this.debouncedSearch = debounce(this.search, 500)
-
     this.clearTermEvent = eventBus.subscribe('app.search.term.clear', () => {
       this.term = ''
     })
@@ -419,10 +450,10 @@ export default defineComponent({
       )
     },
 
-    getSearchResultForProvider(provider) {
+    getSearchResultForProvider(provider: SearchProvider) {
       return this.searchResults.find(({ providerId }) => providerId === provider.id)?.result
     },
-    parseRouteQuery(route, initialLoad = false) {
+    parseRouteQuery(route: RouteLocationNormalizedLoaded, initialLoad = false) {
       const currentFolderAvailable =
         (isLocationSpacesActive(this.$router, 'files-spaces-generic') || !!this.scopeQueryValue) &&
         !isLocationSpacesActive(this.$router, 'files-spaces-projects')
@@ -440,11 +471,11 @@ export default defineComponent({
           return
         }
         this.restoreSearchFromRoute = initialLoad
-        this.term = routeTerm
-        input.value = routeTerm
+        this.term = queryItemAsString(routeTerm)
+        input.value = queryItemAsString(routeTerm)
       })
     },
-    getMoreResultsDetailsTextForProvider(provider) {
+    getMoreResultsDetailsTextForProvider(provider: SearchProvider) {
       const searchResult = this.getSearchResultForProvider(provider)
       if (!searchResult || !searchResult.totalResults) {
         return this.$gettext('Show all results')
@@ -459,7 +490,7 @@ export default defineComponent({
         }
       )
     },
-    isPreviewElementActive(searchId) {
+    isPreviewElementActive(searchId: string) {
       const previewElements = this.optionsDrop.$el.querySelectorAll('.preview')
       return previewElements[this.activePreviewIndex]?.dataset?.searchId === searchId
     },

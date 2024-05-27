@@ -11,7 +11,7 @@ import { User } from '../../../types'
 const quickShareButton =
   '//*[@data-test-resource-name="%s"]/ancestor::tr//button[contains(@class, "files-quick-action-show-shares")]'
 const noPermissionToShareLabel =
-  '//*[@data-testid="files-collaborators-no-reshare-permissions-message"]'
+  '//*[@data-testid="files-collaborators-no-share-permissions-message"]'
 const actionMenuDropdownButton =
   '//*[@data-test-resource-name="%s"]/ancestor::tr//button[contains(@class, "resource-table-btn-action-dropdown")]'
 const actionsTriggerButton =
@@ -21,7 +21,7 @@ const publicLinkInputField =
   '//h4[contains(@class, "oc-files-file-link-name") and text()="%s"]' +
   '/following-sibling::div//p[contains(@class,"oc-files-file-link-url")]'
 const selecAllCheckbox = '#resource-table-select-all'
-const acceptButton = '.oc-files-actions-accept-share-trigger'
+const acceptButton = '.oc-files-actions-enable-sync-trigger'
 const pendingShareItem =
   '//div[@id="files-shared-with-me-pending-section"]//tr[contains(@class,"oc-tbody-tr")]'
 const passwordInput = '.oc-modal-body input.oc-text-input'
@@ -89,22 +89,21 @@ export interface ShareStatusArgs extends Omit<ShareArgs, 'recipients'> {
   via?: 'STATUS' | 'CONTEXT_MENU'
 }
 
-export const acceptShare = async (args: ShareStatusArgs): Promise<void> => {
+export const enableSync = async (args: ShareStatusArgs): Promise<void> => {
   const { resource, page } = args
-  await clickActionInContextMenu({ page, resource }, 'accept-share')
+  await clickActionInContextMenu({ page, resource }, 'enable-sync')
 }
 
-export const acceptAllShare = async ({ page }: { page: Page }): Promise<void> => {
+export const syncAllShares = async ({ page }: { page: Page }): Promise<void> => {
   await page.locator(selecAllCheckbox).click()
   const numberOfPendingShares = await page.locator(pendingShareItem).count()
   const checkResponses = []
   for (let i = 0; i < numberOfPendingShares; i++) {
-    const id = await page.locator(pendingShareItem + `[${i + 1}]`).getAttribute('data-item-id')
     checkResponses.push(
       page.waitForResponse(
         (resp) =>
-          resp.url().includes(`shares/pending/${id}`) &&
-          resp.status() === 200 &&
+          resp.url().includes('root/children') &&
+          resp.status() === 201 &&
           resp.request().method() === 'POST'
       )
     )
@@ -112,9 +111,9 @@ export const acceptAllShare = async ({ page }: { page: Page }): Promise<void> =>
   await Promise.all([...checkResponses, page.locator(acceptButton).click()])
 }
 
-export const declineShare = async (args: ShareStatusArgs): Promise<void> => {
+export const disableSync = async (args: ShareStatusArgs): Promise<void> => {
   const { page, resource } = args
-  await clickActionInContextMenu({ page, resource }, 'decline-share')
+  await clickActionInContextMenu({ page, resource }, 'disable-sync')
 }
 
 export const clickActionInContextMenu = async (
@@ -125,12 +124,12 @@ export const clickActionInContextMenu = async (
   await page.locator(util.format(actionMenuDropdownButton, resource)).click()
 
   switch (action) {
-    case 'accept-share':
+    case 'enable-sync':
       await Promise.all([
         page.waitForResponse(
           (resp) =>
-            resp.url().includes('shares') &&
-            resp.status() === 200 &&
+            resp.url().includes('root/children') &&
+            resp.status() === 201 &&
             resp.request().method() === 'POST'
         ),
         page.locator(util.format(actionsTriggerButton, resource, action)).click()
@@ -139,12 +138,12 @@ export const clickActionInContextMenu = async (
     case 'copy-quicklink':
       await page.locator(util.format(actionsTriggerButton, resource, action)).click()
       break
-    case 'decline-share':
+    case 'disable-sync':
       await Promise.all([
         page.waitForResponse(
           (resp) =>
-            resp.url().includes('shares') &&
-            resp.status() === 200 &&
+            resp.url().includes('drives') &&
+            resp.status() === 204 &&
             resp.request().method() === 'DELETE'
         ),
         page.locator(util.format(actionsTriggerButton, resource, action)).click()
@@ -161,9 +160,9 @@ export const changeShareeRole = async (args: ShareArgs): Promise<void> => {
     await Promise.all([
       page.waitForResponse(
         (resp) =>
-          resp.url().includes('shares') &&
+          resp.url().includes('permissions') &&
           resp.status() === 200 &&
-          resp.request().method() === 'PUT'
+          resp.request().method() === 'PATCH'
       ),
       Collaborator.changeCollaboratorRole({ page, collaborator })
     ])
@@ -218,7 +217,7 @@ export const createQuickLink = async (args: createLinkArgs): Promise<string> => 
   await Promise.all([
     page.waitForResponse(
       (res) =>
-        res.url().includes('api/v1/shares') &&
+        res.url().includes('createLink') &&
         res.request().method() === 'POST' &&
         res.status() === 200
     ),
@@ -272,7 +271,9 @@ export const addExpirationDate = async (args: {
   await Promise.all([
     page.waitForResponse(
       (resp) =>
-        resp.url().includes('shares') && resp.status() === 200 && resp.request().method() === 'PUT'
+        resp.url().includes('drives') &&
+        resp.status() === 200 &&
+        resp.request().method() === 'PATCH'
     ),
     Collaborator.setExpirationDateForCollaborator({ page, collaborator, expirationDate })
   ])

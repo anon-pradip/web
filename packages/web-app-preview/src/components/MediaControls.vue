@@ -121,7 +121,7 @@
 <script lang="ts">
 import { computed, defineComponent, PropType } from 'vue'
 import { useGettext } from 'vue3-gettext'
-import { Resource } from '@ownclouders/web-client/src'
+import { Resource } from '@ownclouders/web-client'
 
 export default defineComponent({
   name: 'MediaControls',
@@ -183,7 +183,7 @@ export default defineComponent({
       })
     })
 
-    const calculateZoom = (zoom, factor) => {
+    const calculateZoom = (zoom: number, factor: number) => {
       return Math.round(zoom * factor * 20) / 20
     }
     const imageShrink = () => {

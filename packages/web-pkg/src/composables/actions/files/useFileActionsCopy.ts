@@ -3,27 +3,28 @@ import {
   isLocationPublicActive,
   isLocationSpacesActive
 } from '../../../router'
-import { Store } from 'vuex'
 import { computed, unref } from 'vue'
 
 import { useGettext } from 'vue3-gettext'
 import { FileAction, FileActionOptions } from '../types'
-import { isProjectSpaceResource } from '@ownclouders/web-client/src/helpers'
+import { isProjectSpaceResource } from '@ownclouders/web-client'
 import { useRouter } from '../../router'
-import { useStore } from '../../store'
+import { useConfigStore, useClipboardStore, useResourcesStore } from '../../piniaStores'
+import { storeToRefs } from 'pinia'
 
-export const useFileActionsCopy = ({ store }: { store?: Store<any> } = {}) => {
-  store = store || useStore()
+export const useFileActionsCopy = () => {
+  const configStore = useConfigStore()
   const router = useRouter()
-
+  const { copyResources } = useClipboardStore()
   const language = useGettext()
   const { $gettext } = language
+
+  const resourcesStore = useResourcesStore()
+  const { currentFolder } = storeToRefs(resourcesStore)
 
   const isMacOs = computed(() => {
     return window.navigator.platform.match('Mac')
   })
-
-  const runningOnEos = computed<boolean>(() => store.getters.configuration?.options?.runningOnEos)
 
   const copyShortcutString = computed(() => {
     if (unref(isMacOs)) {
@@ -32,12 +33,12 @@ export const useFileActionsCopy = ({ store }: { store?: Store<any> } = {}) => {
     return $gettext('Ctrl + C')
   })
 
-  const handler = ({ space, resources }: FileActionOptions) => {
+  const handler = ({ resources }: FileActionOptions) => {
     if (isLocationCommonActive(router, 'files-common-search')) {
       resources = resources.filter((r) => !isProjectSpaceResource(r))
     }
 
-    store.dispatch('Files/copySelectedFiles', { ...language, space, resources })
+    copyResources(resources)
   }
 
   const actions = computed((): FileAction[] => {
@@ -48,7 +49,7 @@ export const useFileActionsCopy = ({ store }: { store?: Store<any> } = {}) => {
         handler,
         shortcut: unref(copyShortcutString),
         label: () => $gettext('Copy'),
-        isEnabled: ({ resources }) => {
+        isVisible: ({ resources }) => {
           if (
             !isLocationSpacesActive(router, 'files-spaces-generic') &&
             !isLocationPublicActive(router, 'files-public-link') &&
@@ -65,7 +66,7 @@ export const useFileActionsCopy = ({ store }: { store?: Store<any> } = {}) => {
           }
 
           if (isLocationPublicActive(router, 'files-public-link')) {
-            return store.getters['Files/currentFolder'].canCreate()
+            return unref(currentFolder).canCreate()
           }
 
           if (
@@ -75,7 +76,7 @@ export const useFileActionsCopy = ({ store }: { store?: Store<any> } = {}) => {
             return false
           }
 
-          if (unref(runningOnEos)) {
+          if (unref(configStore.options.runningOnEos)) {
             // CERNBox does not allow actions above home/project root
             const elems = resources[0].path?.split('/').filter(Boolean) || [] //"/eos/project/c/cernbox"
             if (isLocationSpacesActive(router, 'files-spaces-generic') && elems.length < 5) {

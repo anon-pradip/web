@@ -2,8 +2,13 @@ import { LoadingService } from '../../../src/services/loadingService'
 
 describe('LoadingService', () => {
   beforeEach(() => {
-    jest.useFakeTimers()
+    vi.useFakeTimers()
   })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
   it('adds a task and sets it inactive initially', () => {
     const service = new LoadingService()
     const action = new Promise((resolve) => {
@@ -20,7 +25,7 @@ describe('LoadingService', () => {
     })
 
     service.addTask(() => action)
-    jest.runAllTimers()
+    vi.runAllTimers()
     expect(service.isLoading).toBeTruthy()
   })
   it('removes a task after being finished', async () => {
@@ -30,7 +35,7 @@ describe('LoadingService', () => {
     })
 
     await service.addTask(() => action)
-    jest.runAllTimers()
+    vi.runAllTimers()
     expect(service.isLoading).toBeFalsy()
   })
   it('returns the current progress of a running task', () => {
@@ -44,8 +49,8 @@ describe('LoadingService', () => {
 
     service.addTask(
       ({ setProgress }) => {
-        const promises = []
-        const actions = [1, 2, 3, 4]
+        const promises: Promise<void>[] = []
+        const actions = [1, 2, 3, 4] as const
         for (const action of actions) {
           promises.push(
             new Promise((resolve) => {
@@ -60,6 +65,6 @@ describe('LoadingService', () => {
       },
       { indeterminate: false }
     )
-    jest.runAllTimers()
+    vi.runAllTimers()
   })
 })

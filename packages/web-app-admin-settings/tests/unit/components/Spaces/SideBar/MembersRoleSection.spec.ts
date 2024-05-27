@@ -1,7 +1,7 @@
 import MembersRoleSection from '../../../../../src/components/Spaces/SideBar/MembersRoleSection.vue'
 import { defaultPlugins, shallowMount } from 'web-test-helpers'
-import { mock } from 'jest-mock-extended'
-import { SpaceRole } from '@ownclouders/web-client/src/helpers'
+import { mock } from 'vitest-mock-extended'
+import { SpaceRole } from '@ownclouders/web-client'
 
 describe('MembersRoleSection', () => {
   it('should render all members accordingly', () => {
@@ -14,7 +14,7 @@ describe('MembersRoleSection', () => {
   })
 })
 
-function getWrapper({ members = [] } = {}) {
+function getWrapper({ members = [] }: { members?: SpaceRole[] } = {}) {
   return {
     wrapper: shallowMount(MembersRoleSection, {
       props: {

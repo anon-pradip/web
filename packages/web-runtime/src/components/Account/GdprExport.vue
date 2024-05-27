@@ -1,31 +1,38 @@
 <template>
-  <span v-if="loading">
-    <oc-spinner />
-  </span>
-  <span v-else-if="exportInProgress" class="oc-flex oc-flex-middle" data-testid="export-in-process">
-    <oc-icon name="time" fill-type="line" size="small" class="oc-mr-s" />
-    <span v-text="$gettext('Export is being processed. This can take up to 24 hours.')" />
-  </span>
-  <div v-else>
-    <oc-button
-      appearance="raw"
-      variation="primary"
-      data-testid="request-export-btn"
-      @click="requestExport"
+  <div class="oc-mb-l">
+    <p v-text="$gettext('Request a personal data export according to §20 GDPR.')" />
+    <span v-if="loading">
+      <oc-spinner />
+    </span>
+    <span
+      v-else-if="exportInProgress"
+      class="oc-flex oc-flex-middle"
+      data-testid="export-in-process"
     >
-      <span v-text="$gettext('Request new export')" />
-    </oc-button>
-    <div v-if="exportFile" class="oc-flex oc-flex-middle">
+      <oc-icon name="time" fill-type="line" size="small" class="oc-mr-s" />
+      <span v-text="$gettext('Export is being processed. This can take up to 24 hours.')" />
+    </span>
+    <div v-else class="oc-flex">
       <oc-button
-        appearance="raw"
+        appearance="outline"
+        variation="primary"
+        data-testid="request-export-btn"
+        class="oc-mr-s"
+        @click="requestExport"
+      >
+        <span v-text="$gettext('Request new export')" />
+      </oc-button>
+      <oc-button
+        v-if="exportFile"
+        appearance="outline"
         variation="primary"
         data-testid="download-export-btn"
         @click="downloadExport"
       >
         <oc-icon name="download" fill-type="line" size="small" />
-        <span v-text="$gettext('Download export')" />
+        <span v-text="$gettext('Download latest export')" />
+        <span v-text="`(${exportDate})`" />
       </oc-button>
-      <span class="oc-ml-s" v-text="`(${exportDate})`" />
     </div>
   </div>
 </template>
@@ -35,10 +42,9 @@ import { computed, defineComponent, onMounted, onUnmounted, ref, unref } from 'v
 import { useTask } from 'vue-concurrency'
 import { useGettext } from 'vue3-gettext'
 import { Resource } from '@ownclouders/web-client'
-import { useClientService, useStore } from '@ownclouders/web-pkg'
+import { useClientService, useMessages, useSpacesStore, useUserStore } from '@ownclouders/web-pkg'
 import { useDownloadFile } from '@ownclouders/web-pkg'
 import { formatDateFromJSDate } from '@ownclouders/web-pkg'
-import { isPersonalSpaceResource } from '@ownclouders/web-client/src/helpers'
 
 const GDPR_EXPORT_FILE_NAME = '.personal_data_export.json'
 const POLLING_INTERVAL = 30000
@@ -46,7 +52,9 @@ const POLLING_INTERVAL = 30000
 export default defineComponent({
   name: 'GdprExport',
   setup() {
-    const store = useStore()
+    const { showMessage, showErrorMessage } = useMessages()
+    const userStore = useUserStore()
+    const spacesStore = useSpacesStore()
     const { $gettext, current: currentLanguage } = useGettext()
     const clientService = useClientService()
     const { downloadFile } = useDownloadFile()
@@ -56,13 +64,9 @@ export default defineComponent({
     const exportFile = ref<Resource>()
     const exportInProgress = ref(false)
 
-    const personalSpace = computed(() => {
-      return store.getters['runtime/spaces/spaces'].find((s) => isPersonalSpaceResource(s))
-    })
-
     const loadExportTask = useTask(function* () {
       try {
-        const resource = yield clientService.webdav.getFileInfo(unref(personalSpace), {
+        const resource = yield clientService.webdav.getFileInfo(spacesStore.personalSpace, {
           path: `/${GDPR_EXPORT_FILE_NAME}`
         })
 
@@ -94,22 +98,20 @@ export default defineComponent({
 
     const requestExport = async () => {
       try {
-        await clientService.graphAuthenticated.users.exportPersonalData(store.getters.user.uuid, {
+        await clientService.graphAuthenticated.users.exportPersonalData(userStore.user.id, {
           storageLocation: `/${GDPR_EXPORT_FILE_NAME}`
         })
         await loadExportTask.perform()
-        return store.dispatch('showMessage', {
-          title: $gettext('GDPR export has been requested')
-        })
+        showMessage({ title: $gettext('GDPR export has been requested') })
       } catch (e) {
-        return store.dispatch('showErrorMessage', {
+        showErrorMessage({
           title: $gettext('GDPR export could not be requested. Please contact an administrator.'),
-          error: e
+          errors: [e]
         })
       }
     }
     const downloadExport = () => {
-      return downloadFile(unref(exportFile))
+      return downloadFile(spacesStore.personalSpace, unref(exportFile))
     }
 
     const exportDate = computed(() => {

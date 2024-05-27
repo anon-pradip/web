@@ -2,8 +2,8 @@
   <div
     id="web-nav-sidebar"
     :class="{
-      'oc-app-navigation-collapsed': navigation.closed,
-      'oc-app-navigation-expanded': !navigation.closed
+      'oc-app-navigation-collapsed': closed,
+      'oc-app-navigation-expanded': !closed
     }"
   >
     <oc-button
@@ -11,7 +11,7 @@
       :class="toggleSidebarButtonClass"
       class="toggle-sidebar-button oc-pb-s oc-pt-m"
       :aria-label="$gettext('Toggle sidebar')"
-      @click="toggleSidebarButtonClick"
+      @click="$emit('update:nav-bar-closed', !closed)"
     >
       <oc-icon size="large" fill-type="line" :name="toggleSidebarButtonIcon" />
     </oc-button>
@@ -29,7 +29,7 @@
       <oc-list>
         <sidebar-nav-item
           v-for="(link, index) in navItems"
-          :ref="(el: ComponentPublicInstance) => (navItemRefs[index] = el)"
+          :ref="(el) => (navItemRefs[index] = el as NavItemRef)"
           :key="index"
           :index="getUuid()"
           :target="link.route"
@@ -37,8 +37,7 @@
           :icon="link.icon"
           :fill-type="link.fillType"
           :name="link.name"
-          :collapsed="navigation.closed"
-          :tag="link.tag"
+          :collapsed="closed"
           :handler="link.handler"
         />
       </oc-list>
@@ -50,7 +49,6 @@
 
 <script lang="ts">
 import {
-  ComponentPublicInstance,
   defineComponent,
   nextTick,
   onBeforeUnmount,
@@ -60,10 +58,11 @@ import {
   unref,
   watch
 } from 'vue'
-import { mapState, mapActions } from 'vuex'
 import * as uuid from 'uuid'
 import SidebarNavItem from './SidebarNavItem.vue'
 import { NavItem } from '../../helpers/navItems'
+
+type NavItemRef = InstanceType<typeof SidebarNavItem>
 
 export default defineComponent({
   components: {
@@ -73,12 +72,14 @@ export default defineComponent({
     navItems: {
       type: Array as PropType<NavItem[]>,
       required: true
-    }
+    },
+    closed: { type: Boolean, default: false }
   },
+  emits: ['update:nav-bar-closed'],
   setup(props) {
-    let resizeObserver
-    const navItemRefs = ref<Record<string, ComponentPublicInstance>>({})
-    const highlighterAttrs = ref<Record<string, any>>({})
+    let resizeObserver: ResizeObserver
+    const navItemRefs = ref<Record<string, NavItemRef>>({})
+    const highlighterAttrs = ref<Record<string, unknown>>({})
 
     onMounted(() => {
       const navBar = document.getElementById('web-nav-sidebar')
@@ -110,7 +111,7 @@ export default defineComponent({
       if (activeEl) {
         highlighterAttrs.value = {
           style: {
-            transform: `translateY(${(activeEl as any).$el.offsetTop}px)`,
+            transform: `translateY(${activeEl.$el.offsetTop}px)`,
             'transition-duration': '0.2s'
           }
         }
@@ -129,16 +130,14 @@ export default defineComponent({
     return { highlighterAttrs, navItemRefs }
   },
   computed: {
-    ...mapState(['navigation']),
-
     toggleSidebarButtonClass() {
-      return this.navigation.closed
+      return this.closed
         ? 'toggle-sidebar-button-collapsed'
         : 'toggle-sidebar-button-expanded oc-pr-s'
     },
 
     toggleSidebarButtonIcon() {
-      return this.navigation.closed ? 'arrow-drop-right' : 'arrow-drop-left'
+      return this.closed ? 'arrow-drop-right' : 'arrow-drop-left'
     },
 
     isAnyNavItemActive() {
@@ -146,12 +145,6 @@ export default defineComponent({
     }
   },
   methods: {
-    ...mapActions(['openNavigation', 'closeNavigation']),
-
-    toggleSidebarButtonClick() {
-      return this.navigation.closed ? this.openNavigation() : this.closeNavigation()
-    },
-
     getUuid() {
       return uuid.v4().replaceAll('-', '')
     }

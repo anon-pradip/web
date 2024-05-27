@@ -20,7 +20,7 @@
           <th scope="col" class="oc-pr-s oc-font-semibold" v-text="spacesText" />
           <td v-text="spacesCount" />
         </tr>
-        <tr data-testid="size">
+        <tr v-if="hasSize" data-testid="size">
           <th scope="col" class="oc-pr-s oc-font-semibold" v-text="sizeText" />
           <td v-text="sizeValue" />
         </tr>
@@ -29,19 +29,28 @@
   </div>
 </template>
 <script lang="ts">
-import { mapGetters } from 'vuex'
-import { defineComponent } from 'vue'
-import { formatFileSize } from '@ownclouders/web-pkg'
+import { computed, defineComponent, unref } from 'vue'
+import { storeToRefs } from 'pinia'
+import { formatFileSize, useResourcesStore } from '@ownclouders/web-pkg'
 
 export default defineComponent({
   name: 'FileDetailsMultiple',
   props: {
     showSpaceCount: { type: Boolean, default: false }
   },
+  setup() {
+    const resourcesStore = useResourcesStore()
+    const { selectedResources } = storeToRefs(resourcesStore)
+
+    const hasSize = computed(() => {
+      return unref(selectedResources).some((resource) => Object.hasOwn(resource, 'size'))
+    })
+
+    return { hasSize, selectedResources }
+  },
   computed: {
-    ...mapGetters('Files', ['selectedFiles']),
     selectedFilesCount() {
-      return this.selectedFiles.length
+      return this.selectedResources.length
     },
     selectedFilesString() {
       return this.$ngettext(
@@ -49,32 +58,32 @@ export default defineComponent({
         '%{ itemCount } items selected',
         this.selectedFilesCount,
         {
-          itemCount: this.selectedFilesCount
+          itemCount: this.selectedFilesCount.toString()
         }
       )
     },
     sizeValue() {
       let size = 0
-      this.selectedFiles.forEach((i) => (size += parseInt(i.size)))
+      this.selectedResources.forEach((i) => (size += parseInt(i.size?.toString() || '0')))
       return formatFileSize(size, this.$language.current)
     },
     sizeText() {
       return this.$gettext('Size')
     },
     filesCount() {
-      return this.selectedFiles.filter((i) => i.type === 'file').length
+      return this.selectedResources.filter((i) => i.type === 'file').length
     },
     filesText() {
       return this.$gettext('Files')
     },
     foldersCount() {
-      return this.selectedFiles.filter((i) => i.type === 'folder').length
+      return this.selectedResources.filter((i) => i.type === 'folder').length
     },
     foldersText() {
       return this.$gettext('Folders')
     },
     spacesCount() {
-      return this.selectedFiles.filter((i) => i.type === 'space').length
+      return this.selectedResources.filter((i) => i.type === 'space').length
     },
     spacesText() {
       return this.$gettext('Spaces')
@@ -105,11 +114,13 @@ export default defineComponent({
     .preview-icon {
       display: inline-block;
     }
+
     .preview-text {
       display: block;
     }
   }
 }
+
 .details-table {
   text-align: left;
 

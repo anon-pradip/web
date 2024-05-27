@@ -1,6 +1,5 @@
 import { defineComponent } from 'vue'
 import { useFileListHeaderPosition } from '../../../../../src/composables/fileListHeaderPosition'
-import { useStore } from '../../../../../src/composables/store'
 import { defaultPlugins, mount } from 'web-test-helpers'
 
 export const createWrapper = () =>
@@ -9,7 +8,7 @@ export const createWrapper = () =>
       setup() {
         const { y, refresh } = useFileListHeaderPosition()
 
-        return { y, refresh, store: useStore() }
+        return { y, refresh }
       },
       template: `<div>{{ y }}</div>`
     }),
@@ -33,7 +32,7 @@ export const createAppBar = (): {
     document.body.appendChild(appBar)
   }
   const resize = (height = 0) => {
-    document.getElementById('files-app-bar').getBoundingClientRect = jest
+    document.getElementById('files-app-bar').getBoundingClientRect = vi
       .fn()
       .mockReturnValue({ height })
   }

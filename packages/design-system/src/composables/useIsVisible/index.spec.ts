@@ -3,22 +3,20 @@ import { useIsVisible } from './index'
 import { mount } from 'web-test-helpers'
 
 const mockIntersectionObserver = () => {
-  jest.useFakeTimers()
-
   const enable = () => {
     const mock = {
-      observe: jest.fn(),
-      disconnect: jest.fn(),
-      unobserve: jest.fn()
+      observe: vi.fn(),
+      disconnect: vi.fn(),
+      unobserve: vi.fn()
     }
 
-    window.IntersectionObserver = jest.fn().mockImplementation(() => mock)
+    window.IntersectionObserver = vi.fn().mockImplementation(() => mock)
 
     return {
       mock,
-      callback: (args, fastForward = 0) => {
+      callback: (args: unknown[], fastForward = 0) => {
         ;(window.IntersectionObserver as any).mock.calls[0][0](args)
-        jest.advanceTimersByTime(fastForward)
+        vi.advanceTimersByTime(fastForward)
       }
     }
   }
@@ -37,7 +35,7 @@ const createWrapper = (options = {}) =>
       <div ref="target">{{ isVisible }}</div>
       </div>`,
     setup: () => {
-      const target = ref()
+      const target = ref<HTMLElement>()
       const { isVisible } = useIsVisible({ ...options, target })
 
       return {
@@ -48,13 +46,21 @@ const createWrapper = (options = {}) =>
   })
 
 describe('useIsVisible', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
   const { enable: enableIntersectionObserver, disable: disableIntersectionObserver } =
     mockIntersectionObserver()
 
   it('is visible by default if browser does not support IntersectionObserver', () => {
     disableIntersectionObserver()
     const wrapper = createWrapper()
-    expect(wrapper.vm.$refs.target.innerHTML).toBe('true')
+    expect((wrapper.vm.$refs.target as any).innerHTML).toBe('true')
   })
 
   it('observes the target', async () => {
@@ -70,11 +76,11 @@ describe('useIsVisible', () => {
     const wrapper = createWrapper()
 
     await nextTick()
-    expect(wrapper.vm.$refs.target.innerHTML).toBe('false')
+    expect((wrapper.vm.$refs.target as any).innerHTML).toBe('false')
 
     observerCallback([{ isIntersecting: true }])
     await nextTick()
-    expect(wrapper.vm.$refs.target.innerHTML).toBe('true')
+    expect((wrapper.vm.$refs.target as any).innerHTML).toBe('true')
     expect(observerMock.unobserve).toHaveBeenCalledTimes(1)
   })
 
@@ -83,11 +89,11 @@ describe('useIsVisible', () => {
     const wrapper = createWrapper({ mode: 'showHide' })
 
     await nextTick()
-    expect(wrapper.vm.$refs.target.innerHTML).toBe('false')
+    expect((wrapper.vm.$refs.target as any).innerHTML).toBe('false')
 
     observerCallback([{ isIntersecting: true }])
     await nextTick()
-    expect(wrapper.vm.$refs.target.innerHTML).toBe('true')
+    expect((wrapper.vm.$refs.target as any).innerHTML).toBe('true')
     expect(observerMock.unobserve).toHaveBeenCalledTimes(0)
   })
 

@@ -1,15 +1,10 @@
 import Avatar from 'web-runtime/src/components/Avatar.vue'
-import {
-  createStore,
-  defaultComponentMocks,
-  defaultPlugins,
-  shallowMount,
-  defaultStoreMockOptions
-} from 'web-test-helpers'
-import { mock, mockDeep } from 'jest-mock-extended'
-import { ClientService } from '@ownclouders/web-pkg'
+import { defaultComponentMocks, defaultPlugins, shallowMount } from 'web-test-helpers'
+import { mock, mockDeep } from 'vitest-mock-extended'
+import { CapabilityStore, ClientService } from '@ownclouders/web-pkg'
 import { AxiosResponse } from 'axios'
 import { nextTick } from 'vue'
+import { OcAvatar } from 'design-system/src/components'
 
 const propsData = {
   userName: 'admin',
@@ -21,10 +16,10 @@ const ocSpinner = 'oc-spinner-stub'
 const ocAvatar = 'oc-avatar-stub'
 
 describe('Avatar component', () => {
-  window.URL.createObjectURL = jest.fn()
+  window.URL.createObjectURL = vi.fn()
 
   it('should set user when the component is mounted', () => {
-    const spySetUser = jest.spyOn((Avatar as any).methods, 'setUser')
+    const spySetUser = vi.spyOn(Avatar.methods, 'setUser')
     getShallowWrapper()
     expect(spySetUser).toHaveBeenCalledTimes(1)
     expect(spySetUser).toHaveBeenCalledWith(propsData.userid)
@@ -55,7 +50,7 @@ describe('Avatar component', () => {
     })
     it('should set props on oc-avatar component', () => {
       const { wrapper } = getShallowWrapper()
-      const avatar = wrapper.findComponent<any>(ocAvatar)
+      const avatar = wrapper.findComponent<typeof OcAvatar>(ocAvatar)
 
       expect(avatar.props().width).toEqual(propsData.width)
       expect(avatar.props().userName).toEqual(propsData.userName)
@@ -64,7 +59,7 @@ describe('Avatar component', () => {
     describe('when an avatar is not found', () => {
       it('should set empty string to src prop on oc-avatar component', () => {
         const { wrapper } = getShallowWrapper()
-        const avatar = wrapper.findComponent<any>(ocAvatar)
+        const avatar = wrapper.findComponent<typeof OcAvatar>(ocAvatar)
         expect(avatar.props().src).toEqual('')
       })
     })
@@ -72,7 +67,7 @@ describe('Avatar component', () => {
     describe('when an avatar is found', () => {
       const blob = 'blob:https://web.org/6fe8f675-6727'
       it('should set blob as src prop on oc-avatar component', async () => {
-        global.URL.createObjectURL = jest.fn(() => blob)
+        global.URL.createObjectURL = vi.fn(() => blob)
         const clientService = mockDeep<ClientService>()
         clientService.httpAuthenticated.get.mockResolvedValue(
           mock<AxiosResponse>({
@@ -84,29 +79,29 @@ describe('Avatar component', () => {
         await nextTick()
         await nextTick()
         await nextTick()
-        const avatar = wrapper.findComponent<any>(ocAvatar)
+        await nextTick()
+        await nextTick()
+        const avatar = wrapper.findComponent<typeof OcAvatar>(ocAvatar)
         expect(avatar.props().src).toEqual(blob)
       })
     })
   })
 })
 
-function getShallowWrapper(loading = false, clientService = undefined) {
+function getShallowWrapper(
+  loading = false,
+  clientService: ReturnType<typeof mockDeep<ClientService>> = undefined
+) {
   const mocks = { ...defaultComponentMocks() }
   if (!clientService) {
     clientService = mockDeep<ClientService>()
     clientService.httpAuthenticated.get.mockResolvedValue(mock<AxiosResponse>({ status: 200 }))
   }
   mocks.$clientService = clientService
-  const storeOptions = defaultStoreMockOptions
-  storeOptions.getters.capabilities.mockImplementation(() => ({
-    files_sharing: {
-      user: {
-        profile_picture: true
-      }
-    }
-  }))
-  const store = createStore(storeOptions)
+  const capabilities = {
+    files_sharing: { user: { profile_picture: true } }
+  } satisfies Partial<CapabilityStore['capabilities']>
+
   return {
     wrapper: shallowMount(Avatar, {
       props: propsData,
@@ -117,7 +112,7 @@ function getShallowWrapper(loading = false, clientService = undefined) {
       },
       global: {
         mocks,
-        plugins: [...defaultPlugins(), store]
+        plugins: [...defaultPlugins({ piniaOptions: { capabilityState: { capabilities } } })]
       }
     })
   }

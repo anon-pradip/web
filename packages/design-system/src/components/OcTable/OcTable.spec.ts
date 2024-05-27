@@ -1,8 +1,5 @@
 import { shallowMount, mount } from 'web-test-helpers'
-import { axe, toHaveNoViolations } from 'jest-axe'
 import Table from './OcTable.vue'
-
-expect.extend(toHaveNoViolations)
 
 const fields = [
   {
@@ -19,7 +16,7 @@ const fields = [
     name: 'doubled',
     title: 'Doubled',
     type: 'callback',
-    callback: function (value) {
+    callback: function (value: number) {
       return `Double of ${value} is ${value * 2}`
     }
   }
@@ -47,7 +44,7 @@ const data = [
 ]
 
 describe('OcTable', () => {
-  it('displays all field types', async () => {
+  it('displays all field types', () => {
     const wrapper = mount(Table, {
       props: {
         fields,
@@ -69,15 +66,6 @@ describe('OcTable', () => {
     expect(wrapper.html().indexOf('Double of 2 is 4')).toBeGreaterThan(-1)
     expect(wrapper.findAll('.slot').length).toBe(data.length)
     expect(wrapper.findAll('.slot-header').length).toBe(1)
-
-    // A11y tests
-    expect(
-      await axe(wrapper.html(), {
-        rules: {
-          region: { enabled: false }
-        }
-      })
-    ).toHaveNoViolations()
   })
 
   it('hides header', () => {
@@ -216,7 +204,7 @@ describe('OcTable', () => {
         fields,
         data,
         highlighted: [],
-        itemDomSelector: (item) => ['custom', item.id].join('-')
+        itemDomSelector: (item: { id: string }) => ['custom', item.id].join('-')
       },
       global: { renderStubDefaultSlot: true }
     })

@@ -1,31 +1,20 @@
-import {
-  createStore,
-  defaultComponentMocks,
-  defaultStoreMockOptions,
-  mount,
-  defaultPlugins,
-  mockAxiosResolve
-} from 'web-test-helpers'
+import { defaultComponentMocks, mount, defaultPlugins, mockAxiosResolve } from 'web-test-helpers'
 import TagsSelect from 'web-app-files/src/components/SideBar/Details/TagsSelect.vue'
-import { mockDeep } from 'jest-mock-extended'
+import { mock, mockDeep } from 'vitest-mock-extended'
 import { Resource } from '@ownclouders/web-client'
-import { ClientService, eventBus } from '@ownclouders/web-pkg'
-
-jest.mock('@ownclouders/web-pkg', () => ({
-  ...jest.requireActual('@ownclouders/web-pkg'),
-  useAccessToken: jest.fn()
-}))
+import { ClientService, eventBus, useMessages } from '@ownclouders/web-pkg'
+import { OcSelect } from 'design-system/src/components'
 
 describe('Tag Select', () => {
   it('show tags input form if loaded successfully', () => {
-    const resource = mockDeep<Resource>({ tags: [] })
+    const resource = mock<Resource>({ tags: [] })
     const { wrapper } = createWrapper(resource)
     expect(wrapper.find('.tags-select').exists()).toBeTruthy()
   })
 
   it('all available tags are selectable', async () => {
     const tags = 'a,b,c'
-    const resource = mockDeep<Resource>({ tags: [] })
+    const resource = mock<Resource>({ tags: [] })
     const clientService = mockDeep<ClientService>()
     clientService.graphAuthenticated.tags.getTags.mockResolvedValueOnce(
       mockAxiosResolve({ value: tags.split(',') })
@@ -33,18 +22,16 @@ describe('Tag Select', () => {
 
     const { wrapper } = createWrapper(resource, clientService)
     await wrapper.vm.loadAvailableTagsTask.last
-    expect(wrapper.findComponent<any>('vue-select-stub').props('options')).toEqual([
-      { label: 'a' },
-      { label: 'b' },
-      { label: 'c' }
-    ])
+    expect(
+      (wrapper.findComponent<typeof OcSelect>('vue-select-stub').props() as any).options
+    ).toEqual([{ label: 'a' }, { label: 'b' }, { label: 'c' }])
   })
 
   describe('save method', () => {
     it('publishes the "save"-event', async () => {
-      const eventStub = jest.spyOn(eventBus, 'publish')
+      const eventStub = vi.spyOn(eventBus, 'publish')
       const tags = ['a', 'b']
-      const resource = mockDeep<Resource>({ tags: tags })
+      const resource = mock<Resource>({ tags: tags })
       const { wrapper } = createWrapper(resource, mockDeep<ClientService>(), false)
       await wrapper.vm.save(tags)
       expect(eventStub).toHaveBeenCalled()
@@ -62,16 +49,15 @@ describe('Tag Select', () => {
   ])(
     'resource with the initial tags %s and selected tags %s adds %s',
     async (resourceTags, selectedTags, expected) => {
-      const resource = mockDeep<Resource>({ tags: resourceTags })
+      const resource = mock<Resource>({ tags: resourceTags })
       const clientService = mockDeep<ClientService>()
-      const stub = clientService.graphAuthenticated.tags.assignTags.mockImplementation()
+      const stub = clientService.graphAuthenticated.tags.assignTags.mockResolvedValue(undefined)
       const { wrapper } = createWrapper(resource, clientService, false)
 
       wrapper.vm.selectedTags = selectedTags
 
       await wrapper.vm.save(selectedTags)
 
-      /* eslint-disable jest/no-conditional-expect*/
       if (expected.length) {
         expect(stub).toHaveBeenCalledWith(
           expect.objectContaining({
@@ -91,16 +77,15 @@ describe('Tag Select', () => {
   ])(
     'resource with the initial tags %s and selected tags %s removes %s',
     async (resourceTags, selectedTags, expected) => {
-      const resource = mockDeep<Resource>({ tags: resourceTags })
+      const resource = mock<Resource>({ tags: resourceTags })
       const clientService = mockDeep<ClientService>()
-      const stub = clientService.graphAuthenticated.tags.unassignTags.mockImplementation()
+      const stub = clientService.graphAuthenticated.tags.unassignTags.mockResolvedValue(undefined)
       const { wrapper } = createWrapper(resource, clientService, false)
 
       wrapper.vm.selectedTags = selectedTags
 
       await wrapper.vm.save(selectedTags)
 
-      /* eslint-disable jest/no-conditional-expect*/
       if (expected.length) {
         expect(stub).toHaveBeenCalledWith(
           expect.objectContaining({
@@ -114,19 +99,20 @@ describe('Tag Select', () => {
   )
 
   it('shows message on failure', async () => {
-    jest.spyOn(console, 'error').mockImplementation(() => undefined)
+    vi.spyOn(console, 'error').mockImplementation(() => undefined)
     const clientService = mockDeep<ClientService>()
-    const assignTagsStub = clientService.graphAuthenticated.tags.assignTags
-      .mockImplementation()
-      .mockRejectedValue(new Error())
-    const resource = mockDeep<Resource>({ tags: ['a'] })
-    const eventStub = jest.spyOn(eventBus, 'publish')
-    const { wrapper, storeOptions } = createWrapper(resource, clientService)
-    wrapper.vm.selectedTags.push('b')
+    const assignTagsStub = clientService.graphAuthenticated.tags.assignTags.mockRejectedValue(
+      new Error()
+    )
+    const resource = mock<Resource>({ tags: ['a'] })
+    const eventStub = vi.spyOn(eventBus, 'publish')
+    const { wrapper } = createWrapper(resource, clientService)
+    wrapper.vm.selectedTags.push({ label: 'b' })
     await wrapper.vm.save(wrapper.vm.selectedTags)
     expect(assignTagsStub).toHaveBeenCalled()
     expect(eventStub).not.toHaveBeenCalled()
-    expect(storeOptions.actions.showErrorMessage).toHaveBeenCalled()
+    const { showErrorMessage } = useMessages()
+    expect(showErrorMessage).toHaveBeenCalledTimes(1)
   })
 
   it('does not accept tags consisting of blanks only', () => {
@@ -137,15 +123,16 @@ describe('Tag Select', () => {
   })
 })
 
-function createWrapper(resource, clientService = mockDeep<ClientService>(), stubVueSelect = true) {
-  const storeOptions = defaultStoreMockOptions
-  const store = createStore(storeOptions)
+function createWrapper(
+  resource: Resource,
+  clientService = mockDeep<ClientService>(),
+  stubVueSelect = true
+) {
   const mocks = { ...defaultComponentMocks(), $clientService: clientService }
   return {
-    storeOptions,
     wrapper: mount(TagsSelect, {
       global: {
-        plugins: [...defaultPlugins(), store],
+        plugins: [...defaultPlugins()],
         mocks,
         provide: { ...mocks },
         stubs: { VueSelect: stubVueSelect, CompareSaveDialog: true }

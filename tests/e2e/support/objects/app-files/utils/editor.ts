@@ -14,7 +14,7 @@ export const close = (page: Page): Promise<unknown> => {
 }
 
 export const save = async (page: Page): Promise<unknown> => {
-  return Promise.all([
+  return await Promise.all([
     page.waitForResponse((res) => res.request().method() === 'PUT' && res.status() === 204),
     page.locator(saveTextEditorOrViewerButton).click()
   ])

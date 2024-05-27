@@ -6,9 +6,9 @@
 
 <script lang="ts">
 import { computed, defineComponent, unref } from 'vue'
-import { useRoute, useRouter, useStore } from '@ownclouders/web-pkg'
+import { useRoute, useRouter, useSpacesStore } from '@ownclouders/web-pkg'
 import { AppLoadingSpinner } from '@ownclouders/web-pkg'
-import { urlJoin } from '@ownclouders/web-client/src/utils'
+import { urlJoin } from '@ownclouders/web-client'
 import { createFileRouteOptions } from '@ownclouders/web-pkg'
 import { createLocationSpaces } from '@ownclouders/web-pkg'
 
@@ -26,33 +26,21 @@ export default defineComponent({
       type: String,
       required: false,
       default: ''
-    },
-    appendHomeFolder: {
-      type: Boolean,
-      required: false,
-      default: false
     }
   },
   setup(props) {
-    const store = useStore()
     const router = useRouter()
     const route = useRoute()
+    const spacesStore = useSpacesStore()
 
     const personalSpace = computed(() => {
-      return store.getters['runtime/spaces/spaces'].find((space) => space.driveType === 'personal')
+      return spacesStore.spaces.find((space) => space.driveType === 'personal')
     })
 
     const itemPath = computed(() => {
-      if (!props.appendHomeFolder) {
-        return ''
-      }
-      const item = props.driveAliasAndItem.startsWith(fakePersonalDriveAlias)
+      return props.driveAliasAndItem.startsWith(fakePersonalDriveAlias)
         ? urlJoin(props.driveAliasAndItem.slice(fakePersonalDriveAlias.length))
         : '/'
-      if (item !== '/') {
-        return item
-      }
-      return store.getters.homeFolder
     })
 
     if (!unref(personalSpace)) {

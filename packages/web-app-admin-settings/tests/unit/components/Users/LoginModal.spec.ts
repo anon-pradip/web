@@ -1,15 +1,15 @@
 import LoginModal from '../../../../src/components/Users/LoginModal.vue'
 import {
-  createStore,
   defaultComponentMocks,
   defaultPlugins,
-  defaultStoreMockOptions,
   mockAxiosResolve,
   shallowMount
 } from 'web-test-helpers'
-import { mock } from 'jest-mock-extended'
-import { User } from '@ownclouders/web-client/src/generated'
-import { eventBus } from '@ownclouders/web-pkg'
+import { mock } from 'vitest-mock-extended'
+import { User } from '@ownclouders/web-client/graph/generated'
+import { Modal, useMessages } from '@ownclouders/web-pkg'
+import { OcSelect } from 'design-system/src/components'
+import { useUserSettingsStore } from '../../../../src/composables/stores/userSettings'
 
 describe('LoginModal', () => {
   it('renders the input including two options', () => {
@@ -18,12 +18,14 @@ describe('LoginModal', () => {
   })
   it('shows a warning when the current user is being selected', () => {
     const { wrapper } = getWrapper([mock<User>({ id: '1' })])
-    expect(wrapper.findComponent<any>('oc-select-stub').props('warningMessage')).toBeDefined()
+    expect(
+      wrapper.findComponent<typeof OcSelect>('oc-select-stub').props('warningMessage')
+    ).toBeDefined()
   })
   describe('method "onConfirm"', () => {
     it('updates the login for all given users', async () => {
       const users = [mock<User>(), mock<User>()]
-      const { wrapper, mocks, storeOptions } = getWrapper(users)
+      const { wrapper, mocks } = getWrapper(users)
       mocks.$clientService.graphAuthenticated.users.editUser.mockResolvedValue(
         mockAxiosResolve({ id: 'e3515ffb-d264-4dfc-8506-6c239f6673b5' })
       )
@@ -31,11 +33,11 @@ describe('LoginModal', () => {
         mockAxiosResolve({ id: 'e3515ffb-d264-4dfc-8506-6c239f6673b5' })
       )
 
-      const eventSpy = jest.spyOn(eventBus, 'publish')
-
       await wrapper.vm.onConfirm()
-      expect(storeOptions.actions.showMessage).toHaveBeenCalled()
-      expect(eventSpy).toHaveBeenCalled()
+      const { showMessage } = useMessages()
+      expect(showMessage).toHaveBeenCalled()
+      const { upsertUser } = useUserSettingsStore()
+      expect(upsertUser).toHaveBeenCalledTimes(users.length)
       expect(mocks.$clientService.graphAuthenticated.users.editUser).toHaveBeenCalledTimes(
         users.length
       )
@@ -54,42 +56,33 @@ describe('LoginModal', () => {
       expect(mocks.$clientService.graphAuthenticated.users.editUser).toHaveBeenCalledTimes(1)
     })
     it('should show message on error', async () => {
-      jest.spyOn(console, 'error').mockImplementation(() => undefined)
+      vi.spyOn(console, 'error').mockImplementation(() => undefined)
 
       const users = [mock<User>(), mock<User>()]
-      const { wrapper, mocks, storeOptions } = getWrapper(users)
+      const { wrapper, mocks } = getWrapper(users)
       mocks.$clientService.graphAuthenticated.users.editUser.mockRejectedValue(new Error(''))
       mocks.$clientService.graphAuthenticated.users.getUser.mockRejectedValue(new Error(''))
 
       await wrapper.vm.onConfirm()
-      expect(storeOptions.actions.showErrorMessage).toHaveBeenCalled()
-    })
-  })
-  describe('method "onCancel"', () => {
-    it('hides the modal', async () => {
-      const { wrapper, storeOptions } = getWrapper()
-      await wrapper.vm.onCancel()
-      expect(storeOptions.actions.hideModal).toHaveBeenCalled()
+      const { showErrorMessage } = useMessages()
+      expect(showErrorMessage).toHaveBeenCalled()
     })
   })
 })
 
 function getWrapper(users = [mock<User>()]) {
   const mocks = defaultComponentMocks()
-  const storeOptions = defaultStoreMockOptions
-  storeOptions.getters.user.mockReturnValue({ uuid: '1' })
-  const store = createStore(storeOptions)
 
   return {
     mocks,
-    storeOptions,
     wrapper: shallowMount(LoginModal, {
       props: {
+        modal: mock<Modal>(),
         users
       },
       global: {
         provide: mocks,
-        plugins: [...defaultPlugins(), store]
+        plugins: [...defaultPlugins()]
       }
     })
   }

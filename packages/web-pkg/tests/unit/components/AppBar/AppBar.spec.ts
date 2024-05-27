@@ -1,21 +1,18 @@
 import { ref } from 'vue'
 import AppBar from '../../../../src/components/AppBar/AppBar.vue'
-import { mock, mockDeep } from 'jest-mock-extended'
+import { mock } from 'vitest-mock-extended'
 import { Resource, SpaceResource } from '@ownclouders/web-client'
 import {
-  createStore,
   defaultComponentMocks,
   defaultPlugins,
   shallowMount,
-  defaultStoreMockOptions,
-  RouteLocation
+  RouteLocation,
+  PartialComponentProps
 } from 'web-test-helpers'
 import { ArchiverService } from '../../../../src/services'
-import { ViewModeConstants, useFileActionsDelete } from '../../../../src/composables'
-
-jest.mock('../../../../src/composables/actions/files/useFileActionsDelete', () => ({
-  useFileActionsDelete: jest.fn(() => mock<ReturnType<typeof useFileActionsDelete>>())
-}))
+import { FolderView } from '../../../../src/ui/types'
+import { useExtensionRegistry, ViewOptions } from '../../../../src'
+import { OcBreadcrumb } from 'design-system/src/components'
 
 const selectors = {
   ocBreadcrumbStub: 'oc-breadcrumb-stub',
@@ -25,7 +22,7 @@ const selectors = {
   mobileNavPortal: 'portal-target[name="app.runtime.mobile.nav"]'
 }
 
-const selectedFiles = [mockDeep<Resource>(), mockDeep<Resource>()]
+const selectedFiles = [mock<Resource>(), mock<Resource>()]
 const actionSlot = "<button class='action-slot'>Click</button>"
 const contentSlot = "<div class='content-slot'>Foo</div>"
 
@@ -49,9 +46,9 @@ describe('AppBar component', () => {
       it('if given, by default without breadcrumbsContextActionsItems', () => {
         const { wrapper } = getShallowWrapper([], {}, { breadcrumbs: breadcrumbItems })
         expect(wrapper.find(selectors.ocBreadcrumbStub).exists()).toBeTruthy()
-        expect(wrapper.findComponent<any>(selectors.ocBreadcrumbStub).props('items')).toEqual(
-          breadcrumbItems
-        )
+        expect(
+          wrapper.findComponent<typeof OcBreadcrumb>(selectors.ocBreadcrumbStub).props('items')
+        ).toEqual(breadcrumbItems)
       })
       it('if given, with breadcrumbsContextActionsItems if allowed on last breadcrumb item', () => {
         const { wrapper } = getShallowWrapper(
@@ -60,10 +57,9 @@ describe('AppBar component', () => {
           { breadcrumbs: [...breadcrumbItems, breadCrumbItemWithContextActionAllowed] }
         )
         expect(wrapper.find(selectors.ocBreadcrumbStub).exists()).toBeTruthy()
-        expect(wrapper.findComponent<any>(selectors.ocBreadcrumbStub).props('items')).toEqual([
-          ...breadcrumbItems,
-          breadCrumbItemWithContextActionAllowed
-        ])
+        expect(
+          wrapper.findComponent<typeof OcBreadcrumb>(selectors.ocBreadcrumbStub).props('items')
+        ).toEqual([...breadcrumbItems, breadCrumbItemWithContextActionAllowed])
       })
       it('not if no breadcrumb items given', () => {
         const { wrapper } = getShallowWrapper([], {}, { breadcrumbs: [] })
@@ -118,11 +114,11 @@ describe('AppBar component', () => {
         expect(wrapper.find(selectors.viewOptionsStub).exists()).toBeFalsy()
       })
       it('passes viewModes array to ViewOptions', () => {
-        const viewModes = [ViewModeConstants.tilesView]
+        const viewModes = [mock<FolderView>()]
         const { wrapper } = getShallowWrapper([], {}, { hasViewOptions: true, viewModes })
-        expect(wrapper.findComponent<any>(selectors.viewOptionsStub).props('viewModes')).toEqual(
-          viewModes
-        )
+        expect(
+          wrapper.findComponent<typeof ViewOptions>(selectors.viewOptionsStub).props('viewModes')
+        ).toEqual(viewModes)
       })
     })
     it('if given, with content in the actions slot', () => {
@@ -137,13 +133,12 @@ describe('AppBar component', () => {
 })
 
 function getShallowWrapper(
-  selected = [],
+  selected: Resource[] = [],
   slots = {},
-  props: { [key: string]: any } = {
+  props: PartialComponentProps<typeof AppBar> = {
     breadcrumbs: [],
-    displayViewModeSwitch: false,
+    viewModes: [],
     hasBulkActions: false,
-    hasSidebarToggle: true,
     hasViewOptions: true
   },
   currentRoute = mock<RouteLocation>({
@@ -152,6 +147,15 @@ function getShallowWrapper(
   }),
   isMobileWidth = false
 ) {
+  const plugins = defaultPlugins({
+    piniaOptions: {
+      resourcesStore: { resources: selected, selectedIds: selected.map(({ id }) => id) }
+    }
+  })
+
+  const { requestExtensions } = useExtensionRegistry()
+  vi.mocked(requestExtensions).mockReturnValue([])
+
   const mocks = {
     ...defaultComponentMocks({
       currentRoute
@@ -159,15 +163,13 @@ function getShallowWrapper(
     $archiverService: mock<ArchiverService>()
   }
   mocks.$route.meta.title = 'ExampleTitle'
-  const storeOptions = defaultStoreMockOptions
-  storeOptions.modules.Files.getters.selectedFiles.mockImplementation(() => selected)
-  const store = createStore(storeOptions)
+
   return {
     wrapper: shallowMount(AppBar, {
       props: { ...props, space: mock<SpaceResource>() },
       slots,
       global: {
-        plugins: [...defaultPlugins(), store],
+        plugins,
         provide: { ...mocks, isMobileWidth: ref(isMobileWidth) },
         mocks
       }

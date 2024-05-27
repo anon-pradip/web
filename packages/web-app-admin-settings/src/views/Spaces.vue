@@ -21,30 +21,26 @@
         />
       </template>
       <template #mainContent>
-        <no-content-message
-          v-if="!spaces.length"
-          id="admin-settings-spaces-empty"
-          class="spaces-empty"
-          icon="layout-grid"
-        >
-          <template #message>
-            <span v-translate>No spaces in here</span>
-          </template>
-        </no-content-message>
-        <div v-else>
-          <SpacesList
-            :spaces="spaces"
-            :class="{ 'spaces-table-squashed': isSideBarOpen }"
-            :selected-spaces="selectedSpaces"
-            @toggle-select-space="toggleSelectSpace"
-            @select-spaces="selectSpaces"
-            @un-select-all-spaces="unselectAllSpaces"
+        <app-loading-spinner v-if="isLoading" />
+        <template v-else>
+          <no-content-message
+            v-if="!spaces.length"
+            id="admin-settings-spaces-empty"
+            class="spaces-empty"
+            icon="layout-grid"
           >
-            <template #contextMenu>
-              <context-actions :items="selectedSpaces" />
+            <template #message>
+              <span v-translate>No spaces in here</span>
             </template>
-          </SpacesList>
-        </div>
+          </no-content-message>
+          <div v-else>
+            <spaces-list :class="{ 'spaces-table-squashed': isSideBarOpen }">
+              <template #contextMenu>
+                <context-actions :items="selectedSpaces" />
+              </template>
+            </spaces-list>
+          </div>
+        </template>
       </template>
     </app-template>
   </div>
@@ -66,9 +62,7 @@ import {
   SpaceInfo,
   SpaceNoSelection,
   eventBus,
-  configurationManager,
   queryItemAsString,
-  useAccessToken,
   useClientService,
   useRouteQuery,
   useSideBar,
@@ -76,16 +70,22 @@ import {
   useSpaceActionsDisable,
   useSpaceActionsRestore,
   useSpaceActionsEditQuota,
-  useStore
+  useConfigStore,
+  AppLoadingSpinner
 } from '@ownclouders/web-pkg'
-import { buildSpace, SpaceResource } from '@ownclouders/web-client/src/helpers'
+import { buildSpace, call, SpaceResource } from '@ownclouders/web-client'
 import { computed, defineComponent, onBeforeUnmount, onMounted, ref, unref } from 'vue'
 import { useTask } from 'vue-concurrency'
 import { useGettext } from 'vue3-gettext'
 
+import { useSpaceSettingsStore } from '../composables'
+import { storeToRefs } from 'pinia'
+import { Quota } from '@ownclouders/web-client/graph/generated'
+
 export default defineComponent({
   name: 'SpacesView',
   components: {
+    AppLoadingSpinner,
     SpacesList,
     AppTemplate,
     NoContentMessage,
@@ -98,24 +98,23 @@ export default defineComponent({
     }
   },
   setup() {
-    const store = useStore()
-    const accessToken = useAccessToken({ store })
-    const spaces = ref([])
     const clientService = useClientService()
     const { $gettext } = useGettext()
     const { isSideBarOpen, sideBarActivePanel } = useSideBar()
+    const configStore = useConfigStore()
 
     const loadResourcesEventToken = ref(null)
     let updateQuotaForSpaceEventToken: string
     const template = ref(null)
-    const selectedSpaces = ref([])
+    const spaceSettingsStore = useSpaceSettingsStore()
+    const { spaces, selectedSpaces } = storeToRefs(spaceSettingsStore)
 
     const currentPageQuery = useRouteQuery('page', '1')
     const currentPage = computed(() => {
       return parseInt(queryItemAsString(unref(currentPageQuery)))
     })
 
-    const itemsPerPageQuery = useRouteQuery('admin-settings-items-per-page', '1')
+    const itemsPerPageQuery = useRouteQuery('items-per-page', '1')
     const itemsPerPage = computed(() => {
       return parseInt(queryItemAsString(unref(itemsPerPageQuery)))
     })
@@ -123,49 +122,34 @@ export default defineComponent({
     const loadResourcesTask = useTask(function* (signal) {
       const {
         data: { value: drivesResponse }
-      } = yield clientService.graphAuthenticated.drives.listAllDrives(
-        'name asc',
-        'driveType eq project'
+      } = yield* call(
+        clientService.graphAuthenticated.drives.listAllDrives('name asc', 'driveType eq project')
       )
       const drives = drivesResponse.map((space) =>
-        buildSpace({ ...space, serverUrl: configurationManager.serverUrl })
+        buildSpace({ ...space, serverUrl: configStore.serverUrl })
       )
-      spaces.value = drives
+      spaceSettingsStore.setSpaces(drives)
+    })
+
+    const isLoading = computed(() => {
+      return loadResourcesTask.isRunning || !loadResourcesTask.last
     })
 
     const breadcrumbs = computed(() => [
       { text: $gettext('Administration Settings'), to: { path: '/admin-settings' } },
       {
         text: $gettext('Spaces'),
-        onClick: () => eventBus.publish('app.admin-settings.list.load')
+        onClick: () => {
+          spaceSettingsStore.setSelectedSpaces([])
+          loadResourcesTask.perform()
+        }
       }
     ])
 
-    const selectSpaces = (paginatedSpaces) => {
-      selectedSpaces.value.splice(0, selectedSpaces.value.length, ...paginatedSpaces)
-    }
-
-    const toggleSelectSpace = (toggledSpace, deselect = false) => {
-      if (deselect) {
-        selectedSpaces.value.splice(0, selectedSpaces.value.length)
-      }
-      const isSpaceSelected = unref(selectedSpaces).find((s) => s.id === toggledSpace.id)
-      if (!isSpaceSelected) {
-        return selectedSpaces.value.push(toggledSpace)
-      }
-
-      const index = selectedSpaces.value.findIndex((s) => s.id === toggledSpace.id)
-      selectedSpaces.value.splice(index, 1)
-    }
-
-    const unselectAllSpaces = () => {
-      selectedSpaces.value.splice(0, selectedSpaces.value.length)
-    }
-
-    const { actions: deleteActions } = useSpaceActionsDelete({ store })
-    const { actions: disableActions } = useSpaceActionsDisable({ store })
-    const { actions: editQuotaActions } = useSpaceActionsEditQuota({ store })
-    const { actions: restoreActions } = useSpaceActionsRestore({ store })
+    const { actions: deleteActions } = useSpaceActionsDelete()
+    const { actions: disableActions } = useSpaceActionsDisable()
+    const { actions: editQuotaActions } = useSpaceActionsEditQuota()
+    const { actions: restoreActions } = useSpaceActionsRestore()
 
     const batchActions = computed((): SpaceAction[] => {
       return [
@@ -173,7 +157,7 @@ export default defineComponent({
         ...unref(restoreActions),
         ...unref(deleteActions),
         ...unref(disableActions)
-      ].filter((item) => item.isEnabled({ resources: unref(selectedSpaces) }))
+      ].filter((item) => item.isVisible({ resources: unref(selectedSpaces) }))
     })
 
     const sideBarPanelContext = computed<SideBarPanelContext<unknown, unknown, SpaceResource>>(
@@ -234,6 +218,7 @@ export default defineComponent({
 
     onMounted(async () => {
       await loadResourcesTask.perform()
+
       loadResourcesEventToken.value = eventBus.subscribe(
         'app.admin-settings.list.load',
         async () => {
@@ -250,7 +235,7 @@ export default defineComponent({
 
       updateQuotaForSpaceEventToken = eventBus.subscribe(
         'app.admin-settings.spaces.space.quota.updated',
-        ({ spaceId, quota }) => {
+        ({ spaceId, quota }: { spaceId: string; quota: Quota }) => {
           const space = unref(spaces).find((s) => s.id === spaceId)
           if (space) {
             space.spaceQuota = quota
@@ -260,6 +245,7 @@ export default defineComponent({
     })
 
     onBeforeUnmount(() => {
+      spaceSettingsStore.reset()
       eventBus.unsubscribe('app.admin-settings.list.load', unref(loadResourcesEventToken))
       eventBus.unsubscribe(
         'app.admin-settings.spaces.space.quota.updated',
@@ -272,16 +258,13 @@ export default defineComponent({
       sideBarActivePanel,
       spaces,
       loadResourcesTask,
-      accessToken,
       breadcrumbs,
       batchActions,
       selectedSpaces,
       sideBarAvailablePanels,
       sideBarPanelContext,
-      template,
-      selectSpaces,
-      toggleSelectSpace,
-      unselectAllSpaces
+      isLoading,
+      template
     }
   }
 })

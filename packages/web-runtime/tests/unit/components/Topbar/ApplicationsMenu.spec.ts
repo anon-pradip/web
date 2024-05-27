@@ -1,17 +1,17 @@
 import ApplicationsMenu from 'web-runtime/src/components/Topbar/ApplicationsMenu.vue'
 import {
   RouteLocation,
-  createStore,
   defaultComponentMocks,
   defaultPlugins,
-  defaultStoreMockOptions,
   shallowMount
 } from 'web-test-helpers'
-import { mock } from 'jest-mock-extended'
+import { mock } from 'vitest-mock-extended'
+import { MenuItem } from 'web-runtime/src/helpers/menuItems'
+import { SpaceResource } from '@ownclouders/web-client'
 
-jest.mock('@ownclouders/web-pkg', () => ({
-  ...jest.requireActual('@ownclouders/web-pkg'),
-  useFileActions: jest.fn(() => ({ openEditor: jest.fn() }))
+vi.mock('@ownclouders/web-pkg', async (importOriginal) => ({
+  ...(await importOriginal<any>()),
+  useFileActions: vi.fn(() => ({ openEditor: vi.fn() }))
 }))
 
 const menuLinks = [
@@ -28,7 +28,7 @@ const menuLinks = [
     url: 'http://some.org',
     target: '_blank'
   }
-]
+] as MenuItem[]
 
 describe('ApplicationsMenu component', () => {
   it('should render navigation with button and menu items in dropdown', () => {
@@ -37,17 +37,15 @@ describe('ApplicationsMenu component', () => {
   })
 })
 
-function getWrapper(applicationsList = []) {
-  const storeOptions = {
-    ...defaultStoreMockOptions,
-    modules: { ...defaultStoreMockOptions.modules, user: { state: { id: 'alice', uuid: 1 } } }
-  }
-  const store = createStore(storeOptions)
+function getWrapper(applicationsList: MenuItem[] = []) {
   const mocks = {
     ...defaultComponentMocks({
       currentRoute: mock<RouteLocation>({ query: { app: 'admin-settings' } })
     }),
-    space: { driveType: 'personal', spaceRoles: { viewer: [], editor: [], manager: [] } }
+    space: {
+      driveType: 'personal',
+      spaceRoles: { viewer: [], editor: [], manager: [] }
+    } as unknown as SpaceResource
   }
 
   return {
@@ -59,7 +57,7 @@ function getWrapper(applicationsList = []) {
         renderStubDefaultSlot: true,
         mocks,
         provide: mocks,
-        plugins: [...defaultPlugins(), store]
+        plugins: [...defaultPlugins()]
       }
     })
   }

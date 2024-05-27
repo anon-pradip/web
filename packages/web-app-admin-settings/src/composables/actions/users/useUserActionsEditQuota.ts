@@ -1,22 +1,22 @@
-import { computed, unref, toRaw } from 'vue'
+import { computed, toRaw } from 'vue'
 import { useGettext } from 'vue3-gettext'
 import {
   QuotaModal,
   useAbility,
-  useCapabilityReadOnlyUserAttributes,
-  useStore,
+  useModals,
   UserAction,
-  UserActionOptions
+  UserActionOptions,
+  useCapabilityStore
 } from '@ownclouders/web-pkg'
 import { SpaceResource } from '@ownclouders/web-client'
-import { isPersonalSpaceResource } from '@ownclouders/web-client/src/helpers'
-import { User } from '@ownclouders/web-client/src/generated'
+import { isPersonalSpaceResource } from '@ownclouders/web-client'
+import { User } from '@ownclouders/web-client/graph/generated'
 
 export const useUserActionsEditQuota = () => {
-  const store = useStore()
+  const { dispatchModal } = useModals()
+  const capabilityStore = useCapabilityStore()
   const { $gettext } = useGettext()
   const ability = useAbility()
-  const readOnlyUserAttributes = useCapabilityReadOnlyUserAttributes()
 
   const getModalTitle = ({ resources }: { resources: User[] }) => {
     if (resources.length === 1) {
@@ -51,8 +51,7 @@ export const useUserActionsEditQuota = () => {
       ({ drive }) => !isPersonalSpaceResource(drive as SpaceResource)
     )
 
-    return store.dispatch('createModal', {
-      variation: 'passive',
+    dispatchModal({
       title: getModalTitle({ resources }),
       customComponent: QuotaModal,
       customComponentAttrs: () => ({
@@ -70,8 +69,7 @@ export const useUserActionsEditQuota = () => {
                 .join(', ')
             }
           : {}
-      }),
-      hideActions: true
+      })
     })
   }
 
@@ -83,12 +81,12 @@ export const useUserActionsEditQuota = () => {
         return $gettext('Edit quota')
       },
       handler,
-      isEnabled: ({ resources }) => {
+      isVisible: ({ resources }) => {
         if (!resources || !resources.length) {
           return false
         }
 
-        if (unref(readOnlyUserAttributes).includes('drive.quota')) {
+        if (capabilityStore.graphUsersReadOnlyAttributes.includes('drive.quota')) {
           return false
         }
 

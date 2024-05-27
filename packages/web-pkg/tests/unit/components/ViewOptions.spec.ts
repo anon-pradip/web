@@ -1,20 +1,26 @@
 import { ref, unref } from 'vue'
 import {
-  createStore,
   defaultPlugins,
-  defaultStoreMockOptions,
   defaultComponentMocks,
   mount,
-  RouteLocation
+  RouteLocation,
+  PartialComponentProps
 } from 'web-test-helpers'
-import { mock } from 'jest-mock-extended'
+import { mock } from 'vitest-mock-extended'
 import ViewOptions from '../../../src/components/ViewOptions.vue'
-import { ViewModeConstants, useRouteQuery, useRouteQueryPersisted } from '../../../src/composables'
+import {
+  FolderViewModeConstants,
+  useResourcesStore,
+  useRouteQuery,
+  useRouteQueryPersisted
+} from '../../../src/composables'
+import { FolderView } from '../../../src'
+import { OcPageSize, OcSwitch } from 'design-system/src/components'
 
-jest.mock('../../../src/composables/router', () => ({
-  ...jest.requireActual('../../../src/composables/router'),
-  useRouteQueryPersisted: jest.fn(),
-  useRouteQuery: jest.fn()
+vi.mock('../../../src/composables/router', async (importOriginal) => ({
+  ...(await importOriginal<any>()),
+  useRouteQueryPersisted: vi.fn(),
+  useRouteQuery: vi.fn()
 }))
 
 const selectors = {
@@ -34,7 +40,9 @@ describe('ViewOptions component', () => {
     it('sets the correct initial files page limit', () => {
       const perPage = '100'
       const { wrapper } = getWrapper({ perPage })
-      expect(wrapper.findComponent<any>(selectors.pageSizeSelect).props().selected).toBe(perPage)
+      expect(
+        wrapper.findComponent<typeof OcPageSize>(selectors.pageSizeSelect).props().selected
+      ).toBe(perPage)
     })
     it('sets the correct files page limit', () => {
       const perPage = '100'
@@ -65,12 +73,13 @@ describe('ViewOptions component', () => {
       expect(wrapper.find(selectors.hiddenFilesSwitch).exists()).toBeFalsy()
     })
     it('toggles the setting to show/hide hidden files', () => {
-      const { wrapper, storeOptions } = getWrapper()
-      ;(wrapper.findComponent<any>(selectors.hiddenFilesSwitch).vm as any).$emit(
-        'update:checked',
-        false
-      )
-      expect(storeOptions.modules.Files.mutations.SET_HIDDEN_FILES_VISIBILITY).toHaveBeenCalled()
+      const { wrapper } = getWrapper()
+      wrapper
+        .findComponent<typeof OcSwitch>(selectors.hiddenFilesSwitch)
+        .vm.$emit('update:checked', false)
+
+      const { setAreHiddenFilesShown } = useResourcesStore()
+      expect(setAreHiddenFilesShown).toHaveBeenCalled()
     })
   })
   describe('file extension toggle', () => {
@@ -79,12 +88,13 @@ describe('ViewOptions component', () => {
       expect(wrapper.find(selectors.fileExtensionsSwitch).exists()).toBeFalsy()
     })
     it('toggles the setting to show/hide file extensions', () => {
-      const { wrapper, storeOptions } = getWrapper()
-      ;(wrapper.findComponent<any>(selectors.fileExtensionsSwitch).vm as any).$emit(
-        'update:checked',
-        false
-      )
-      expect(storeOptions.modules.Files.mutations.SET_FILE_EXTENSIONS_VISIBILITY).toHaveBeenCalled()
+      const { wrapper } = getWrapper()
+      wrapper
+        .findComponent<typeof OcSwitch>(selectors.fileExtensionsSwitch)
+        .vm.$emit('update:checked', false)
+
+      const { setAreFileExtensionsShown } = useResourcesStore()
+      expect(setAreFileExtensionsShown).toHaveBeenCalled()
     })
   })
   describe('view mode switcher', () => {
@@ -94,7 +104,12 @@ describe('ViewOptions component', () => {
     })
     it('shows if more than one viewModes are passed', () => {
       const { wrapper } = getWrapper({
-        props: { viewModes: [ViewModeConstants.condensedTable, ViewModeConstants.default] }
+        props: {
+          viewModes: [
+            mock<FolderView>({ name: '1', label: '' }),
+            mock<FolderView>({ name: '2', label: '' })
+          ]
+        }
       })
       expect(wrapper.find(selectors.viewModeSwitchBtns).exists()).toBeTruthy()
     })
@@ -106,14 +121,14 @@ describe('ViewOptions component', () => {
     })
     it('shows if the viewModes include "resource-tiles"', () => {
       const { wrapper } = getWrapper({
-        props: { viewModes: [ViewModeConstants.tilesView] }
+        props: { viewModes: [mock<FolderView>({ name: FolderViewModeConstants.name.tiles })] }
       })
       expect(wrapper.find(selectors.tileSizeSlider).exists()).toBeTruthy()
     })
     it.each([1, 2, 3, 4, 5, 6])('applies the correct size step', (tileSize) => {
       const { mocks } = getWrapper({
         tileSize: tileSize.toString(),
-        props: { viewModes: [ViewModeConstants.tilesView] }
+        props: { viewModes: [mock<FolderView>({ name: FolderViewModeConstants.name.tiles })] }
       })
       expect(unref(mocks.tileSizeQueryMock)).toBe(tileSize.toString())
     })
@@ -122,33 +137,39 @@ describe('ViewOptions component', () => {
 
 function getWrapper({
   perPage = '100',
-  viewMode = ViewModeConstants.default.name,
+  viewMode = FolderViewModeConstants.name.table,
   tileSize = '1',
   props = {},
   currentPage = '1'
+}: {
+  perPage?: string
+  viewMode?: string
+  tileSize?: string
+  props?: PartialComponentProps<typeof ViewOptions>
+  currentPage?: string
 } = {}) {
-  jest.mocked(useRouteQueryPersisted).mockImplementationOnce(() => ref(perPage))
-  jest.mocked(useRouteQueryPersisted).mockImplementationOnce(() => ref(viewMode))
+  vi.mocked(useRouteQueryPersisted).mockImplementationOnce(() => ref(perPage))
+  vi.mocked(useRouteQueryPersisted).mockImplementationOnce(() => ref(viewMode))
   const tileSizeQueryMock = ref(tileSize)
-  jest.mocked(useRouteQueryPersisted).mockImplementationOnce(() => tileSizeQueryMock)
-  jest.mocked(useRouteQuery).mockImplementationOnce(() => ref(currentPage))
+  vi.mocked(useRouteQueryPersisted).mockImplementationOnce(() => tileSizeQueryMock)
+  vi.mocked(useRouteQuery).mockImplementationOnce(() => ref(currentPage))
 
-  const storeOptions = { ...defaultStoreMockOptions }
-  const store = createStore(storeOptions)
   const mocks = {
     ...defaultComponentMocks({ currentRoute: mock<RouteLocation>({ path: '/files' }) }),
     tileSizeQueryMock
   }
   return {
-    storeOptions,
     mocks,
     wrapper: mount(ViewOptions, {
-      props: { ...props },
+      props: {
+        perPageStoragePrefix: '',
+        ...props
+      },
       global: {
         mocks,
         provide: mocks,
         stubs: { OcButton: true, OcPageSize: false, OcSelect: true },
-        plugins: [...defaultPlugins(), store]
+        plugins: [...defaultPlugins()]
       }
     })
   }

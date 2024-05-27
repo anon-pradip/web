@@ -1,27 +1,24 @@
 import {
   RouteLocation,
-  createStore,
   defaultComponentMocks,
   defaultPlugins,
-  defaultStoreMockOptions,
   shallowMount
 } from 'web-test-helpers'
 import oidcCallback from '../../../src/pages/oidcCallback.vue'
 import { authService } from 'web-runtime/src/services/auth'
-import { mock } from 'jest-mock-extended'
+import { mock } from 'vitest-mock-extended'
 import { computed } from 'vue'
-import { createMockThemeStore } from 'web-test-helpers/src/mocks/pinia'
 
-const mockUseEmbedMode = jest.fn()
+const mockUseEmbedMode = vi.fn()
 
-jest.mock('@ownclouders/web-pkg', () => ({
-  ...jest.requireActual('@ownclouders/web-pkg'),
-  useRoute: jest.fn().mockReturnValue({ query: {} }),
-  useEmbedMode: jest.fn().mockImplementation(() => mockUseEmbedMode())
+vi.mock('@ownclouders/web-pkg', async (importOriginal) => ({
+  ...(await importOriginal<any>()),
+  useRoute: vi.fn().mockReturnValue({ query: {} }),
+  useEmbedMode: vi.fn().mockImplementation(() => mockUseEmbedMode())
 }))
 
-const postMessageMock = jest.fn()
-console.debug = jest.fn()
+const postMessageMock = vi.fn()
+console.debug = vi.fn()
 
 describe('oidcCallback page', () => {
   describe('delegated authentication', () => {
@@ -29,10 +26,10 @@ describe('oidcCallback page', () => {
       mockUseEmbedMode.mockReturnValue({
         isDelegatingAuthentication: computed(() => true),
         postMessage: postMessageMock,
-        verifyDelegatedAuthenticationOrigin: jest.fn().mockReturnValue(true)
+        verifyDelegatedAuthenticationOrigin: vi.fn().mockReturnValue(true)
       })
 
-      const signInCallbackSpy = jest
+      const signInCallbackSpy = vi
         .spyOn(authService, 'signInCallback')
         .mockImplementation(() => Promise.resolve())
 
@@ -44,10 +41,10 @@ describe('oidcCallback page', () => {
     it('when authentication is not delegated calls signInCallback immediately', () => {
       mockUseEmbedMode.mockReturnValue({
         isDelegatingAuthentication: computed(() => false),
-        verifyDelegatedAuthenticationOrigin: jest.fn().mockReturnValue(true)
+        verifyDelegatedAuthenticationOrigin: vi.fn().mockReturnValue(true)
       })
 
-      const signInCallbackSpy = jest
+      const signInCallbackSpy = vi
         .spyOn(authService, 'signInCallback')
         .mockImplementation(() => Promise.resolve())
 
@@ -60,10 +57,10 @@ describe('oidcCallback page', () => {
       mockUseEmbedMode.mockReturnValue({
         isDelegatingAuthentication: computed(() => true),
         postMessage: postMessageMock,
-        verifyDelegatedAuthenticationOrigin: jest.fn().mockReturnValue(true)
+        verifyDelegatedAuthenticationOrigin: vi.fn().mockReturnValue(true)
       })
 
-      jest.spyOn(authService, 'signInCallback').mockImplementation(() => Promise.resolve())
+      vi.spyOn(authService, 'signInCallback').mockImplementation(() => Promise.resolve())
 
       getWrapper()
 
@@ -74,10 +71,10 @@ describe('oidcCallback page', () => {
       mockUseEmbedMode.mockReturnValue({
         isDelegatingAuthentication: computed(() => true),
         postMessage: postMessageMock,
-        verifyDelegatedAuthenticationOrigin: jest.fn().mockReturnValue(true)
+        verifyDelegatedAuthenticationOrigin: vi.fn().mockReturnValue(true)
       })
 
-      const signInCallbackSpy = jest
+      const signInCallbackSpy = vi
         .spyOn(authService, 'signInCallback')
         .mockImplementation(() => Promise.resolve())
 
@@ -100,10 +97,10 @@ describe('oidcCallback page', () => {
       mockUseEmbedMode.mockReturnValue({
         isDelegatingAuthentication: computed(() => true),
         postMessage: postMessageMock,
-        verifyDelegatedAuthenticationOrigin: jest.fn().mockReturnValue(true)
+        verifyDelegatedAuthenticationOrigin: vi.fn().mockReturnValue(true)
       })
 
-      const signInCallbackSpy = jest
+      const signInCallbackSpy = vi
         .spyOn(authService, 'signInCallback')
         .mockImplementation(() => Promise.resolve())
 
@@ -125,14 +122,6 @@ describe('oidcCallback page', () => {
 })
 
 function getWrapper() {
-  const storeOptions = { ...defaultStoreMockOptions }
-
-  storeOptions.getters.configuration.mockReturnValue({
-    server: 'http://server/address/'
-  })
-
-  const store = createStore(storeOptions)
-
   const mocks = {
     ...defaultComponentMocks({
       currentRoute: mock<RouteLocation>({ query: {} })
@@ -140,10 +129,13 @@ function getWrapper() {
   }
 
   return {
-    storeOptions,
     wrapper: shallowMount(oidcCallback, {
       global: {
-        plugins: [...defaultPlugins(), store, createMockThemeStore()],
+        plugins: [
+          ...defaultPlugins({
+            piniaOptions: { configState: { server: 'http://server/address/' } }
+          })
+        ],
         mocks,
         provide: {}
       }

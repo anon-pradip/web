@@ -22,10 +22,8 @@
         </no-content-message>
         <resource-table
           v-else
-          id="files-trashbin-table"
           v-model:selectedIds="selectedResourcesIds"
-          class="files-table"
-          :class="{ 'files-table-squashed': isSideBarOpen }"
+          :is-side-bar-open="isSideBarOpen"
           :fields-displayed="['name', 'ddate']"
           :are-paths-displayed="true"
           :are-thumbnails-displayed="false"
@@ -49,8 +47,8 @@
             <list-info
               v-if="paginatedResources.length > 0"
               class="oc-width-1-1 oc-my-s"
-              :files="totalFilesCount.files"
-              :folders="totalFilesCount.folders"
+              :files="totalResourcesCount.files"
+              :folders="totalResourcesCount.folders"
             />
           </template>
         </resource-table>
@@ -61,9 +59,16 @@
 </template>
 
 <script lang="ts">
-import { mapGetters, mapState } from 'vuex'
+import { storeToRefs } from 'pinia'
 
-import { AppBar, ContextActions, FileSideBar } from '@ownclouders/web-pkg'
+import {
+  AppBar,
+  ContextActions,
+  FileSideBar,
+  useUserStore,
+  useCapabilityStore,
+  useResourcesStore
+} from '@ownclouders/web-pkg'
 import FilesViewWrapper from '../../components/FilesViewWrapper.vue'
 import ListInfo from '../../components/FilesList/ListInfo.vue'
 import { ResourceTable } from '@ownclouders/web-pkg'
@@ -75,9 +80,8 @@ import { eventBus } from '@ownclouders/web-pkg'
 import { useResourcesViewDefaults } from '../../composables'
 import { computed, defineComponent, PropType, onMounted, onBeforeUnmount, unref } from 'vue'
 import { Resource } from '@ownclouders/web-client'
-import { useCapabilityShareJailEnabled, useCapabilitySpacesEnabled } from '@ownclouders/web-pkg'
 import { createLocationTrash } from '@ownclouders/web-pkg'
-import { isProjectSpaceResource, SpaceResource } from '@ownclouders/web-client/src/helpers'
+import { isProjectSpaceResource, SpaceResource } from '@ownclouders/web-client'
 import { useDocumentTitle } from '@ownclouders/web-pkg'
 import { useGettext } from 'vue3-gettext'
 
@@ -111,19 +115,25 @@ export default defineComponent({
 
   setup(props) {
     const { $gettext } = useGettext()
-    let loadResourcesEventToken
+    const capabilityStore = useCapabilityStore()
+    const capabilityRefs = storeToRefs(capabilityStore)
+    const userStore = useUserStore()
+    const { user } = storeToRefs(userStore)
+
+    const resourcesStore = useResourcesStore()
+    const { totalResourcesCount } = storeToRefs(resourcesStore)
+
+    let loadResourcesEventToken: string
     const noContentMessage = computed(() => {
       return props.space.driveType === 'personal'
         ? $gettext('You have no deleted files')
         : $gettext('Space has no deleted files')
     })
 
-    const hasSpaces = useCapabilitySpacesEnabled()
     const titleSegments = computed(() => {
       const segments = [$gettext('Deleted files')]
-      if (unref(hasSpaces)) {
-        segments.unshift(props.space.name)
-      }
+      segments.unshift(props.space.name)
+
       return segments
     })
     useDocumentTitle({ titleSegments })
@@ -151,16 +161,13 @@ export default defineComponent({
 
     return {
       ...resourcesViewDefaults,
-      hasShareJail: useCapabilityShareJailEnabled(),
-      noContentMessage
+      user,
+      noContentMessage,
+      totalResourcesCount
     }
   },
 
   computed: {
-    ...mapState('Files', ['files']),
-    ...mapGetters('Files', ['totalFilesCount']),
-    ...mapGetters(['user']),
-
     isEmpty() {
       return this.paginatedResources.length < 1
     },
@@ -168,7 +175,7 @@ export default defineComponent({
     breadcrumbs() {
       let currentNodeName = this.space?.name
       if (this.space.driveType === 'personal') {
-        currentNodeName = this.hasShareJail ? this.$gettext('Personal') : this.$gettext('All files')
+        currentNodeName = this.$gettext('Personal')
       }
       return [
         {

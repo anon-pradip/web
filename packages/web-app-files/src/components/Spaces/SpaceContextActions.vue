@@ -27,11 +27,12 @@ import {
   useSpaceActionsEditReadmeContent,
   useSpaceActionsRename,
   useSpaceActionsRestore,
-  useSpaceActionsShowMembers
+  useSpaceActionsShowMembers,
+  useSpaceActionsSetIcon
 } from '@ownclouders/web-pkg'
 import { isLocationSpacesActive } from '@ownclouders/web-pkg'
 import { computed, defineComponent, PropType, Ref, ref, toRef, unref, VNodeRef } from 'vue'
-import { useRouter, useStore, usePreviewService } from '@ownclouders/web-pkg'
+import { useRouter, usePreviewService } from '@ownclouders/web-pkg'
 import { FileActionOptions, SpaceActionOptions } from '@ownclouders/web-pkg'
 import { useFileActionsDownloadArchive } from '@ownclouders/web-pkg'
 
@@ -46,7 +47,6 @@ export default defineComponent({
   },
   setup(props) {
     const router = useRouter()
-    const store = useStore()
     const previewService = usePreviewService()
 
     const actionOptions = toRef(props, 'actionOptions') as Ref<SpaceActionOptions>
@@ -55,29 +55,29 @@ export default defineComponent({
       return previewService.getSupportedMimeTypes('image/').join(',')
     })
 
-    const { actions: deleteActions } = useSpaceActionsDelete({ store })
-    const { actions: disableActions } = useSpaceActionsDisable({ store })
-    const { actions: duplicateActions } = useSpaceActionsDuplicate({ store })
-    const { actions: editQuotaActions } = useSpaceActionsEditQuota({ store })
-    const { actions: editDescriptionActions } = useSpaceActionsEditDescription({ store })
-    const { actions: editReadmeContentActions } = useSpaceActionsEditReadmeContent({ store })
-    const { actions: renameActions } = useSpaceActionsRename({ store })
-    const { actions: restoreActions } = useSpaceActionsRestore({ store })
-    const { actions: showDetailsActions } = useFileActionsShowDetails({ store })
-    const { actions: showMembersActions } = useSpaceActionsShowMembers({ store })
-    const { actions: downloadArchiveActions } = useFileActionsDownloadArchive({ store })
+    const { actions: deleteActions } = useSpaceActionsDelete()
+    const { actions: disableActions } = useSpaceActionsDisable()
+    const { actions: duplicateActions } = useSpaceActionsDuplicate()
+    const { actions: editQuotaActions } = useSpaceActionsEditQuota()
+    const { actions: editReadmeContentActions } = useSpaceActionsEditReadmeContent()
+    const { actions: editDescriptionActions } = useSpaceActionsEditDescription()
+    const { actions: setSpaceIconActions } = useSpaceActionsSetIcon()
+    const { actions: renameActions } = useSpaceActionsRename()
+    const { actions: restoreActions } = useSpaceActionsRestore()
+    const { actions: showDetailsActions } = useFileActionsShowDetails()
+    const { actions: showMembersActions } = useSpaceActionsShowMembers()
+    const { actions: downloadArchiveActions } = useFileActionsDownloadArchive()
     const { actions: navigateToTrashActions } = useSpaceActionsNavigateToTrash()
 
     const spaceImageInput: VNodeRef = ref(null)
     const { actions: uploadImageActions, uploadImageSpace } = useSpaceActionsUploadImage({
-      store,
       spaceImageInput
     })
 
     const menuItemsMembers = computed(() => {
       const fileHandlers = [...unref(showMembersActions), ...unref(downloadArchiveActions)]
       // HACK: downloadArchiveActions requires FileActionOptions but we have SpaceActionOptions
-      return [...fileHandlers].filter((item) => item.isEnabled(unref(actionOptions) as any))
+      return [...fileHandlers].filter((item) => item.isVisible(unref(actionOptions) as any))
     })
 
     const menuItemsPrimaryActions = computed(() => {
@@ -85,13 +85,14 @@ export default defineComponent({
         ...unref(renameActions),
         ...unref(duplicateActions),
         ...unref(editDescriptionActions),
-        ...unref(uploadImageActions)
+        ...unref(uploadImageActions),
+        ...unref(setSpaceIconActions)
       ]
 
       if (isLocationSpacesActive(router, 'files-spaces-generic')) {
         fileHandlers.splice(2, 0, ...unref(editReadmeContentActions))
       }
-      return [...fileHandlers].filter((item) => item.isEnabled(unref(actionOptions)))
+      return [...fileHandlers].filter((item) => item.isVisible(unref(actionOptions)))
     })
 
     const menuItemsSecondaryActions = computed(() => {
@@ -103,14 +104,14 @@ export default defineComponent({
         ...unref(deleteActions)
       ]
 
-      return [...fileHandlers].filter((item) => item.isEnabled(unref(actionOptions)))
+      return [...fileHandlers].filter((item) => item.isVisible(unref(actionOptions)))
     })
 
     const menuItemsSidebar = computed(() => {
       const fileHandlers = [...unref(showDetailsActions)]
       return [...fileHandlers].filter((item) =>
         // HACK: showDetails provides FileAction[] but we have SpaceActionOptions, so we need to cast them to FileActionOptions
-        item.isEnabled(unref(actionOptions) as unknown as FileActionOptions)
+        item.isVisible(unref(actionOptions) as unknown as FileActionOptions)
       )
     })
 

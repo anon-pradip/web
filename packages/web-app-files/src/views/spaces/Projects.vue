@@ -10,7 +10,7 @@
         :has-pagination="false"
         :is-side-bar-open="isSideBarOpen"
         :view-modes="viewModes"
-        :view-mode-default="ViewModeConstants.tilesView.name"
+        :view-mode-default="FolderViewModeConstants.name.tiles"
       >
         <template #actions>
           <create-space v-if="hasCreatePermission" class="oc-mr-s" />
@@ -44,24 +44,42 @@
               autocomplete="off"
             />
           </div>
-          <resource-tiles
-            v-if="viewMode === ViewModeConstants.tilesView.name"
+          <component
+            :is="folderView.component"
             v-model:selectedIds="selectedResourcesIds"
-            class="oc-px-m"
-            :data="paginatedItems"
+            resource-type="space"
+            :are-thumbnails-displayed="true"
+            :resources="paginatedItems"
+            :fields-displayed="tableDisplayFields"
             :sort-fields="sortFields"
             :sort-by="sortBy"
             :sort-dir="sortDir"
+            :header-position="fileListHeaderY"
+            :view-size="viewSize"
+            v-bind="folderView.componentAttrs?.()"
             @sort="handleSort"
             @row-mounted="rowMounted"
           >
             <template #image="{ resource }">
-              <img
-                v-if="imageContentObject[resource.id]"
-                class="tile-preview"
-                :src="imageContentObject[resource.id]['data']"
-                alt=""
-              />
+              <template v-if="viewMode === FolderViewModeConstants.name.tiles">
+                <img
+                  v-if="imageContentObject[resource.id]"
+                  class="tile-preview"
+                  :src="imageContentObject[resource.id]['data']"
+                  alt=""
+                />
+              </template>
+              <template v-else>
+                <img
+                  v-if="imageContentObject[resource.id]"
+                  class="table-preview oc-mr-s"
+                  :src="imageContentObject[resource.id]['data']"
+                  alt=""
+                  width="33"
+                  height="33"
+                />
+                <resource-icon v-else class="oc-mr-s" :resource="resource" />
+              </template>
             </template>
             <template #actions="{ resource }">
               <oc-button
@@ -73,7 +91,7 @@
                 <oc-icon name="group" fill-type="line" />
               </oc-button>
             </template>
-            <template #contextMenuActions="{ resource }">
+            <template #contextMenu="{ resource }">
               <space-context-actions
                 :action-options="{ resources: [resource] as SpaceResource[] }"
               />
@@ -85,27 +103,7 @@
                 <p v-if="filterTerm" class="oc-text-muted">{{ footerTextFilter }}</p>
               </div>
             </template>
-          </resource-tiles>
-          <resource-table
-            v-else
-            v-model:selectedIds="selectedResourcesIds"
-            :resources="paginatedItems"
-            class="spaces-table"
-            :class="{ 'spaces-table-squashed': isSideBarOpen }"
-            :sticky="false"
-            :fields-displayed="tableDisplayFields"
-            :are-thumbnails-displayed="true"
-            :sort-fields="sortFields"
-            :sort-by="sortBy"
-            :sort-dir="sortDir"
-            @sort="handleSort"
-            @row-mounted="rowMounted"
-          >
-            <template #contextMenu="{ resource }">
-              <space-context-actions
-                :action-options="{ resources: [resource] as SpaceResource[] }"
-              />
-            </template>
+            <!--- table -->
             <template #status="{ resource }">
               <span v-if="resource.disabled" class="oc-flex oc-flex-middle">
                 <oc-icon name="stop-circle" fill-type="line" class="oc-mr-s" /><span
@@ -129,25 +127,7 @@
             </template>
             <template #usedQuota="{ resource }"> {{ getUsedQuota(resource) }}</template>
             <template #remainingQuota="{ resource }"> {{ getRemainingQuota(resource) }}</template>
-            <template #image="{ resource }">
-              <img
-                v-if="imageContentObject[resource.id]"
-                class="table-preview oc-mr-s"
-                :src="imageContentObject[resource.id]['data']"
-                alt=""
-                width="33"
-                height="33"
-              />
-              <oc-resource-icon v-else class="oc-mr-s" :resource="resource" />
-            </template>
-            <template #footer>
-              <pagination :pages="totalPages" :current-page="currentPage" />
-              <div class="oc-text-nowrap oc-text-center oc-width-1-1 oc-my-s">
-                <p class="oc-text-muted">{{ footerTextTotal }}</p>
-                <p v-if="filterTerm" class="oc-text-muted">{{ footerTextFilter }}</p>
-              </div>
-            </template>
-          </resource-table>
+          </component>
         </div>
       </template>
     </files-view-wrapper>
@@ -171,28 +151,31 @@ import {
   onBeforeUnmount
 } from 'vue'
 import { useTask } from 'vue-concurrency'
-import { mapMutations } from 'vuex'
 import Mark from 'mark.js'
 import Fuse from 'fuse.js'
 
-import { AppLoadingSpinner } from '@ownclouders/web-pkg'
+import {
+  AppLoadingSpinner,
+  useConfigStore,
+  useResourcesStore,
+  useSpacesStore,
+  useExtensionRegistry
+} from '@ownclouders/web-pkg'
 
 import { AppBar } from '@ownclouders/web-pkg'
 import CreateSpace from '../../components/AppBar/CreateSpace.vue'
 import {
   useAbility,
   useClientService,
-  ViewModeConstants,
+  FolderViewModeConstants,
   useRouteQueryPersisted,
   useSort,
-  useStore,
   useRouteName,
   usePagination,
   useRouter,
   useRoute,
   Pagination,
   FileSideBar,
-  configurationManager,
   ImageDimension,
   NoContentMessage,
   ProcessorType,
@@ -204,23 +187,15 @@ import {
   ProjectSpaceResource,
   Resource,
   SpaceResource
-} from '@ownclouders/web-client/src/helpers'
+} from '@ownclouders/web-client'
 import FilesViewWrapper from '../../components/FilesViewWrapper.vue'
-import ResourceTiles from '../../components/FilesList/ResourceTiles.vue'
-import { ResourceTable } from '@ownclouders/web-pkg'
+import { ResourceTable, ResourceTiles } from '@ownclouders/web-pkg'
 import { eventBus } from '@ownclouders/web-pkg'
 import { SideBarEventTopics, useSideBar } from '@ownclouders/web-pkg'
-import { WebDAV } from '@ownclouders/web-client/src/webdav'
-import { useScrollTo } from '@ownclouders/web-pkg'
-import { useSelectedResources } from '@ownclouders/web-pkg'
-import { sortFields as availableSortFields } from '../../helpers/ui/resourceTiles'
-import { defaultFuseOptions, formatFileSize } from '@ownclouders/web-pkg'
+import { WebDAV } from '@ownclouders/web-client/webdav'
+import { sortFields as availableSortFields } from '@ownclouders/web-pkg'
+import { defaultFuseOptions, formatFileSize, ResourceIcon } from '@ownclouders/web-pkg'
 import { useGettext } from 'vue3-gettext'
-import {
-  spaceRoleEditor,
-  spaceRoleManager,
-  spaceRoleViewer
-} from '@ownclouders/web-client/src/helpers/share'
 import { useKeyboardActions } from '@ownclouders/web-pkg'
 import {
   useKeyboardTableNavigation,
@@ -228,6 +203,8 @@ import {
   useKeyboardTableActions
 } from 'web-app-files/src/composables/keyboardActions'
 import { orderBy } from 'lodash-es'
+import { useResourcesViewDefaults } from '../../composables'
+import { folderViewsProjectSpacesExtensionPoint } from '../../extensionPoints'
 
 export default defineComponent({
   components: {
@@ -238,26 +215,45 @@ export default defineComponent({
     FilesViewWrapper,
     NoContentMessage,
     Pagination,
+    ResourceIcon,
     ResourceTiles,
     ResourceTable,
     SpaceContextActions
   },
   setup() {
-    const store = useStore()
+    const spacesStore = useSpacesStore()
     const router = useRouter()
     const route = useRoute()
     const clientService = useClientService()
-    const { selectedResourcesIds, selectedResources } = useSelectedResources({ store })
     const { can } = useAbility()
     const { current: currentLanguage, $gettext } = useGettext()
     const filterTerm = ref('')
     const markInstance = ref(undefined)
-    const imageContentObject = ref({})
+    const imageContentObject = ref<Record<string, { fileId: string; data: string }>>({})
     const previewService = usePreviewService()
-    let loadPreviewToken = null
+    const configStore = useConfigStore()
 
-    const runtimeSpaces = computed((): SpaceResource[] => {
-      return store.getters['runtime/spaces/spaces'].filter((s) => isProjectSpaceResource(s)) || []
+    const { setSelection, initResourceList, clearResourceList } = useResourcesStore()
+
+    const loadResourcesTask = useTask(function* () {
+      clearResourceList()
+      yield spacesStore.reloadProjectSpaces({ graphClient: clientService.graphAuthenticated })
+      initResourceList({ currentFolder: null, resources: unref(spaces) })
+    })
+
+    const {
+      viewSize,
+      fileListHeaderY,
+      scrollToResourceFromRoute,
+      areResourcesLoading,
+      selectedResourcesIds,
+      selectedResources
+    } = useResourcesViewDefaults({ loadResourcesTask })
+
+    let loadPreviewToken: string = null
+
+    const runtimeSpaces = computed(() => {
+      return spacesStore.spaces.filter(isProjectSpaceResource) || []
     })
     const selectedSpace = computed(() => {
       if (unref(selectedResources).length === 1) {
@@ -323,29 +319,22 @@ export default defineComponent({
       })
     })
 
-    const { scrollToResourceFromRoute } = useScrollTo()
-
-    const loadResourcesTask = useTask(function* () {
-      store.commit('Files/CLEAR_FILES_SEARCHED')
-      store.commit('Files/CLEAR_CURRENT_FILES_LIST')
-      yield store.dispatch('runtime/spaces/reloadProjectSpaces', {
-        graphClient: clientService.graphAuthenticated
-      })
-      store.commit('Files/LOAD_FILES', { currentFolder: null, files: unref(spaces) })
-    })
-
-    const areResourcesLoading = computed(() => {
-      return loadResourcesTask.isRunning || !loadResourcesTask.last
-    })
-
     const hasCreatePermission = computed(() => can('create-all', 'Drive'))
-    const viewModes = computed(() => [ViewModeConstants.default, ViewModeConstants.tilesView])
+
+    const extensionRegistry = useExtensionRegistry()
+    const viewModes = computed(() => {
+      return [
+        ...extensionRegistry
+          .requestExtensions(folderViewsProjectSpacesExtensionPoint)
+          .map((e) => e.folderView)
+      ]
+    })
 
     const routeName = useRouteName()
 
     const viewMode = useRouteQueryPersisted({
-      name: `${unref(routeName)}-${ViewModeConstants.queryName}`,
-      defaultValue: ViewModeConstants.tilesView.name
+      name: `${unref(routeName)}-${FolderViewModeConstants.queryName}`,
+      defaultValue: FolderViewModeConstants.name.tiles
     })
 
     const keyActions = useKeyboardActions()
@@ -354,7 +343,7 @@ export default defineComponent({
     useKeyboardTableActions(keyActions)
 
     const getManagerNames = (space: SpaceResource) => {
-      const allManagers = space.spaceRoles[spaceRoleManager.name]
+      const allManagers = space.spaceRoles.manager
       const managers = allManagers.length > 2 ? allManagers.slice(0, 2) : allManagers
       let managerStr = managers.map((m) => m.displayName).join(', ')
       if (allManagers.length > 2) {
@@ -383,11 +372,7 @@ export default defineComponent({
       return formatFileSize(space.spaceQuota.remaining, currentLanguage)
     }
     const getMemberCount = (space: SpaceResource) => {
-      return (
-        space.spaceRoles[spaceRoleManager.name].length +
-        space.spaceRoles[spaceRoleEditor.name].length +
-        space.spaceRoles[spaceRoleViewer.name].length
-      )
+      return Object.values(space.spaceRoles).flat().length
     }
 
     onMounted(async () => {
@@ -420,13 +405,13 @@ export default defineComponent({
       })
     })
 
-    const displayThumbnails = computed(() => configurationManager.options.displayThumbnails)
+    const displayThumbnails = computed(() => configStore.options.displayThumbnails)
 
-    const rowMounted = (space) => {
+    const rowMounted = (space: SpaceResource) => {
       loadPreview(space)
     }
 
-    const loadPreview = async (space) => {
+    const loadPreview = async (space: SpaceResource) => {
       if (!unref(displayThumbnails) || !space.spaceImageData) {
         return
       }
@@ -436,12 +421,12 @@ export default defineComponent({
       })
 
       const processor =
-        unref(viewMode) === ViewModeConstants.tilesView.name
+        unref(viewMode) === FolderViewModeConstants.name.tiles
           ? ProcessorType.enum.fit
           : ProcessorType.enum.thumbnail
 
       const dimensions =
-        unref(viewMode) === ViewModeConstants.tilesView.name
+        unref(viewMode) === FolderViewModeConstants.name.tiles
           ? ImageDimension.Tile
           : ImageDimension.Thumbnail
 
@@ -458,6 +443,11 @@ export default defineComponent({
       }
     }
 
+    const folderView = computed(() => {
+      const viewModeName = unref(viewMode) || FolderViewModeConstants.name.tiles
+      return unref(viewModes).find((v) => v.name === viewModeName)
+    })
+
     return {
       ...useSideBar(),
       spaces,
@@ -473,8 +463,9 @@ export default defineComponent({
       hasCreatePermission,
       viewModes,
       viewMode,
+      folderView,
       tableDisplayFields,
-      ViewModeConstants,
+      FolderViewModeConstants,
       getManagerNames,
       getTotalQuota,
       getUsedQuota,
@@ -488,7 +479,10 @@ export default defineComponent({
       footerTextFilter,
       items,
       imageContentObject,
-      rowMounted
+      rowMounted,
+      setSelection,
+      viewSize,
+      fileListHeaderY
     }
   },
   computed: {
@@ -506,9 +500,8 @@ export default defineComponent({
     }
   },
   methods: {
-    ...mapMutations('Files', ['SET_FILE_SELECTION']),
     openSidebarSharePanel(space: SpaceResource) {
-      this.SET_FILE_SELECTION([space])
+      this.setSelection([space.id])
       eventBus.publish(SideBarEventTopics.openWithPanel, 'space-share')
     }
   }

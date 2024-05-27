@@ -1,16 +1,25 @@
+import { LinkShare } from '@ownclouders/web-client'
+import { useMessages } from '@ownclouders/web-pkg'
 import NameAndCopy from 'web-app-files/src/components/SideBar/Shares/Links/NameAndCopy.vue'
-import { createStore, defaultPlugins, mount, defaultStoreMockOptions } from 'web-test-helpers'
+import { defaultPlugins, mount } from 'web-test-helpers'
 
-jest.useFakeTimers()
+const linkShare = {
+  displayName: 'Example link',
+  webUrl: 'https://some-url.com/abc'
+} as LinkShare
 
-const exampleLink = {
-  name: 'Example link',
-  url: 'https://some-url.com/abc'
-}
-
+// @vitest-environment jsdom
 describe('NameAndCopy', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
   // ignore tippy warning
-  jest.spyOn(console, 'warn').mockImplementation(undefined)
+  vi.spyOn(console, 'warn').mockImplementation(undefined)
   it('should show link info component including a copy-to-clipboard button', () => {
     const { wrapper } = getWrapper()
     expect(wrapper.html()).toMatchSnapshot()
@@ -18,19 +27,20 @@ describe('NameAndCopy', () => {
   it('upon clicking it should copy the private link to the clipboard button, render a success message and change icon for half a second', async () => {
     Object.assign(window.navigator, {
       clipboard: {
-        writeText: jest.fn().mockImplementation(() => Promise.resolve())
+        writeText: vi.fn().mockImplementation(() => Promise.resolve())
       }
     })
 
-    const { wrapper, storeOptions } = getWrapper()
-    expect(storeOptions.actions.showMessage).not.toHaveBeenCalled()
+    const { wrapper } = getWrapper()
+    const { showMessage } = useMessages()
+    expect(showMessage).not.toHaveBeenCalled()
 
     await wrapper.find('.oc-files-public-link-copy-url').trigger('click')
-    expect(window.navigator.clipboard.writeText).toHaveBeenCalledWith(exampleLink.url)
+    expect(window.navigator.clipboard.writeText).toHaveBeenCalledWith(linkShare.webUrl)
     expect(wrapper.html()).toMatchSnapshot()
-    expect(storeOptions.actions.showMessage).toHaveBeenCalledTimes(1)
+    expect(showMessage).toHaveBeenCalledTimes(1)
 
-    jest.advanceTimersByTime(550)
+    vi.advanceTimersByTime(550)
 
     wrapper.vm.$nextTick(() => {
       expect(wrapper.html()).toMatchSnapshot()
@@ -39,19 +49,15 @@ describe('NameAndCopy', () => {
 })
 
 function getWrapper() {
-  const storeOptions = defaultStoreMockOptions
-  storeOptions.getters.capabilities.mockImplementation(() => ({ files: { privateLinks: true } }))
-  const store = createStore(storeOptions)
   return {
-    storeOptions,
     wrapper: mount(NameAndCopy, {
       props: {
-        link: exampleLink
+        linkShare
       },
       global: {
-        plugins: [...defaultPlugins(), store],
+        plugins: [...defaultPlugins()],
         directives: {
-          'oc-tooltip': jest.fn()
+          'oc-tooltip': vi.fn()
         }
       }
     })

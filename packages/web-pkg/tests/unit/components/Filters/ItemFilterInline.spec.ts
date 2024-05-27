@@ -1,12 +1,18 @@
 import ItemFilterInline from '../../../../src/components/Filters/ItemFilterInline.vue'
 import { InlineFilterOption } from '../../../../src/components/Filters/types'
-import { defaultComponentMocks, defaultPlugins, mount } from 'web-test-helpers'
+import {
+  defaultComponentMocks,
+  defaultPlugins,
+  mount,
+  PartialComponentProps
+} from 'web-test-helpers'
 import { queryItemAsString } from '../../../../src/composables/appDefaults'
-import { mock } from 'jest-mock-extended'
+import { mock } from 'vitest-mock-extended'
+import { unref } from 'vue'
 
-jest.mock('../../../../src/composables/appDefaults', () => ({
-  appDefaults: jest.fn(),
-  queryItemAsString: jest.fn()
+vi.mock('../../../../src/composables/appDefaults', () => ({
+  appDefaults: vi.fn(),
+  queryItemAsString: vi.fn()
 }))
 
 const selectors = {
@@ -35,7 +41,7 @@ describe('ItemFilterInline', () => {
   describe('route query', () => {
     it('sets the active option as query param', async () => {
       const { wrapper, mocks } = getWrapper({ props: { filterOptions } })
-      const currentRouteQuery = (mocks.$router.currentRoute as any).query
+      const currentRouteQuery = unref(mocks.$router.currentRoute).query
       expect(mocks.$router.push).not.toHaveBeenCalled()
       await wrapper.find(selectors.filterOption).trigger('click')
       expect(currentRouteQuery[wrapper.vm.queryParam]).toBeDefined()
@@ -50,14 +56,21 @@ describe('ItemFilterInline', () => {
   })
 })
 
-function getWrapper({ props = {}, initialQuery = '' } = {}) {
-  jest.mocked(queryItemAsString).mockImplementation(() => initialQuery)
+function getWrapper({
+  props = {},
+  initialQuery = ''
+}: {
+  props?: PartialComponentProps<typeof ItemFilterInline>
+  initialQuery?: string
+} = {}) {
+  vi.mocked(queryItemAsString).mockImplementation(() => initialQuery)
   const mocks = defaultComponentMocks()
   return {
     mocks,
     wrapper: mount(ItemFilterInline, {
       props: {
         filterName: 'InlineFilter',
+        filterOptions: [],
         ...props
       },
       global: {

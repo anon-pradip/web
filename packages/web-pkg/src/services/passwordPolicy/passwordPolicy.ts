@@ -8,11 +8,12 @@ import {
   MustContainRule,
   MustNotBeEmptyRule
 } from './rules'
-import { PasswordPolicyCapability } from '@ownclouders/web-client/src/ocs/capabilities'
-import get from 'lodash-es/get'
-import { Store } from 'vuex'
-import { PasswordPolicy } from 'password-sheriff'
+import { PasswordPolicyCapability } from '@ownclouders/web-client/ocs'
 import { GeneratePassword } from 'js-generate-password'
+import { CapabilityStore } from '../../composables'
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore
+import { PasswordPolicy } from 'password-sheriff'
 
 interface GeneratePasswordRules {
   length: number
@@ -32,8 +33,8 @@ export class PasswordPolicyService {
     this.language = language
   }
 
-  public initialize(store: Store<unknown>) {
-    this.capability = get(store, 'getters.capabilities.password_policy', {})
+  public initialize(capabilityStore: CapabilityStore) {
+    this.capability = capabilityStore.passwordPolicy
     this.buildGeneratePasswordRules()
     this.buildPolicy()
   }
@@ -90,7 +91,7 @@ export class PasswordPolicyService {
       mustContain: new MustContainRule({ ...this.language }),
       atMostCharacters: new AtMostCharactersRule({ ...this.language })
     }
-    const rules = {} as any
+    const rules = {} as Record<string, unknown>
 
     if (this.useDefaultRules()) {
       rules.mustNotBeEmpty = {}

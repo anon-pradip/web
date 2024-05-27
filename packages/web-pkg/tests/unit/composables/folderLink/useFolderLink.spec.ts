@@ -1,37 +1,6 @@
-import { mock } from 'jest-mock-extended'
-import {
-  createStore,
-  defaultComponentMocks,
-  defaultStoreMockOptions,
-  getComposableWrapper
-} from 'web-test-helpers'
-import { useFolderLink } from '../../../../src/composables'
-import { ConfigurationManager } from '../../../../src/configuration'
-
-jest.mock('../../../../src/configuration', () => {
-  return {
-    configurationManager: {
-      options: {
-        routing: {
-          fullShareOwnerPaths: false,
-          idBased: true
-        }
-      }
-    }
-  }
-})
-
-jest.mock('../../../../src/composables/configuration', () => ({
-  useConfigurationManager: () =>
-    mock<ConfigurationManager>({
-      options: {
-        routing: {
-          fullShareOwnerPaths: false,
-          idBased: true
-        }
-      }
-    })
-}))
+import { defaultComponentMocks, getComposableWrapper } from 'web-test-helpers'
+import { CapabilityStore, useFolderLink } from '../../../../src/composables'
+import { Resource, SpaceResource } from '@ownclouders/web-client'
 
 describe('useFolderLink', () => {
   it('getFolderLink should return the correct folder link', () => {
@@ -74,27 +43,17 @@ describe('useFolderLink', () => {
       const resource = {
         path: '/my-folder',
         storageId: '1'
-      }
+      } as Resource
 
       const wrapper = createWrapper()
       const parentFolderName = wrapper.vm.getParentFolderName(resource)
       expect(parentFolderName).toEqual('Personal')
     })
-    it('should equal "All files and folders" if share jail disabled', () => {
-      const resource = {
-        path: '/my-folder',
-        storageId: '1'
-      }
-
-      const wrapper = createWrapper({ hasShareJail: false })
-      const parentFolderName = wrapper.vm.getParentFolderName(resource)
-      expect(parentFolderName).toEqual('All files and folders')
-    })
     it('should equal the space name if resource storage is representing a project space', () => {
       const resource = {
         path: '/my-folder',
         storageId: '2'
-      }
+      } as Resource
 
       const wrapper = createWrapper()
       const parentFolderName = wrapper.vm.getParentFolderName(resource)
@@ -103,10 +62,10 @@ describe('useFolderLink', () => {
     it('should equal the "Shared with me" if resource is representing the root share', () => {
       const resource = {
         path: '/My share',
-        shareRoot: '/My share',
-        shareId: '1',
+        remoteItemPath: '/My share',
+        remoteItemId: '1',
         isShareRoot: () => true
-      }
+      } as Resource
 
       const wrapper = createWrapper()
       const parentFolderName = wrapper.vm.getParentFolderName(resource)
@@ -115,9 +74,9 @@ describe('useFolderLink', () => {
     it('should equal the share name if resource is representing a file or folder in the root of a share', () => {
       const resource = {
         path: '/My share/test.txt',
-        shareRoot: '/My share',
-        shareId: '1'
-      }
+        remoteItemPath: '/My share',
+        remoteItemId: '1'
+      } as Resource
 
       const wrapper = createWrapper()
       const parentFolderName = wrapper.vm.getParentFolderName(resource)
@@ -126,12 +85,8 @@ describe('useFolderLink', () => {
   })
 })
 
-const createWrapper = ({ hasShareJail = true }: { hasShareJail?: boolean } = {}) => {
-  const storeOptions = { ...defaultStoreMockOptions }
-  storeOptions.getters.capabilities.mockImplementation(() => ({
-    spaces: { projects: true, share_jail: hasShareJail }
-  }))
-  storeOptions.modules.runtime.modules.spaces.getters.spaces = jest.fn(() => [
+const createWrapper = () => {
+  const spaces = [
     {
       id: '1',
       fileId: '1',
@@ -142,11 +97,15 @@ const createWrapper = ({ hasShareJail = true }: { hasShareJail?: boolean } = {})
       id: '2',
       driveType: 'project',
       name: 'New space',
-      getDriveAliasAndItem: jest.fn()
+      getDriveAliasAndItem: vi.fn()
     }
-  ])
-  const store = createStore(storeOptions)
+  ] as unknown as SpaceResource[]
+
   const mocks = defaultComponentMocks({})
+  const capabilities = {
+    spaces: { projects: true }
+  } satisfies Partial<CapabilityStore['capabilities']>
+
   return getComposableWrapper(
     () => {
       const {
@@ -166,7 +125,9 @@ const createWrapper = ({ hasShareJail = true }: { hasShareJail?: boolean } = {})
     {
       mocks,
       provide: mocks,
-      store
+      pluginOptions: {
+        piniaOptions: { spacesState: { spaces }, capabilityState: { capabilities } }
+      }
     }
   )
 }

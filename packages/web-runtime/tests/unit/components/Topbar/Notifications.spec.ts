@@ -1,15 +1,11 @@
 import Notifications from 'web-runtime/src/components/Topbar/Notifications.vue'
-import { Notification, NotificationAction } from 'web-runtime/src/helpers/notifications'
-import { mock, mockDeep } from 'jest-mock-extended'
-import {
-  createStore,
-  defaultComponentMocks,
-  defaultPlugins,
-  shallowMount,
-  defaultStoreMockOptions
-} from 'web-test-helpers'
-import { OwnCloudSdk } from '@ownclouders/web-client/src/types'
+import { Notification } from 'web-runtime/src/helpers/notifications'
+import { mock } from 'vitest-mock-extended'
+import { defaultComponentMocks, defaultPlugins, shallowMount } from 'web-test-helpers'
 import { SpaceResource } from '@ownclouders/web-client'
+import { RouterLink, RouteLocationNamedRaw, RouteLocationNormalizedLoaded } from 'vue-router'
+import { AxiosResponse } from 'axios'
+import Avatar from 'web-runtime/src/components/Avatar.vue'
 
 const selectors = {
   notificationBellStub: 'notification-bell-stub',
@@ -20,13 +16,13 @@ const selectors = {
   notificationItem: '.oc-notifications-item',
   notificationSubject: '.oc-notifications-subject',
   notificationMessage: '.oc-notifications-message',
-  notificationLink: '.oc-notifications-link',
-  notificationActions: '.oc-notifications-actions'
+  notificationLink: '.oc-notifications-link'
 }
 
-jest.mock('@ownclouders/web-pkg', () => ({
-  ...jest.requireActual('@ownclouders/web-pkg'),
-  useServerSentEvents: jest.fn()
+vi.mock('@ownclouders/web-pkg', async (importOriginal) => ({
+  ...(await importOriginal<any>()),
+  queryItemAsString: vi.fn(),
+  useAppDefaults: vi.fn()
 }))
 
 describe('Notification component', () => {
@@ -37,9 +33,14 @@ describe('Notification component', () => {
     expect(wrapper.find(selectors.markAll).exists()).toBeFalsy()
   })
   it('renders a set of notifications', async () => {
-    const notifications = [mock<Notification>({ messageRich: undefined })]
+    const notifications = [
+      mock<Notification>({
+        messageRich: undefined,
+        computedMessage: undefined,
+        computedLink: undefined
+      })
+    ]
     const { wrapper } = getWrapper({ notifications })
-    await wrapper.vm.fetchNotificationsTask.perform()
     await wrapper.vm.fetchNotificationsTask.last
     expect(wrapper.find(selectors.noNewNotifications).exists()).toBeFalsy()
     expect(wrapper.findAll(selectors.notificationItem).length).toBe(notifications.length)
@@ -47,20 +48,17 @@ describe('Notification component', () => {
   it('renders the loading state', async () => {
     const notifications = [mock<Notification>({ messageRich: undefined })]
     const { wrapper } = getWrapper({ notifications })
-    await wrapper.vm.fetchNotificationsTask.perform()
-    await wrapper.vm.fetchNotificationsTask.last
-    wrapper.vm.loading = true
     await wrapper.vm.$nextTick()
     expect(wrapper.find(selectors.notificationsLoading).exists()).toBeTruthy()
   })
   it('marks all notifications as read', async () => {
     const notifications = [mock<Notification>({ messageRich: undefined })]
     const { wrapper, mocks } = getWrapper({ notifications })
-    await wrapper.vm.fetchNotificationsTask.perform()
     await wrapper.vm.fetchNotificationsTask.last
     await wrapper.find(selectors.markAll).trigger('click')
+    await wrapper.vm.$nextTick()
     expect(wrapper.find(selectors.notificationItem).exists()).toBeFalsy()
-    expect(mocks.$clientService.owncloudSdk.requests.ocs).toHaveBeenCalledTimes(3)
+    expect(mocks.$clientService.httpAuthenticated.delete).toHaveBeenCalledTimes(1)
   })
   describe('avatar', () => {
     it('loads based on the username', async () => {
@@ -69,9 +67,8 @@ describe('Notification component', () => {
         user: 'einstein'
       })
       const { wrapper } = getWrapper({ notifications: [notification] })
-      await wrapper.vm.fetchNotificationsTask.perform()
       await wrapper.vm.fetchNotificationsTask.last
-      const avatarImageStub = wrapper.findComponent<any>(selectors.avatarImageStub)
+      const avatarImageStub = wrapper.findComponent<typeof Avatar>(selectors.avatarImageStub)
       expect(avatarImageStub.attributes('userid')).toEqual(notification.user)
       expect(avatarImageStub.attributes('user-name')).toEqual(notification.user)
     })
@@ -83,9 +80,8 @@ describe('Notification component', () => {
         messageRichParameters: { user: { displayname, name } }
       })
       const { wrapper } = getWrapper({ notifications: [notification] })
-      await wrapper.vm.fetchNotificationsTask.perform()
       await wrapper.vm.fetchNotificationsTask.last
-      const avatarImageStub = wrapper.findComponent<any>(selectors.avatarImageStub)
+      const avatarImageStub = wrapper.findComponent<typeof Avatar>(selectors.avatarImageStub)
       expect(avatarImageStub.attributes('userid')).toEqual(name)
       expect(avatarImageStub.attributes('user-name')).toEqual(displayname)
     })
@@ -94,10 +90,11 @@ describe('Notification component', () => {
     it('displays if no message given', async () => {
       const notification = mock<Notification>({
         messageRich: undefined,
-        message: undefined
+        message: undefined,
+        computedMessage: undefined,
+        computedLink: undefined
       })
       const { wrapper } = getWrapper({ notifications: [notification] })
-      await wrapper.vm.fetchNotificationsTask.perform()
       await wrapper.vm.fetchNotificationsTask.last
       expect(wrapper.find(selectors.notificationSubject).exists()).toBeTruthy()
     })
@@ -106,12 +103,12 @@ describe('Notification component', () => {
     it('displays simple message if messageRich not given', async () => {
       const notification = mock<Notification>({
         messageRich: undefined,
-        message: 'some message'
+        message: 'some message',
+        computedMessage: undefined,
+        computedLink: undefined
       })
       const { wrapper } = getWrapper({ notifications: [notification] })
-      await wrapper.vm.fetchNotificationsTask.perform()
       await wrapper.vm.fetchNotificationsTask.last
-      wrapper.vm.showDrop()
       await wrapper.vm.$nextTick()
       expect(wrapper.find(selectors.notificationMessage).text()).toEqual(notification.message)
     })
@@ -121,12 +118,12 @@ describe('Notification component', () => {
         messageRichParameters: {
           user: { displayname: 'Albert Einstein' },
           resource: { name: 'someFile.txt' }
-        }
+        },
+        computedMessage: undefined,
+        computedLink: undefined
       })
       const { wrapper } = getWrapper({ notifications: [notification] })
-      await wrapper.vm.fetchNotificationsTask.perform()
       await wrapper.vm.fetchNotificationsTask.last
-      wrapper.vm.showDrop()
       await wrapper.vm.$nextTick()
       expect(wrapper.find(selectors.notificationMessage).text()).toEqual(
         'Albert Einstein shared someFile.txt with you'
@@ -137,10 +134,11 @@ describe('Notification component', () => {
     it('displays if given directly', async () => {
       const notification = mock<Notification>({
         messageRich: undefined,
+        computedMessage: undefined,
+        computedLink: undefined,
         link: 'http://some-link.com'
       })
       const { wrapper } = getWrapper({ notifications: [notification] })
-      await wrapper.vm.fetchNotificationsTask.perform()
       await wrapper.vm.fetchNotificationsTask.last
       expect(wrapper.find(selectors.notificationLink).exists()).toBeTruthy()
     })
@@ -153,18 +151,21 @@ describe('Notification component', () => {
             user: { displayname: 'Albert Einstein' },
             resource: { name: 'someFile.txt' },
             share: { id: '1' }
-          }
+          },
+          computedMessage: undefined,
+          computedLink: undefined
         })
         const { wrapper } = getWrapper({ notifications: [notification] })
-        await wrapper.vm.fetchNotificationsTask.perform()
         await wrapper.vm.fetchNotificationsTask.last
-        wrapper.vm.showDrop()
         await wrapper.vm.$nextTick()
-        const routerLink = wrapper.findComponent<any>(
+
+        const routerLink = wrapper.findComponent<typeof RouterLink>(
           `${selectors.notificationItem} router-link-stub`
         )
-        expect(routerLink.props('to').name).toEqual('files-shares-with-me')
-        expect(routerLink.props('to').query).toEqual({
+        expect((routerLink.props('to') as RouteLocationNamedRaw).name).toEqual(
+          'files-shares-with-me'
+        )
+        expect((routerLink.props('to') as RouteLocationNamedRaw).query).toEqual({
           scrollTo: notification.messageRichParameters.share.id
         })
       })
@@ -180,76 +181,44 @@ describe('Notification component', () => {
           messageRichParameters: {
             user: { displayname: 'Albert Einstein' },
             space: { name: 'someFile.txt', id: `${spaceMock.fileId}!2` }
-          }
+          },
+          computedMessage: undefined,
+          computedLink: undefined
         })
         const { wrapper } = getWrapper({ notifications: [notification], spaces: [spaceMock] })
-        await wrapper.vm.fetchNotificationsTask.perform()
         await wrapper.vm.fetchNotificationsTask.last
-        wrapper.vm.showDrop()
         await wrapper.vm.$nextTick()
-        const routerLink = wrapper.findComponent<any>(
+        const routerLink = wrapper.findComponent<typeof RouterLink>(
           `${selectors.notificationItem} router-link-stub`
         )
-        expect(routerLink.props('to').params).toEqual({
+        expect((routerLink.props('to') as RouteLocationNormalizedLoaded).params).toEqual({
           driveAliasAndItem: 'driveAlias'
         })
       })
     })
   })
-  describe('actions', () => {
-    it('display if given', async () => {
-      const notification = mock<Notification>({
-        messageRich: undefined,
-        actions: [mock<NotificationAction>()]
-      })
-      const { wrapper } = getWrapper({ notifications: [notification] })
-      await wrapper.vm.fetchNotificationsTask.perform()
-      await wrapper.vm.fetchNotificationsTask.last
-      expect(wrapper.find(selectors.notificationActions).exists()).toBeTruthy()
-    })
-    it('remove the notification when triggered', async () => {
-      const notification = mock<Notification>({
-        notification_id: '1',
-        messageRich: undefined,
-        actions: [mock<NotificationAction>({ link: 'http://some-link.com' })]
-      })
-      const { wrapper, mocks } = getWrapper({ notifications: [notification] })
-      await wrapper.vm.fetchNotificationsTask.perform()
-      await wrapper.vm.fetchNotificationsTask.last
-      expect(wrapper.find(selectors.notificationItem).exists()).toBeTruthy()
-      const jsonResponse = {
-        json: jest.fn().mockResolvedValue({ ocs: { data: {} } })
-      }
-      mocks.$clientService.owncloudSdk.requests.ocs.mockResolvedValue(
-        mockDeep<Response>(jsonResponse)
-      )
-      await wrapper.find(`${selectors.notificationActions} button`).trigger('click')
-      await wrapper.vm.$nextTick()
-      expect(wrapper.find(selectors.notificationItem).exists()).toBeFalsy()
-    })
-  })
 })
 
-function getWrapper({ mocks = {}, notifications = [], spaces = [] } = {}) {
+function getWrapper({
+  mocks = {},
+  notifications = [],
+  spaces = []
+}: {
+  mocks?: Record<string, unknown>
+  notifications?: Notification[]
+  spaces?: SpaceResource[]
+} = {}) {
   const localMocks = { ...defaultComponentMocks(), ...mocks }
-  const clientMock = mockDeep<OwnCloudSdk>()
-  const jsonResponse = {
-    json: jest.fn().mockResolvedValue({ ocs: { data: notifications } }),
-    headers: {}
-  }
-  clientMock.requests.ocs.mockResolvedValue(mockDeep<Response>(jsonResponse))
-  localMocks.$clientService.owncloudSdk = clientMock
+  localMocks.$clientService.httpAuthenticated.get.mockResolvedValue(
+    mock<AxiosResponse>({ data: { ocs: { data: notifications } }, headers: {} })
+  )
 
-  const storeOptions = { ...defaultStoreMockOptions }
-  storeOptions.modules.runtime.modules.spaces.getters.spaces.mockReturnValue(spaces)
-  const store = createStore(storeOptions)
   return {
     mocks: localMocks,
-    storeOptions,
     wrapper: shallowMount(Notifications, {
       global: {
         renderStubDefaultSlot: true,
-        plugins: [...defaultPlugins(), store],
+        plugins: [...defaultPlugins({ piniaOptions: { spacesState: { spaces } } })],
         mocks: localMocks,
         provide: localMocks,
         stubs: { 'avatar-image': true, OcButton: false }

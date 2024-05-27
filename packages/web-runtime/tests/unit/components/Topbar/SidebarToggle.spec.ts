@@ -1,12 +1,6 @@
 import SidebarToggle from '../../../../src/components/Topbar/SideBarToggle.vue'
 import { eventBus } from '@ownclouders/web-pkg/src/services'
-import {
-  createStore,
-  defaultPlugins,
-  mount,
-  defaultStoreMockOptions,
-  defaultComponentMocks
-} from 'web-test-helpers'
+import { defaultPlugins, mount, defaultComponentMocks } from 'web-test-helpers'
 
 const selectors = {
   toggleSidebarBtn: '#files-toggle-sidebar'
@@ -23,24 +17,21 @@ describe('SidebarToggle component', () => {
   )
   it('publishes the toggle-event to the sidebar on click', async () => {
     const { wrapper } = getWrapper()
-    const eventSpy = jest.spyOn(eventBus, 'publish')
+    const eventSpy = vi.spyOn(eventBus, 'publish')
     await wrapper.find(selectors.toggleSidebarBtn).trigger('click')
     expect(eventSpy).toHaveBeenCalled()
   })
 })
 
 function getWrapper({ isSideBarOpen = false } = {}) {
-  const storeOptions = { ...defaultStoreMockOptions }
-  const store = createStore(storeOptions)
   const mocks = defaultComponentMocks()
   return {
-    storeOptions,
     mocks,
     wrapper: mount(SidebarToggle, {
       props: { isSideBarOpen },
       global: {
         mocks,
-        plugins: [...defaultPlugins(), store]
+        plugins: [...defaultPlugins()]
       }
     })
   }

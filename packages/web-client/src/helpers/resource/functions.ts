@@ -1,18 +1,10 @@
 import path, { basename, dirname } from 'path'
 import { urlJoin } from '../../utils'
 import { DavPermission, DavProperty } from '../../webdav/constants'
-import { Resource, WebDavResponseResource } from './types'
+import { Resource, ResourceIndicator, WebDavResponseResource } from './types'
 
 const fileExtensions = {
   complex: ['tar.bz2', 'tar.gz', 'tar.xz']
-}
-
-export function buildWebDavFilesPath(userId: string, path: string) {
-  return '/' + `files/${userId}/${path}`.split('/').filter(Boolean).join('/')
-}
-
-export function buildWebDavFilesTrashPath(userId: string, path = '') {
-  return '/' + `trash-bin/${userId}/${path}`.split('/').filter(Boolean).join('/')
 }
 
 export const extractDomSelector = (str: string): string => {
@@ -71,7 +63,6 @@ export const extractParentFolderName = (resource: Resource): string | null => {
 }
 
 export const isShareRoot = (resource: Resource) => {
-  // FIXME: does not work for OCS resources (re-shares), see workaround in useResourceRouteResolver
   return typeof resource.isShareRoot === 'function' && resource.isShareRoot()
 }
 
@@ -95,7 +86,8 @@ export function buildResource(resource: WebDavResponseResource): Resource {
   const extension = extractExtensionFromFile({ ...resource, id, name, path: resourcePath })
 
   const lock = resource.props[DavProperty.LockDiscovery]
-  let activeLock: string, lockOwnerName: string, lockTime: string
+  let activeLock: { [DavProperty.LockOwnerName]?: string; [DavProperty.LockTime]?: string }
+  let lockOwnerName: string, lockTime: string
   if (lock) {
     activeLock = lock[DavProperty.ActiveLock]
     lockOwnerName = activeLock[DavProperty.LockOwnerName]
@@ -130,18 +122,19 @@ export function buildResource(resource: WebDavResponseResource): Resource {
     size: isFolder
       ? resource.props[DavProperty.ContentSize]?.toString() || '0'
       : resource.props[DavProperty.ContentLength]?.toString() || '0',
-    indicators: [],
+    indicators: [] as ResourceIndicator[],
     permissions: resource.props[DavProperty.Permissions] || '',
     starred: resource.props[DavProperty.IsFavorite] !== 0,
     etag: resource.props[DavProperty.ETag],
-    sharePermissions: resource.props[DavProperty.SharePermissions],
     shareTypes,
     privateLink: resource.props[DavProperty.PrivateLink],
     downloadURL: resource.props[DavProperty.DownloadURL],
-    shareId: resource.props[DavProperty.ShareId],
-    shareRoot: resource.props[DavProperty.ShareRoot],
-    ownerId: resource.props[DavProperty.OwnerId],
-    ownerDisplayName: resource.props[DavProperty.OwnerDisplayName],
+    remoteItemId: resource.props[DavProperty.RemoteItemId],
+    remoteItemPath: resource.props[DavProperty.ShareRoot],
+    owner: {
+      id: resource.props[DavProperty.OwnerId],
+      displayName: resource.props[DavProperty.OwnerDisplayName]
+    },
     tags: (resource.props[DavProperty.Tags] || '').split(',').filter(Boolean),
     audio: resource.props[DavProperty.Audio],
     location: resource.props[DavProperty.Location],

@@ -20,7 +20,8 @@ import {
   createLocationShares,
   locationSharesViaLink,
   locationSharesWithMe,
-  locationSharesWithOthers
+  locationSharesWithOthers,
+  RouteShareTypes
 } from './shares'
 import {
   buildRoutes as buildSpacesRoutes,
@@ -39,7 +40,7 @@ const ROOT_ROUTE = {
   name: 'root',
   path: '/',
   redirect: (to) => createLocationSpaces('files-spaces-generic', to)
-}
+} as RouteRecordRaw
 
 const buildRoutes = (components: RouteComponents): RouteRecordRaw[] => [
   ROOT_ROUTE,
@@ -72,3 +73,5 @@ export {
   buildRoutes,
   ActiveRouteDirectorFunc
 }
+
+export type { RouteShareTypes }

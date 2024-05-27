@@ -8,8 +8,6 @@
       mode="click"
       :options="{ pos: 'bottom-right', delayHide: 0 }"
       class="oc-overflow-auto"
-      @hide-drop="hideDrop"
-      @show-drop="showDrop"
     >
       <div class="oc-flex oc-flex-between oc-flex-middle oc-mb-s">
         <span class="oc-text-bold oc-text-large oc-m-rm" v-text="$gettext('Notifications')" />
@@ -17,7 +15,7 @@
           v-if="notifications.length"
           class="oc-notifications-mark-all"
           appearance="raw"
-          @click="deleteNotifications(notifications.map((n) => n.notification_id))"
+          @click="deleteNotificationsTask.perform(notifications.map((n) => n.notification_id))"
           ><span v-text="$gettext('Mark all as read')"
         /></oc-button>
       </div>
@@ -58,18 +56,6 @@
                 >
                   <a :href="el.link" target="_blank" v-text="el.link" />
                 </div>
-                <div v-if="el.actions?.length" class="oc-notifications-actions oc-my-s">
-                  <oc-button
-                    v-for="(action, actionIndex) in el.actions"
-                    :key="index + '-' + actionIndex"
-                    size="small"
-                    :variation="action.primary ? 'primary' : 'passive'"
-                    @click.prevent="
-                      executeAction(el.app, action.link, action.type, el.notification_id)
-                    "
-                    >{{ action.label }}
-                  </oc-button>
-                </div>
                 <div v-if="el.datetime" class="oc-text-small oc-text-muted oc-mt-xs">
                   <span
                     v-oc-tooltip="formatDate(el.datetime)"
@@ -87,23 +73,23 @@
   </div>
 </template>
 <script lang="ts">
-import { onMounted, onUnmounted, ref, unref } from 'vue'
+import { computed, onMounted, onUnmounted, ref, unref } from 'vue'
 import isEmpty from 'lodash-es/isEmpty'
-import { eventBus, useCapabilityCoreSSE } from '@ownclouders/web-pkg'
-import { ShareStatus } from '@ownclouders/web-client/src/helpers/share'
-import NotificationBell from './NotificationBell.vue'
-import { Notification } from '../../helpers/notifications'
 import {
+  useCapabilityStore,
+  useSpacesStore,
+  createFileRouteOptions,
   formatDateFromISO,
   formatRelativeDateFromISO,
-  useClientService,
-  useRoute,
-  useStore
+  useClientService
 } from '@ownclouders/web-pkg'
+import NotificationBell from './NotificationBell.vue'
+import { Notification } from '../../helpers/notifications'
 import { useGettext } from 'vue3-gettext'
 import { useTask } from 'vue-concurrency'
-import { createFileRouteOptions } from '@ownclouders/web-pkg'
-import { MESSAGE_TYPE } from '@ownclouders/web-client/src/sse'
+import { MESSAGE_TYPE } from '@ownclouders/web-client/sse'
+import { call } from '@ownclouders/web-client'
+import { AxiosHeaders } from 'axios'
 
 const POLLING_INTERVAL = 30000
 
@@ -112,21 +98,22 @@ export default {
     NotificationBell
   },
   setup() {
-    const store = useStore()
+    const spacesStore = useSpacesStore()
+    const capabilityStore = useCapabilityStore()
     const clientService = useClientService()
     const { current: currentLanguage } = useGettext()
-    const route = useRoute()
 
     const notifications = ref<Notification[]>([])
-    const loading = ref(false)
     const notificationsInterval = ref()
-    const dropdownOpened = ref(false)
-    const sseEnabled = useCapabilityCoreSSE()
 
-    const formatDate = (date) => {
+    const loading = computed(() => {
+      return fetchNotificationsTask.isRunning || deleteNotificationsTask.isRunning
+    })
+
+    const formatDate = (date: string) => {
       return formatDateFromISO(date, currentLanguage)
     }
-    const formatDateRelative = (date) => {
+    const formatDateRelative = (date: string) => {
       return formatRelativeDateFromISO(date, currentLanguage)
     }
 
@@ -136,7 +123,7 @@ export default {
       { name: 'space', labelAttribute: 'name' },
       { name: 'virus', labelAttribute: 'name' }
     ]
-    const getMessage = ({ message, messageRich, messageRichParameters }: Notification) => {
+    const getMessage = ({ message, messageRich, messageRichParameters }: Notification): string => {
       if (messageRich && !isEmpty(messageRichParameters)) {
         let interpolatedMessage = messageRich
         for (const param of messageParameters) {
@@ -172,7 +159,7 @@ export default {
         }
       }
       if (object_type === 'storagespace' && messageRichParameters?.space?.id) {
-        const space = store.getters['runtime/spaces/spaces'].find(
+        const space = spacesStore.spaces.find(
           (s) => s.fileId === messageRichParameters?.space?.id.split('!')[0] && !s.disabled
         )
         if (space) {
@@ -185,129 +172,62 @@ export default {
       return null
     }
 
-    const setAdditionalData = () => {
-      loading.value = true
-      for (const notification of unref(notifications)) {
-        notification.computedMessage = getMessage(notification)
-        notification.computedLink = getLink(notification)
-      }
-      loading.value = false
-    }
-
     const fetchNotificationsTask = useTask(function* (signal) {
-      loading.value = true
       try {
-        const response = yield clientService.owncloudSdk.requests.ocs({
-          service: 'apps/notifications',
-          action: 'api/v1/notifications'
-        })
+        const response = yield* call(
+          clientService.httpAuthenticated.get<{ ocs: { data: Notification[] } }>(
+            'ocs/v2.php/apps/notifications/api/v1/notifications'
+          )
+        )
 
-        if (response.headers.get('Content-Length') === '0') {
+        if ((response.headers as AxiosHeaders).get('Content-Length') === '0') {
           return
         }
 
         const {
           ocs: { data = [] }
-        } = yield response.json()
-        notifications.value =
-          data?.sort((a, b) => (new Date(b.datetime) as any) - (new Date(a.datetime) as any)) || []
+        } = response.data
+        notifications.value = data?.sort((a, b) => b.datetime.localeCompare(a.datetime)) || []
+        unref(notifications).forEach((notification) => setAdditionalNotificationData(notification))
       } catch (e) {
         console.error(e)
-      } finally {
-        if (unref(dropdownOpened)) {
-          setAdditionalData()
-        }
-        loading.value = false
       }
     }).restartable()
 
-    const deleteNotifications = async (ids: string[]) => {
-      loading.value = true
+    const deleteNotificationsTask = useTask(function* (signal, ids) {
       try {
-        const { status } = await clientService.owncloudSdk.requests.ocs({
-          service: 'apps/notifications',
-          action: `api/v1/notifications`,
-          method: 'DELETE',
-          data: { ids }
-        })
-        if (status === 405) {
-          // oC10
-          const promises = []
-          for (const id of ids) {
-            promises.push(
-              clientService.owncloudSdk.requests.ocs({
-                service: 'apps/notifications',
-                action: `api/v1/notifications/${id}`,
-                method: 'DELETE'
-              })
-            )
-          }
-          return Promise.resolve(promises)
-        }
+        yield clientService.httpAuthenticated.delete(
+          'ocs/v2.php/apps/notifications/api/v1/notifications',
+          { data: { ids } }
+        )
       } catch (e) {
         console.error(e)
       } finally {
         notifications.value = unref(notifications).filter((n) => !ids.includes(n.notification_id))
-        loading.value = false
       }
+    }).restartable()
+
+    const setAdditionalNotificationData = (notification: Notification) => {
+      notification.computedMessage = getMessage(notification)
+      notification.computedLink = getLink(notification)
     }
 
-    const executeAction = async (app, link, type, notificationId) => {
-      try {
-        const response = await clientService.owncloudSdk.requests.ocs({
-          service: 'apps/' + app,
-          action: link.slice(link.lastIndexOf('api')),
-          method: type
-        })
-        const {
-          ocs: { data }
-        } = await response.json()
-
-        await deleteNotifications([notificationId])
-
-        for (const item in data) {
-          const currentPath = unref(route).params.item ? `/${unref(route).params.item}` : '/'
-          const { state, path, file_target: fileTarget } = item as any
-
-          // accepted federated share
-          if (state === ShareStatus.accepted && fileTarget) {
-            eventBus.publish('app.files.list.load')
-            return
-          }
-
-          const itemPath = path?.slice(0, path.lastIndexOf('/') + 1)
-          if (itemPath === currentPath) {
-            eventBus.publish('app.files.list.load')
-          }
-        }
-      } catch (e) {
-        console.error(e)
-      }
-    }
-
-    const onSSENotificationEvent = (event) => {
+    const onSSENotificationEvent = (event: MessageEvent) => {
       try {
         const notification = JSON.parse(event.data) as Notification
         if (!notification || !notification.notification_id) {
           return
         }
+        setAdditionalNotificationData(notification)
         notifications.value = [notification, ...unref(notifications)]
       } catch (_) {
         console.error('Unable to parse sse notification data')
       }
     }
 
-    const hideDrop = () => {
-      dropdownOpened.value = false
-    }
-    const showDrop = () => {
-      dropdownOpened.value = true
-      setAdditionalData()
-    }
-
-    onMounted(async () => {
+    onMounted(() => {
       fetchNotificationsTask.perform()
-      if (unref(sseEnabled)) {
+      if (unref(capabilityStore.supportSSE)) {
         clientService.sseAuthenticated.addEventListener(
           MESSAGE_TYPE.NOTIFICATION,
           onSSENotificationEvent
@@ -320,7 +240,7 @@ export default {
     })
 
     onUnmounted(() => {
-      if (unref(sseEnabled)) {
+      if (unref(capabilityStore.supportSSE)) {
         clientService.sseAuthenticated.removeEventListener(
           MESSAGE_TYPE.NOTIFICATION,
           onSSENotificationEvent
@@ -334,15 +254,11 @@ export default {
       notifications,
       fetchNotificationsTask,
       loading,
-      dropdownOpened,
-      deleteNotifications,
-      executeAction,
+      deleteNotificationsTask,
       formatDate,
       formatDateRelative,
       getMessage,
-      getLink,
-      hideDrop,
-      showDrop
+      getLink
     }
   }
 }

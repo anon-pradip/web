@@ -15,19 +15,27 @@ import { UsersEnvironment } from '../../environment'
 
 export const createUser = async ({ user, admin }: { user: User; admin: User }): Promise<User> => {
   if (config.keycloak) {
-    return keycloakCreateUser({ user, admin })
+    return await keycloakCreateUser({ user, admin })
   }
-  return graphCreateUser({ user, admin })
+  return await graphCreateUser({ user, admin })
 }
 
 export const deleteUser = async ({ user, admin }: { user: User; admin: User }): Promise<User> => {
   if (config.keycloak) {
-    return keycloakDeleteUser({ user, admin })
+    return await keycloakDeleteUser({ user, admin })
   }
-  return graphDeleteUser({ user, admin })
+  return await graphDeleteUser({ user, admin })
 }
 
-export const assignRole = async ({ admin, user, role }): Promise<void> => {
+export const assignRole = async ({
+  admin,
+  user,
+  role
+}: {
+  admin: User
+  user: User
+  role: string
+}): Promise<void> => {
   if (config.keycloak) {
     const usersEnvironment = new UsersEnvironment()
     const createdUser = usersEnvironment.getCreatedUser({ key: user.id })

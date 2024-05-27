@@ -1,10 +1,12 @@
 import { Capabilities, GetCapabilitiesFactory } from './capabilities'
 import { AxiosInstance } from 'axios'
+import { UrlSign } from './urlSign'
 
-export type { Capabilities } from './capabilities'
+export * from './capabilities'
 
 export interface OCS {
   getCapabilities: () => Promise<Capabilities>
+  signUrl: (url: string, username: string) => Promise<string>
 }
 
 export const ocs = (baseURI: string, axiosClient: AxiosInstance): OCS => {
@@ -14,9 +16,14 @@ export const ocs = (baseURI: string, axiosClient: AxiosInstance): OCS => {
 
   const capabilitiesFactory = GetCapabilitiesFactory(ocsV1BaseURI, axiosClient)
 
+  const urlSign = new UrlSign({ baseURI, axiosClient })
+
   return {
     getCapabilities: () => {
       return capabilitiesFactory.getCapabilities()
+    },
+    signUrl: (url: string, username: string) => {
+      return urlSign.signUrl(url, username)
     }
   }
 }

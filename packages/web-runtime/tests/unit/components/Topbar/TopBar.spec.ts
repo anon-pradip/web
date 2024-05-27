@@ -1,19 +1,15 @@
+import { Capabilities } from '@ownclouders/web-client/ocs'
+import { ApplicationInformation } from '@ownclouders/web-pkg'
+import { mock } from 'vitest-mock-extended'
 import { computed } from 'vue'
 import TopBar from 'web-runtime/src/components/Topbar/TopBar.vue'
-import {
-  createStore,
-  defaultComponentMocks,
-  defaultPlugins,
-  shallowMount,
-  defaultStoreMockOptions
-} from 'web-test-helpers'
-import { createMockThemeStore } from 'web-test-helpers/src/mocks/pinia'
+import { defaultComponentMocks, defaultPlugins, shallowMount } from 'web-test-helpers'
 
-const mockUseEmbedMode = jest.fn().mockReturnValue({ isEnabled: computed(() => false) })
+const mockUseEmbedMode = vi.fn().mockReturnValue({ isEnabled: computed(() => false) })
 
-jest.mock('@ownclouders/web-pkg', () => ({
-  ...jest.requireActual('@ownclouders/web-pkg'),
-  useEmbedMode: jest.fn().mockImplementation(() => mockUseEmbedMode())
+vi.mock('@ownclouders/web-pkg', async (importOriginal) => ({
+  ...(await importOriginal<any>()),
+  useEmbedMode: vi.fn().mockImplementation(() => mockUseEmbedMode())
 }))
 
 describe('Top Bar component', () => {
@@ -32,15 +28,11 @@ describe('Top Bar component', () => {
     })
     it('should not display in an unauthenticated context', () => {
       const { wrapper } = getWrapper({
-        isUserContextReady: false,
+        userContextReady: false,
         capabilities: {
           notifications: { 'ocs-endpoints': ['list', 'get', 'delete'] }
         }
       })
-      expect(wrapper.find('notifications-stub').exists()).toBeFalsy()
-    })
-    it('should not display if capability is missing', () => {
-      const { wrapper } = getWrapper()
       expect(wrapper.find('notifications-stub').exists()).toBeFalsy()
     })
     it('should not display if endpoint list is missing', () => {
@@ -50,7 +42,7 @@ describe('Top Bar component', () => {
       expect(wrapper.find('notifications-stub').exists()).toBeFalsy()
     })
   })
-  it.each(['applications-menu', 'theme-switcher', 'feedback-link', 'notifications', 'user-menu'])(
+  it.each(['applications-menu', 'feedback-link', 'notifications', 'user-menu'])(
     'should hide %s when mode is "embed"',
     (componentName) => {
       mockUseEmbedMode.mockReturnValue({
@@ -61,7 +53,7 @@ describe('Top Bar component', () => {
       expect(wrapper.find(`${componentName}-stub`).exists()).toBeFalsy()
     }
   )
-  it.each(['applications-menu', 'theme-switcher', 'feedback-link', 'notifications', 'user-menu'])(
+  it.each(['applications-menu', 'feedback-link', 'notifications', 'user-menu'])(
     'should not hide %s when mode is not "embed"',
     (componentName) => {
       mockUseEmbedMode.mockReturnValue({
@@ -78,30 +70,33 @@ describe('Top Bar component', () => {
   )
 })
 
-const getWrapper = ({ capabilities = {}, isUserContextReady = true } = {}) => {
+const getWrapper = ({
+  capabilities = {},
+  userContextReady = true
+}: { capabilities?: Partial<Capabilities['capabilities']>; userContextReady?: boolean } = {}) => {
   const mocks = { ...defaultComponentMocks() }
-  const storeOptions = {
-    ...defaultStoreMockOptions,
-    getters: {
-      ...defaultStoreMockOptions.getters,
-      capabilities: () => capabilities
-    }
-  }
-  storeOptions.getters.configuration.mockImplementation(() => ({
-    options: { disableFeedbackLink: false }
-  }))
-  storeOptions.getters.user.mockImplementation(() => ({ id: 'einstein' }))
-  storeOptions.modules.runtime.modules.auth.getters.isUserContextReady.mockReturnValue(
-    isUserContextReady
-  )
-  const store = createStore(storeOptions)
+
   return {
     wrapper: shallowMount(TopBar, {
       props: {
-        applicationsList: ['testApp']
+        applicationsList: [
+          mock<ApplicationInformation>({
+            type: 'extension',
+            icon: '',
+            applicationMenu: { enabled: () => true }
+          })
+        ]
       },
       global: {
-        plugins: [...defaultPlugins(), store, createMockThemeStore()],
+        plugins: [
+          ...defaultPlugins({
+            piniaOptions: {
+              authState: { userContextReady },
+              capabilityState: { capabilities },
+              configState: { options: { disableFeedbackLink: false } }
+            }
+          })
+        ],
         stubs: { 'router-link': true, 'portal-target': true, notifications: true },
         mocks,
         provide: mocks

@@ -5,14 +5,15 @@
   "description": "ownCloud web integration of the reva app provider",
   "license": "AGPL-3.0",
   "devDependencies": {
+    "@types/uuid": "9.0.1",
     "web-test-helpers": "workspace:*"
   },
   "peerDependencies": {
     "@ownclouders/web-client": "workspace:*",
     "@ownclouders/web-pkg": "workspace:*",
     "uuid": "9.0.1",
-    "vue-concurrency": "4.0.1",
+    "vue-concurrency": "5.0.1",
     "vue3-gettext": "2.4.0",
-    "vuex": "4.1.0"
+    "zod": "3.22.4"
   }
 }

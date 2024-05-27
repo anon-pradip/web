@@ -4,15 +4,20 @@ import { Resource } from '@ownclouders/web-client'
 import { MaybeRef } from '../../utils'
 import { ClientService } from '../../services'
 import { FileContext } from './types'
-import { FileResource, SpaceResource } from '@ownclouders/web-client/src/helpers'
+import { FileResource, SpaceResource } from '@ownclouders/web-client'
 import { useClientService } from '../clientService'
-import { ListFilesOptions } from '@ownclouders/web-client/src/webdav/listFiles'
-import { WebDAV } from '@ownclouders/web-client/src/webdav'
+import { ListFilesOptions } from '@ownclouders/web-client/webdav'
+import { WebDAV } from '@ownclouders/web-client/webdav'
+import { useCapabilityStore, useUserStore } from '../piniaStores'
 
 interface AppFileHandlingOptions {
   clientService: ClientService
 }
 
+export type FileContentOptions = { responseType?: 'arraybuffer' | 'blob' | 'text' } & Record<
+  string,
+  any
+>
 export type UrlForResourceOptions = Omit<Parameters<WebDAV['getFileUrl']>[2], 'isUrlSigningEnabled'>
 
 export interface AppFileHandlingResult {
@@ -23,10 +28,7 @@ export interface AppFileHandlingResult {
   ): Promise<string>
   revokeUrl(url: string): void
   getFileInfo(fileContext: MaybeRef<FileContext>, options?: ListFilesOptions): Promise<Resource>
-  getFileContents(
-    fileContext: MaybeRef<FileContext>,
-    options?: { responseType?: 'arrayBuffer' | 'blob' | 'text' } & Record<string, any>
-  ): Promise<any>
+  getFileContents(fileContext: MaybeRef<FileContext>, options?: FileContentOptions): Promise<any>
   putFileContents(
     fileContext: MaybeRef<FileContext>,
     putFileOptions: { content?: string } & Record<string, any>
@@ -37,9 +39,17 @@ export function useAppFileHandling({
   clientService: { webdav }
 }: AppFileHandlingOptions): AppFileHandlingResult {
   const clientService = useClientService()
+  const capabilityStore = useCapabilityStore()
+  const userStore = useUserStore()
 
-  const getUrlForResource = (space: SpaceResource, resource: Resource, options?: any) => {
+  const getUrlForResource = (
+    space: SpaceResource,
+    resource: Resource,
+    options?: UrlForResourceOptions
+  ) => {
     return clientService.webdav.getFileUrl(space, resource, {
+      isUrlSigningEnabled: capabilityStore.supportUrlSigning,
+      username: userStore.user?.onPremisesSamAccountName,
       ...options
     })
   }
@@ -48,10 +58,10 @@ export function useAppFileHandling({
     return clientService.webdav.revokeUrl(url)
   }
 
-  // TODO: support query parameters, possibly needs porting away from owncloud-sdk
+  // TODO: support query parameters
   const getFileContents = (
     fileContext: MaybeRef<FileContext>,
-    options: { responseType?: 'arrayBuffer' | 'blob' | 'text' } & Record<string, any>
+    options: { responseType?: 'arraybuffer' | 'blob' | 'text' } & Record<string, any>
   ) => {
     return webdav.getFileContents(
       unref(unref(fileContext).space),

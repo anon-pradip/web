@@ -5,11 +5,10 @@ NOTIFICATIONS = 3
 
 ALPINE_GIT = "alpine/git:latest"
 APACHE_TIKA = "apache/tika:2.8.0.0"
-KEYCLOAK = "quay.io/keycloak/keycloak:22.0.4"
+KEYCLOAK = "quay.io/keycloak/keycloak:24.0.1"
 MINIO_MC = "minio/mc:RELEASE.2021-10-07T04-19-58Z"
 OC_CI_ALPINE = "owncloudci/alpine:latest"
 OC_CI_BAZEL_BUILDIFIER = "owncloudci/bazel-buildifier"
-OC_CI_CORE_NODEJS = "owncloudci/core:nodejs14"
 OC_CI_DRONE_ANSIBLE = "owncloudci/drone-ansible:latest"
 OC_CI_DRONE_SKIP_PIPELINE = "owncloudci/drone-skip-pipeline"
 OC_CI_GOLANG = "owncloudci/golang:1.22"
@@ -40,9 +39,8 @@ dir = {
     "ocis": "/var/www/owncloud/ocis",
     "commentsFile": "/var/www/owncloud/web/comments.file",
     "app": "/srv/app",
-    "config": "/srv/config",
-    "ocisConfig": "/srv/config/drone/config-ocis.json",
-    "ocisIdentifierRegistrationConfig": "/srv/config/drone/identifier-registration.yml",
+    "ocisConfig": "/var/www/owncloud/web/tests/drone/config-ocis.json",
+    "ocisIdentifierRegistrationConfig": "/var/www/owncloud/web/tests/drone/identifier-registration.yml",
     "ocisRevaDataRoot": "/srv/app/tmp/ocis/owncloud/data/",
     "testingDataDir": "/srv/app/testing/data/",
 }
@@ -116,9 +114,6 @@ go_step_volumes = [{
 }, {
     "name": "gopath",
     "path": "/go",
-}, {
-    "name": "configs",
-    "path": dir["config"],
 }]
 
 web_workspace = {
@@ -170,9 +165,14 @@ def beforePipelines(ctx):
 
 def stagePipelines(ctx):
     unit_test_pipelines = unitTests(ctx)
+
+    # run only unit tests when publishing a standalone package
+    if (determineReleasePackage(ctx) != None):
+        return unit_test_pipelines
+
     e2e_pipelines = e2eTests(ctx)
     keycloak_pipelines = e2eTestsOnKeycloak(ctx)
-    return unit_test_pipelines + pipelinesDependsOn(e2e_pipelines + keycloak_pipelines, unit_test_pipelines)
+    return unit_test_pipelines + buildAndTestDesignSystem(ctx) + pipelinesDependsOn(e2e_pipelines + keycloak_pipelines, unit_test_pipelines)
 
 def afterPipelines(ctx):
     return build(ctx) + pipelinesDependsOn(notify(), build(ctx))
@@ -548,8 +548,7 @@ def e2eTests(ctx):
                 restoreBuildArtifactCache(ctx, "playwright", ".playwright") + \
                 installPnpm() + \
                 installPlaywright() + \
-                restoreBuildArtifactCache(ctx, "web-dist", "dist") + \
-                setupServerConfigureWeb(params["logLevel"])
+                restoreBuildArtifactCache(ctx, "web-dist", "dist")
 
         if ctx.build.event == "cron":
             steps += restoreBuildArtifactCache(ctx, "ocis", "ocis")
@@ -661,7 +660,7 @@ def installPlaywright():
             "PLAYWRIGHT_BROWSERS_PATH": ".playwright",
         },
         "commands": [
-            "pnpm playwright install chromium",
+            "pnpm exec playwright install --with-deps",
         ],
     }]
 
@@ -771,6 +770,7 @@ def buildRelease(ctx):
             },
         ]
     else:
+        full_package_name = "%s/%s" % (WEB_PUBLISH_NPM_ORGANIZATION, package)
         steps.append(
             {
                 "name": "publish",
@@ -781,15 +781,18 @@ def buildRelease(ctx):
                     },
                 },
                 "commands": [
-                    "echo " + package + " " + version,
+                    "echo Build " + package + " " + version + " package.json: $(jq -r '.version' < packages/%s/package.json)" % package,
                     "[ \"$(jq -r '.version'  < packages/%s/package.json)\" = \"%s\" ] || (echo \"git tag does not match version in packages/%s/package.json\"; exit 1)" % (package, version, package),
                     "git checkout .",
                     "git clean -fd",
                     "git diff",
                     "git status",
+                    "pnpm build:tokens",
+                    "bash -c '[ \"%s\" == \"web-client\" ] && pnpm --filter \"%s\" vite build || true'" % (package, full_package_name),
+                    "bash -c '[ \"%s\" == \"web-pkg\" ] && pnpm --filter \"%s\" vite build || true'" % (package, full_package_name),
                     # until https://github.com/pnpm/pnpm/issues/5775 is resolved, we print pnpm whoami because that fails when the npm_token is invalid
                     "env \"npm_config_//registry.npmjs.org/:_authToken=$${NPM_TOKEN}\" pnpm whoami",
-                    "env \"npm_config_//registry.npmjs.org/:_authToken=$${NPM_TOKEN}\" pnpm publish --no-git-checks --filter %s --access public --tag latest" % ("%s/%s" % (WEB_PUBLISH_NPM_ORGANIZATION, package)),
+                    "env \"npm_config_//registry.npmjs.org/:_authToken=$${NPM_TOKEN}\" pnpm publish --no-git-checks --filter %s --access public --tag latest" % full_package_name,
                 ],
                 "when": {
                     "ref": [
@@ -903,10 +906,11 @@ def ocisService(type, tika_enabled = False, enforce_password_public_link = False
         "LDAP_GROUP_SUBSTRING_FILTER_TYPE": "any",
         "LDAP_USER_SUBSTRING_FILTER_TYPE": "any",
         "PROXY_ENABLE_BASIC_AUTH": True,
-        "WEB_ASSET_PATH": "%s/dist" % dir["web"],
+        "WEB_ASSET_CORE_PATH": "%s/dist" % dir["web"],
         "FRONTEND_SEARCH_MIN_LENGTH": "2",
         "FRONTEND_OCS_ENABLE_DENIALS": True,
-        "FRONTEND_PASSWORD_POLICY_BANNED_PASSWORDS_LIST": "%s/tests/drone/banned-passwords.txt" % dir["web"],
+        "OCIS_PASSWORD_POLICY_BANNED_PASSWORDS_LIST": "%s/tests/drone/banned-passwords.txt" % dir["web"],
+        "PROXY_CSP_CONFIG_FILE_LOCATION": "%s/tests/drone/csp.yaml" % dir["web"],
     }
     if type == "keycloak":
         environment["PROXY_AUTOPROVISION_ACCOUNTS"] = "true"
@@ -920,16 +924,18 @@ def ocisService(type, tika_enabled = False, enforce_password_public_link = False
         environment["OCIS_EXCLUDE_RUN_SERVICES"] = "idp"
         environment["GRAPH_ASSIGN_DEFAULT_USER_ROLE"] = "false"
         environment["GRAPH_USERNAME_MATCH"] = "none"
+        environment["KEYCLOAK_DOMAIN"] = "keycloak:8443"
+
     if type == "app-provider":
         environment["GATEWAY_GRPC_ADDR"] = "0.0.0.0:9142"
         environment["MICRO_REGISTRY"] = "nats-js-kv"
         environment["MICRO_REGISTRY_ADDRESS"] = "0.0.0.0:9233"
         environment["NATS_NATS_HOST"] = "0.0.0.0"
         environment["NATS_NATS_PORT"] = 9233
+        environment["COLLABORA_DOMAIN"] = "collabora:9980"
+        environment["ONLYOFFICE_DOMAIN"] = "onlyoffice:443"
     else:
         environment["WEB_UI_CONFIG_FILE"] = "%s" % dir["ocisConfig"]
-        environment["STORAGE_HOME_DRIVER"] = "ocis"
-        environment["STORAGE_USERS_DRIVER"] = "ocis"
 
     if tika_enabled:
         environment["FRONTEND_FULL_TEXT_SEARCH_ENABLED"] = True
@@ -962,9 +968,6 @@ def ocisService(type, tika_enabled = False, enforce_password_public_link = False
                 "name": "gopath",
                 "path": dir["app"],
             }, {
-                "name": "configs",
-                "path": dir["config"],
-            }, {
                 "name": "ocis-config",
                 "path": "/root/.ocis/config",
             }],
@@ -995,21 +998,6 @@ def checkForExistingOcisCache(ctx):
             ],
         },
     ]
-
-def setupServerConfigureWeb(logLevel):
-    return [{
-        "name": "setup-server-configure-web",
-        "image": OC_CI_PHP,
-        "commands": [
-            "mkdir -p /srv/config",
-            "cp -r %s/tests/drone /srv/config" % dir["web"],
-            "ls -la /srv/config/drone",
-        ],
-        "volumes": [{
-            "name": "configs",
-            "path": dir["config"],
-        }],
-    }]
 
 def copyFilesForUpload():
     return [{
@@ -1623,7 +1611,7 @@ def wopiServer():
         {
             "name": "wopiserver",
             "type": "docker",
-            "image": "cs3org/wopiserver:v10.2.2",
+            "image": "cs3org/wopiserver:v10.3.0",
             "detach": True,
             "commands": [
                 "echo 'LoremIpsum567' > /etc/wopi/wopisecret",
@@ -1739,6 +1727,56 @@ def appProviderService(name):
         },
     ]
 
+def buildDesignSystemDocs():
+    return [{
+        "name": "build-design-system-docs",
+        "image": OC_CI_NODEJS,
+        "commands": [
+            "pnpm --filter @ownclouders/design-system build:docs",
+        ],
+    }]
+
+def runDesignSystemDocsE2eTests():
+    return [{
+        "name": "run-design-system-docs-e2e-tests",
+        "image": OC_CI_NODEJS,
+        "environment": {
+            "PLAYWRIGHT_BROWSERS_PATH": ".playwright",
+        },
+        "commands": [
+            "pnpm --filter @ownclouders/design-system test:e2e",
+        ],
+    }]
+
+def buildAndTestDesignSystem(ctx):
+    design_system_trigger = {
+        "ref": [
+            "refs/heads/master",
+            "refs/heads/stable-*",
+            "refs/tags/**",
+            "refs/pull/**",
+        ],
+    }
+
+    steps = restoreBuildArtifactCache(ctx, "pnpm", ".pnpm-store") + \
+            restoreBuildArtifactCache(ctx, "playwright", ".playwright") + \
+            installPnpm() + \
+            installPlaywright() + \
+            buildDesignSystemDocs() + \
+            runDesignSystemDocsE2eTests()
+
+    return [{
+        "kind": "pipeline",
+        "type": "docker",
+        "name": "design-system-build-and-test",
+        "workspace": {
+            "base": dir["base"],
+            "path": config["app"],
+        },
+        "steps": steps,
+        "trigger": design_system_trigger,
+    }]
+
 def postgresService():
     return [
         {
@@ -1756,10 +1794,9 @@ def keycloakService():
     return [
         {
             "name": "generate-keycloak-certs",
-            "image": OC_UBUNTU,
+            "image": OC_CI_NODEJS,
             "commands": [
-                "apt install openssl -y",
-                "mkdir keycloak-certs",
+                "mkdir -p keycloak-certs",
                 "openssl req -x509 -newkey rsa:2048 -keyout keycloak-certs/keycloakkey.pem -out keycloak-certs/keycloakcrt.pem -nodes -days 365 -subj '/CN=keycloak'",
                 "chmod -R 777 keycloak-certs",
             ],
@@ -1797,7 +1834,7 @@ def keycloakService():
             "commands": [
                 "mkdir -p /opt/keycloak/data/import",
                 "cp tests/drone/ocis_keycloak/ocis-ci-realm.dist.json /opt/keycloak/data/import/ocis-realm.json",
-                "/opt/keycloak/bin/kc.sh start-dev --proxy edge --spi-connections-http-client-default-disable-trust-manager=false --import-realm --health-enabled=true",
+                "/opt/keycloak/bin/kc.sh start-dev --proxy=edge --spi-connections-http-client-default-disable-trust-manager=true --import-realm --health-enabled=true",
             ],
             "volumes": [
                 {
@@ -1838,6 +1875,7 @@ def e2eTestsOnKeycloak(ctx):
             "temp": {},
         },
     ]
+
     if not "full-ci" in ctx.build.title.lower() and ctx.build.event != "cron":
         return []
 
@@ -1846,8 +1884,7 @@ def e2eTestsOnKeycloak(ctx):
             installPnpm() + \
             installPlaywright() + \
             keycloakService() + \
-            restoreBuildArtifactCache(ctx, "web-dist", "dist") + \
-            setupServerConfigureWeb("2")
+            restoreBuildArtifactCache(ctx, "web-dist", "dist")
     if ctx.build.event == "cron":
         steps += restoreBuildArtifactCache(ctx, "ocis", "ocis")
     else:

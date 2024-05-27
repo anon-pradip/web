@@ -6,105 +6,49 @@
       <span v-text="$gettext('Skip to main')" />
     </skip-to>
     <component :is="layout"></component>
-    <portal-target name="app.runtime.modal" multiple />
-    <oc-modal
-      v-if="modal.displayed"
-      :variation="modal.variation"
-      :icon="modal.icon"
-      :title="modal.title"
-      :message="modal.message"
-      :has-input="modal.hasInput"
-      :input-description="modal.inputDescription"
-      :input-placeholder="modal.inputPlaceholder"
-      :input-disabled="modal.inputDisabled"
-      :input-error="modal.inputError"
-      :input-label="modal.inputLabel"
-      :input-selection-range="modal.inputSelectionRange"
-      :input-type="modal.inputType"
-      :input-value="modal.inputValue"
-      :without-button-confirm="modal.withoutButtonConfirm"
-      :button-cancel-text="modal.cancelText"
-      :button-confirm-text="modal.confirmText"
-      :button-confirm-disabled="modal.confirmDisabled || !!modal.inputError"
-      :contextual-helper-label="modal.contextualHelperLabel"
-      :contextual-helper-data="modal.contextualHelperData"
-      :hide-actions="modal.hideActions"
-      @cancel="onModalCancel"
-      @confirm="onModalConfirm"
-      @input="modal.onInput"
-      @mounted="focusModal"
-      @before-unmount="focusModal"
-    >
-      <template v-if="modal.customContent || modal.customComponent" #content>
-        <div v-if="modal.customContent" v-html="modal.customContent" />
-        <component
-          :is="modal.customComponent"
-          v-else
-          ref="modalComponent"
-          :modal="modal"
-          v-bind="modal.customComponentAttrs?.() || {}"
-        />
-      </template>
-    </oc-modal>
+    <modal-wrapper />
   </div>
 </template>
 <script lang="ts">
-import { mapGetters, mapState } from 'vuex'
 import SkipTo from './components/SkipTo.vue'
+import ModalWrapper from './components/ModalWrapper.vue'
 import { useLayout } from './composables/layout'
-import { computed, defineComponent, ref, unref, watch, VNodeRef } from 'vue'
+import { computed, defineComponent, unref, watch } from 'vue'
 import { additionalTranslations } from './helpers/additionalTranslations' // eslint-disable-line
-import { eventBus, useRouter, useStore, useThemeStore } from '@ownclouders/web-pkg'
+import { eventBus, useResourcesStore, useRouter, useThemeStore } from '@ownclouders/web-pkg'
 import { useHead } from './composables/head'
 import { RouteLocation } from 'vue-router'
 import { storeToRefs } from 'pinia'
+import { isEqual } from 'lodash-es'
 
 export default defineComponent({
   components: {
-    SkipTo
+    SkipTo,
+    ModalWrapper
   },
   setup() {
-    const store = useStore()
+    const resourcesStore = useResourcesStore()
     const themeStore = useThemeStore()
     const { currentTheme } = storeToRefs(themeStore)
 
     const router = useRouter()
-    useHead({ store })
+    useHead()
 
     const activeRoute = computed(() => router.resolve(unref(router.currentRoute)))
 
-    const { layout } = useLayout({ store, router })
-
-    const modalComponent = ref<VNodeRef>()
-    const onModalConfirm = (...args) => {
-      if (store.state.modal.onConfirm) {
-        return store.state.modal.onConfirm(...args, { component: modalComponent })
-      }
-      if ((unref(modalComponent) as any)?.onConfirm) {
-        return (unref(modalComponent) as any)?.onConfirm()
-      }
-    }
-
-    const onModalCancel = (...args) => {
-      if (store.state.modal.onCancel) {
-        return store.state.modal.onCancel(...args, { component: modalComponent })
-      }
-      if ((unref(modalComponent) as any)?.onCancel) {
-        return (unref(modalComponent) as any)?.onCancel()
-      }
-    }
+    const { layout } = useLayout({ router })
 
     watch(
       () => unref(activeRoute),
       (newRoute, oldRoute) => {
-        const getAppFromRoute = (route: RouteLocation): string => {
-          return route?.path?.split('/')?.[1]
+        const getAppContextFromRoute = (route: RouteLocation): string[] => {
+          return route?.path?.split('/').slice(1, 4)
         }
 
-        const oldApp = getAppFromRoute(oldRoute)
-        const newApp = getAppFromRoute(newRoute)
+        const oldAppContext = getAppContextFromRoute(oldRoute)
+        const newAppContext = getAppContextFromRoute(newRoute)
 
-        if (oldApp === newApp) {
+        if (isEqual(oldAppContext, newAppContext)) {
           return
         }
 
@@ -113,18 +57,15 @@ export default defineComponent({
         }
 
         /*
-         * If app has been changed and no file context is set, we will reset current folder.
+         * If app context has been changed and no file context is set, we will reset current folder.
          */
-        store.commit('Files/SET_CURRENT_FOLDER', null)
+        resourcesStore.setCurrentFolder(null)
       }
     )
 
     return {
       layout,
-      currentTheme,
-      modalComponent,
-      onModalConfirm,
-      onModalCancel
+      currentTheme
     }
   },
   data() {
@@ -133,10 +74,6 @@ export default defineComponent({
       announcement: '',
       activeBlobStyle: {}
     }
-  },
-  computed: {
-    ...mapState(['modal']),
-    ...mapGetters(['configuration'])
   },
   watch: {
     $route: {
@@ -155,25 +92,25 @@ export default defineComponent({
   mounted() {
     eventBus.subscribe(
       'runtime.documentTitle.changed',
-      ({ shortDocumentTitle, fullDocumentTitle }) => {
+      ({
+        shortDocumentTitle,
+        fullDocumentTitle
+      }: {
+        shortDocumentTitle: string
+        fullDocumentTitle: string
+      }) => {
         document.title = fullDocumentTitle
         this.announceRouteChange(shortDocumentTitle)
       }
     )
   },
   methods: {
-    focusModal(component, event) {
-      ;(this as any).focus({
-        revert: event === 'beforeUnmount'
-      })
-    },
-
-    announceRouteChange(pageTitle) {
+    announceRouteChange(pageTitle: string) {
       this.announcement = this.$gettext('Navigated to %{ pageTitle }', { pageTitle })
     },
 
-    extractPageTitleFromRoute(route) {
-      const routeTitle = route.meta.title ? this.$gettext(route.meta.title) : undefined
+    extractPageTitleFromRoute(route: RouteLocation) {
+      const routeTitle = route.meta.title ? this.$gettext(route.meta.title.toString()) : undefined
       if (!routeTitle) {
         return
       }

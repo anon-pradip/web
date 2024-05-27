@@ -3,9 +3,8 @@ import { buildRuntimeApi } from '../api'
 import { App } from 'vue'
 import { isFunction, isObject } from 'lodash-es'
 import { NextApplication } from './next'
-import { Store } from 'vuex'
 import { Router } from 'vue-router'
-import { ConfigurationManager, RuntimeError } from '@ownclouders/web-pkg'
+import { RuntimeError, useAppsStore } from '@ownclouders/web-pkg'
 import { AppConfigObject, AppReadyHookArgs, ClassicApplicationScript } from '@ownclouders/web-pkg'
 import { useExtensionRegistry } from '@ownclouders/web-pkg'
 import type { Language } from 'vue3-gettext'
@@ -25,7 +24,7 @@ class ClassicApplication extends NextApplication {
   }
 
   initialize(): Promise<void> {
-    const { routes, navItems, translations, quickActions, store } = this.applicationScript
+    const { routes, navItems, translations } = this.applicationScript
     const { globalProperties } = this.app.config
     const _routes = typeof routes === 'function' ? routes(globalProperties) : routes
     const _navItems = typeof navItems === 'function' ? navItems(globalProperties) : navItems
@@ -33,8 +32,6 @@ class ClassicApplication extends NextApplication {
     routes && this.runtimeApi.announceRoutes(_routes)
     navItems && this.runtimeApi.announceNavigationItems(_navItems)
     translations && this.runtimeApi.announceTranslations(translations)
-    quickActions && this.runtimeApi.announceQuickActions(quickActions)
-    store && this.runtimeApi.announceStore(store)
 
     return Promise.resolve(undefined)
   }
@@ -56,13 +53,12 @@ class ClassicApplication extends NextApplication {
       hook({
         ...(instance && {
           portal: {
-            open: (...args) => this.runtimeApi.openPortal.apply(instance, [instance, ...args])
+            open: (...args: unknown[]) =>
+              this.runtimeApi.openPortal.apply(instance, [instance, ...args])
           }
         }),
         instance,
-        store: this.runtimeApi.requestStore(),
         router: this.runtimeApi.requestRouter(),
-        announceExtension: this.runtimeApi.announceExtension,
         globalProperties: this.app.config.globalProperties
       })
   }
@@ -72,30 +68,25 @@ class ClassicApplication extends NextApplication {
  *
  * @param app
  * @param applicationPath
- * @param store
  * @param router
  * @param translations
  * @param supportedLanguages
  */
-export const convertClassicApplication = async ({
+export const convertClassicApplication = ({
   app,
   applicationScript,
   applicationConfig,
-  store,
   router,
   gettext,
-  supportedLanguages,
-  configurationManager
+  supportedLanguages
 }: {
   app: App
   applicationScript: ClassicApplicationScript
   applicationConfig: AppConfigObject
-  store: Store<unknown>
   router: Router
   gettext: Language
   supportedLanguages: { [key: string]: string }
-  configurationManager: ConfigurationManager
-}): Promise<NextApplication> => {
+}): NextApplication => {
   if (applicationScript.setup) {
     applicationScript = app.runWithContext(() => {
       return applicationScript.setup({
@@ -120,19 +111,26 @@ export const convertClassicApplication = async ({
     throw new RuntimeError("appInfo.name can't be blank")
   }
 
+  const extensionRegistry = useExtensionRegistry()
+
   const runtimeApi = buildRuntimeApi({
     applicationName,
     applicationId,
-    store,
     router,
     gettext,
-    supportedLanguages
+    supportedLanguages,
+    extensionRegistry
   })
 
-  await store.dispatch('registerApp', applicationScript.appInfo)
+  const appsStore = useAppsStore()
+  appsStore.registerApp(applicationScript.appInfo)
 
   if (applicationScript.extensions) {
-    useExtensionRegistry({ configurationManager }).registerExtensions(applicationScript.extensions)
+    extensionRegistry.registerExtensions(applicationScript.extensions)
+  }
+
+  if (applicationScript.extensionPoints) {
+    extensionRegistry.registerExtensionPoints(applicationScript.extensionPoints)
   }
 
   return new ClassicApplication(runtimeApi, applicationScript, app)

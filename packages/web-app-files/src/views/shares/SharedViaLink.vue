@@ -20,11 +20,9 @@
         </no-content-message>
         <resource-table
           v-else
-          id="files-shared-via-link-table"
           v-model:selectedIds="selectedResourcesIds"
-          class="files-table"
-          :class="{ 'files-table-squashed': isSideBarOpen }"
-          :fields-displayed="['name', 'sharedWith', 'sdate']"
+          :is-side-bar-open="isSideBarOpen"
+          :fields-displayed="['name', 'sdate']"
           :are-thumbnails-displayed="displayThumbnails"
           :are-paths-displayed="true"
           :resources="paginatedResources"
@@ -46,9 +44,9 @@
             <list-info
               v-if="paginatedResources.length > 0"
               class="oc-width-1-1 oc-my-s"
-              :files="totalFilesCount.files"
-              :folders="totalFilesCount.folders"
-              :spaces="totalFilesCount.spaces"
+              :files="totalResourcesCount.files"
+              :folders="totalResourcesCount.folders"
+              :spaces="totalResourcesCount.spaces"
               :show-spaces="hasProjectSpaces"
             />
           </template>
@@ -64,11 +62,15 @@
 </template>
 
 <script lang="ts">
-import { mapGetters, mapState, mapActions } from 'vuex'
-
-import { FileSideBar, useFileActions } from '@ownclouders/web-pkg'
+import {
+  FileSideBar,
+  useCapabilityStore,
+  useConfigStore,
+  useFileActions,
+  useResourcesStore
+} from '@ownclouders/web-pkg'
 import { VisibilityObserver } from '@ownclouders/web-pkg'
-import { ImageDimension, ImageType } from '@ownclouders/web-pkg'
+import { ImageDimension } from '@ownclouders/web-pkg'
 import { debounce } from 'lodash-es'
 
 import { AppLoadingSpinner } from '@ownclouders/web-pkg'
@@ -81,14 +83,12 @@ import { ResourceTable } from '@ownclouders/web-pkg'
 import { Pagination } from '@ownclouders/web-pkg'
 
 import { useResourcesViewDefaults } from '../../composables'
-import { defineComponent, unref } from 'vue'
+import { ComponentPublicInstance, defineComponent, unref } from 'vue'
 import { Resource } from '@ownclouders/web-client'
-import {
-  useCapabilityProjectSpacesEnabled,
-  useGetMatchingSpace,
-  useMutationSubscription
-} from '@ownclouders/web-pkg'
+import { useGetMatchingSpace } from '@ownclouders/web-pkg'
 import SharesNavigation from 'web-app-files/src/components/AppBar/SharesNavigation.vue'
+import { storeToRefs } from 'pinia'
+import { OutgoingShareResource } from '@ownclouders/web-client'
 
 const visibilityObserver = new VisibilityObserver()
 
@@ -107,45 +107,54 @@ export default defineComponent({
   },
 
   setup() {
+    const capabilityStore = useCapabilityStore()
+    const capabilityRefs = storeToRefs(capabilityStore)
     const { getMatchingSpace } = useGetMatchingSpace()
+    const configStore = useConfigStore()
+    const { options: configOptions } = storeToRefs(configStore)
+
+    const resourcesStore = useResourcesStore()
+    const { updateResourceField } = resourcesStore
+    const { totalResourcesCount } = storeToRefs(resourcesStore)
 
     const { loadResourcesTask, selectedResourcesIds, paginatedResources } =
-      useResourcesViewDefaults<Resource, any, any[]>()
+      useResourcesViewDefaults<OutgoingShareResource, any, any[]>()
 
-    useMutationSubscription(['Files/UPDATE_RESOURCE_FIELD'], async (mutation) => {
-      if (mutation.payload.field === 'shareTypes') {
-        if (selectedResourcesIds.value.length !== 1) return
-        const id = selectedResourcesIds.value[0]
-
-        const match = unref(paginatedResources).find((r) => {
-          return r.id === id
-        })
-        if (!match) return
-
-        await loadResourcesTask.perform()
-
-        const matchedNewResource = unref(paginatedResources).find((r) => r.fileId === match.fileId)
-        if (!matchedNewResource) return
-
-        selectedResourcesIds.value = [matchedNewResource.id]
+    resourcesStore.$onAction((action) => {
+      if (action.name !== 'updateResourceField') {
+        return
       }
+
+      if (selectedResourcesIds.value.length !== 1) return
+      const id = selectedResourcesIds.value[0]
+
+      const match = unref(paginatedResources).find((r) => {
+        return r.id === id
+      })
+      if (!match) return
+
+      loadResourcesTask.perform()
+
+      const matchedNewResource = unref(paginatedResources).find((r) => r.fileId === match.fileId)
+      if (!matchedNewResource) return
+
+      selectedResourcesIds.value = [matchedNewResource.id]
     })
 
     return {
       ...useFileActions(),
       ...useResourcesViewDefaults<Resource, any, any[]>(),
+      configOptions,
       getMatchingSpace,
-      hasProjectSpaces: useCapabilityProjectSpacesEnabled()
+      totalResourcesCount,
+      updateResourceField,
+      hasProjectSpaces: capabilityRefs.spacesProjects
     }
   },
 
   computed: {
-    ...mapState(['app']),
-    ...mapGetters('Files', ['totalFilesCount']),
-    ...mapGetters(['configuration']),
-
     helpersEnabled() {
-      return this.configuration?.options?.contextHelpers
+      return this.configOptions.contextHelpers
     },
 
     isEmpty() {
@@ -153,7 +162,7 @@ export default defineComponent({
     },
 
     displayThumbnails() {
-      return !this.configuration?.options?.disablePreviews
+      return !this.configOptions.disablePreviews
     }
   },
 
@@ -167,22 +176,28 @@ export default defineComponent({
   },
 
   methods: {
-    ...mapActions('Files', ['loadPreview']),
-
-    rowMounted(resource, component) {
+    rowMounted(resource: Resource, component: ComponentPublicInstance<unknown>) {
       if (!this.displayThumbnails) {
         return
       }
 
+      const loadPreview = async () => {
+        const preview = await this.$previewService.loadPreview(
+          {
+            space: this.getMatchingSpace(resource),
+            resource,
+            dimensions: ImageDimension.Thumbnail
+          },
+          true
+        )
+        if (preview) {
+          this.updateResourceField({ id: resource.id, field: 'thumbnail', value: preview })
+        }
+      }
+
       const debounced = debounce(({ unobserve }) => {
         unobserve()
-        this.loadPreview({
-          previewService: this.$previewService,
-          space: this.getMatchingSpace(resource),
-          resource,
-          dimensions: ImageDimension.Thumbnail,
-          type: ImageType.Thumbnail
-        })
+        loadPreview()
       }, 250)
 
       visibilityObserver.observe(component.$el, { onEnter: debounced, onExit: debounced.cancel })

@@ -2,22 +2,21 @@ import SharedViaLink from '../../../../src/views/shares/SharedViaLink.vue'
 import { useResourcesViewDefaults } from 'web-app-files/src/composables'
 import { useResourcesViewDefaultsMock } from 'web-app-files/tests/mocks/useResourcesViewDefaultsMock'
 import { ref } from 'vue'
-import { mock, mockDeep } from 'jest-mock-extended'
-import { Resource } from '@ownclouders/web-client'
+import { mock, mockDeep } from 'vitest-mock-extended'
+import { OutgoingShareResource } from '@ownclouders/web-client'
 import {
-  createStore,
   defaultPlugins,
   mount,
-  defaultStoreMockOptions,
   defaultComponentMocks,
   defaultStubs,
   RouteLocation
 } from 'web-test-helpers'
+import { ResourceTable } from '@ownclouders/web-pkg'
 
-jest.mock('web-app-files/src/composables')
-jest.mock('@ownclouders/web-pkg', () => ({
-  ...jest.requireActual('@ownclouders/web-pkg'),
-  useFileActions: jest.fn()
+vi.mock('web-app-files/src/composables')
+vi.mock('@ownclouders/web-pkg', async (importOriginal) => ({
+  ...(await importOriginal<any>()),
+  useFileActions: vi.fn()
 }))
 
 describe('SharedViaLink view', () => {
@@ -40,19 +39,23 @@ describe('SharedViaLink view', () => {
       expect(wrapper.find('.no-content-message').exists()).toBeTruthy()
     })
     it('shows the files table when files are available', () => {
-      const mockedFiles = [mockDeep<Resource>(), mockDeep<Resource>()]
+      const mockedFiles = [mockDeep<OutgoingShareResource>(), mockDeep<OutgoingShareResource>()]
       const { wrapper } = getMountedWrapper({ files: mockedFiles })
       expect(wrapper.find('.no-content-message').exists()).toBeFalsy()
       expect(wrapper.find('resource-table-stub').exists()).toBeTruthy()
-      expect(wrapper.findComponent<any>('resource-table-stub').props().resources.length).toEqual(
-        mockedFiles.length
-      )
+      expect(
+        wrapper.findComponent<typeof ResourceTable>('resource-table-stub').props().resources.length
+      ).toEqual(mockedFiles.length)
     })
   })
 })
 
-function getMountedWrapper({ mocks = {}, files = [], loading = false } = {}) {
-  jest.mocked(useResourcesViewDefaults).mockImplementation(() =>
+function getMountedWrapper({
+  mocks = {},
+  files = [],
+  loading = false
+}: { mocks?: Record<string, unknown>; files?: OutgoingShareResource[]; loading?: boolean } = {}) {
+  vi.mocked(useResourcesViewDefaults).mockImplementation(() =>
     useResourcesViewDefaultsMock({
       paginatedResources: ref(files),
       areResourcesLoading: ref(loading)
@@ -64,14 +67,12 @@ function getMountedWrapper({ mocks = {}, files = [], loading = false } = {}) {
     }),
     ...(mocks && mocks)
   }
-  const storeOptions = { ...defaultStoreMockOptions }
-  const store = createStore(storeOptions)
+
   return {
     mocks: defaultMocks,
-    storeOptions,
     wrapper: mount(SharedViaLink, {
       global: {
-        plugins: [...defaultPlugins(), store],
+        plugins: [...defaultPlugins()],
         mocks: defaultMocks,
         provide: defaultMocks,
         stubs: defaultStubs

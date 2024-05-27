@@ -1,31 +1,28 @@
 import { computed, unref, VNodeRef } from 'vue'
-import { Store } from 'vuex'
-import { SpaceResource } from '@ownclouders/web-client/src'
-import { Drive } from '@ownclouders/web-client/src/generated'
+import { SpaceResource } from '@ownclouders/web-client'
+import { Drive } from '@ownclouders/web-client/graph/generated'
 import {
   useClientService,
   useLoadingService,
-  useStore,
-  usePreviewService
+  usePreviewService,
+  useUserStore,
+  useMessages,
+  useSpacesStore
 } from '@ownclouders/web-pkg'
 import { eventBus } from '@ownclouders/web-pkg'
 import { useGettext } from 'vue3-gettext'
 import { SpaceAction, SpaceActionOptions } from '@ownclouders/web-pkg'
 import { useCreateSpace } from '@ownclouders/web-pkg'
-import { buildSpace } from '@ownclouders/web-client/src/helpers'
+import { buildSpace } from '@ownclouders/web-client'
 
-export const useSpaceActionsUploadImage = ({
-  store,
-  spaceImageInput
-}: {
-  store?: Store<any>
-  spaceImageInput: VNodeRef
-}) => {
-  store = store || useStore()
+export const useSpaceActionsUploadImage = ({ spaceImageInput }: { spaceImageInput: VNodeRef }) => {
+  const userStore = useUserStore()
+  const { showMessage, showErrorMessage } = useMessages()
   const { $gettext } = useGettext()
   const clientService = useClientService()
   const loadingService = useLoadingService()
   const previewService = usePreviewService()
+  const spacesStore = useSpacesStore()
   const { createDefaultMetaFolder } = useCreateSpace()
 
   let selectedSpace: SpaceResource = null
@@ -38,28 +35,22 @@ export const useSpaceActionsUploadImage = ({
     unref(spaceImageInput)?.click()
   }
 
-  const uploadImageSpace = async (ev) => {
+  const uploadImageSpace = async (ev: Event) => {
     const graphClient = clientService.graphAuthenticated
-    const file = ev.currentTarget.files[0]
+    const file = (ev.currentTarget as HTMLInputElement).files[0]
 
     if (!file) {
       return
     }
 
     if (!previewService.isMimetypeSupported(file.type, true)) {
-      return store.dispatch('showErrorMessage', {
-        title: $gettext('The file type is unsupported')
-      })
+      return showErrorMessage({ title: $gettext('The file type is unsupported') })
     }
 
     try {
       await clientService.webdav.getFileInfo(selectedSpace, { path: '.space' })
     } catch (_) {
-      store.commit('runtime/spaces/UPDATE_SPACE_FIELD', {
-        id: selectedSpace.id,
-        field: 'spaceReadmeData',
-        value: (await createDefaultMetaFolder(selectedSpace)).spaceReadmeData
-      })
+      await createDefaultMetaFolder(selectedSpace)
     }
 
     return loadingService.addTask(async () => {
@@ -68,13 +59,11 @@ export const useSpaceActionsUploadImage = ({
       //
       // https://github.com/perry-mitchell/webdav-client/blob/dd8d0dcc319297edc70077abd74b935361bc2412/source/tools/body.ts#L18
       const content = await file.arrayBuffer()
-      const headers = {
+      const headers: Record<string, string> = {
         'Content-Type': 'application/offset+octet-stream'
       }
 
-      if (file.lastModifiedDate) {
-        headers['X-OC-Mtime'] = '' + file.lastModifiedDate.getTime() / 1000
-      } else if (file.lastModified) {
+      if (file.lastModified) {
         headers['X-OC-Mtime'] = '' + file.lastModified / 1000
       }
 
@@ -101,20 +90,18 @@ export const useSpaceActionsUploadImage = ({
           {}
         )
 
-        store.commit('runtime/spaces/UPDATE_SPACE_FIELD', {
+        spacesStore.updateSpaceField({
           id: selectedSpace.id.toString(),
           field: 'spaceImageData',
           value: data.special.find((special) => special.specialFolder.name === 'image')
         })
-        await store.dispatch('showMessage', {
-          title: $gettext('Space image was uploaded successfully')
-        })
+        showMessage({ title: $gettext('Space image was uploaded successfully') })
         eventBus.publish('app.files.spaces.uploaded-image', buildSpace(data))
       } catch (error) {
         console.error(error)
-        await store.dispatch('showErrorMessage', {
+        showErrorMessage({
           title: $gettext('Failed to upload space image'),
-          error
+          errors: [error]
         })
       }
     })
@@ -128,12 +115,12 @@ export const useSpaceActionsUploadImage = ({
       label: () => {
         return $gettext('Edit image')
       },
-      isEnabled: ({ resources }) => {
+      isVisible: ({ resources }) => {
         if (resources.length !== 1) {
           return false
         }
 
-        return resources[0].canEditImage({ user: store.getters.user })
+        return resources[0].canEditImage({ user: userStore.user })
       },
       componentType: 'button',
       class: 'oc-files-actions-upload-space-image-trigger'

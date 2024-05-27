@@ -1,22 +1,22 @@
 import { useGroupActionsEdit } from '../../../../../src/composables/actions/groups/useGroupActionsEdit'
-import { mock } from 'jest-mock-extended'
+import { mock } from 'vitest-mock-extended'
 import { unref } from 'vue'
-import { Group } from '@ownclouders/web-client/src/generated'
+import { Group } from '@ownclouders/web-client/graph/generated'
 import { getComposableWrapper } from 'web-test-helpers'
 
 describe('useGroupActionsEdit', () => {
-  describe('method "isEnabled"', () => {
+  describe('method "isVisible"', () => {
     it.each([
-      { resources: [mock<Group>({ groupTypes: [] })], isEnabled: true },
-      { resources: [], isEnabled: false },
+      { resources: [mock<Group>({ groupTypes: [] })], isVisible: true },
+      { resources: [], isVisible: false },
       {
         resources: [mock<Group>({ groupTypes: [] }), mock<Group>({ groupTypes: [] })],
-        isEnabled: false
+        isVisible: false
       }
-    ])('should only return true for one group', ({ resources, isEnabled }) => {
+    ])('should only return true for one group', ({ resources, isVisible }) => {
       getWrapper({
         setup: ({ actions }) => {
-          expect(unref(actions)[0].isEnabled({ resources })).toEqual(isEnabled)
+          expect(unref(actions)[0].isVisible({ resources })).toEqual(isVisible)
         }
       })
     })
@@ -24,7 +24,7 @@ describe('useGroupActionsEdit', () => {
       getWrapper({
         setup: ({ actions }) => {
           const resources = [mock<Group>({ groupTypes: ['ReadOnly'] })]
-          expect(unref(actions)[0].isEnabled({ resources })).toBeFalsy()
+          expect(unref(actions)[0].isVisible({ resources })).toBeFalsy()
         }
       })
     })

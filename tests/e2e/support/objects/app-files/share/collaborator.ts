@@ -1,5 +1,5 @@
 import { Page } from '@playwright/test'
-import { startCase, difference } from 'lodash'
+import { startCase } from 'lodash'
 import util from 'util'
 import { Group, User } from '../../../types'
 import { getActualExpiryDate } from '../../../utils/datePicker'
@@ -54,35 +54,17 @@ export interface IAccessDetails {
 }
 
 export type CollaboratorType = 'user' | 'group'
-export type CustomPermissionType = 'read' | 'update' | 'create' | 'delete' | 'share'
-
-export const shareRoles: Readonly<{
-  'Invited people': string
-  'Can upload': string
-  'Can manage': string
-  'Can edit': string
-  'Can view': string
-  'Secret File Drop': string
-}> = {
-  'Invited people': 'internal',
-  'Can upload': 'contributor',
-  'Can manage': 'manager',
-  'Can edit': 'editor',
-  'Can view': 'viewer',
-  'Secret File Drop': 'uploader'
-}
 
 export default class Collaborator {
   private static readonly invitePanel = '//*[@id="oc-files-sharing-sidebar"]'
   private static readonly inviteInput = '#files-share-invite-input'
   private static readonly newCollaboratorRoleDropdown =
     '//*[@id="files-collaborators-role-button-new"]'
-  private static readonly newCollaboratorRoleItemSelector = '//*[@id="files-role-%s"]'
   private static readonly sendInvitationButton = '#new-collaborators-form-create-button'
   public static readonly collaboratorRoleDropdownButton =
     '%s//button[contains(@class,"files-recipient-role-select-btn")]'
   private static readonly collaboratorRoleItemSelector =
-    '%s//ul[contains(@class,"files-recipient-role-drop-list")]//button[@id="files-recipient-role-drop-btn-%s"]'
+    '%s//span[contains(@class,"roles-select-role-item")]/span[text()="%s"]'
   public static readonly collaboratorEditDropdownButton =
     '%s//button[contains(@class,"collaborator-edit-dropdown-options-btn")]'
   private static readonly collaboratorUserSelector = '//*[@data-testid="collaborator-user-item-%s"]'
@@ -101,26 +83,9 @@ export default class Collaborator {
   private static readonly showAccessDetailsButton =
     '%s//ul[contains(@class,"collaborator-edit-dropdown-options-list")]//button[contains(@class,"show-access-details")]'
   private static readonly removeCollaboratorConfirmationButton = '.oc-modal-body-actions-confirm'
-  private static readonly customPermissionCheckbox = '//*[@id="files-collaborators-permission-%s"]'
-  private static readonly customPermissionApplyButton =
-    '//*[contains(@class, "files-recipient-custom-permissions-drop-cancel-confirm-btns")]//button[text()="Apply"]'
   private static readonly collaboratorExpirationDatepicker =
     '.collaborator-edit-dropdown-options-list .files-recipient-expiration-datepicker:not(.vc-container)'
   private static readonly expirationDatepickerDaySelect = '.vc-day.id-%s'
-
-  static readonly FOLDER_CUSTOM_PERMISSIONS: readonly CustomPermissionType[] = [
-    'read',
-    'update',
-    'create',
-    'delete',
-    'share'
-  ]
-
-  static readonly FILE_CUSTOM_PERMISSIONS: Omit<CustomPermissionType[], 'create' | 'delete'> = [
-    'read',
-    'update',
-    'share'
-  ]
 
   static async addCollaborator(args: CollaboratorArgs): Promise<void> {
     const {
@@ -130,7 +95,7 @@ export default class Collaborator {
     const collaboratorInputLocator = page.locator(Collaborator.inviteInput)
     await collaboratorInputLocator.click()
     await Promise.all([
-      page.waitForResponse((resp) => resp.url().includes('sharees') && resp.status() === 200),
+      page.waitForResponse((resp) => resp.url().includes('groups') && resp.status() === 200),
       collaboratorInputLocator.pressSequentially(collaborator.id)
     ])
     await collaboratorInputLocator.focus()
@@ -140,17 +105,14 @@ export default class Collaborator {
 
   static async sendInvitation(page: Page, collaborators: string[]): Promise<void> {
     const checkResponses = []
-    for (const collaborator of collaborators) {
+    for (let i = 0; i < collaborators.length; i++) {
       checkResponses.push(
         page.waitForResponse((resp) => {
-          if (
-            resp.url().endsWith('shares') &&
+          return (
+            resp.url().endsWith('invite') &&
             resp.status() === 200 &&
             resp.request().method() === 'POST'
-          ) {
-            return resp.request().postDataJSON().shareWith.startsWith(collaborator)
-          }
-          return false
+          )
         })
       )
     }
@@ -172,33 +134,6 @@ export default class Collaborator {
     await Collaborator.sendInvitation(page, collaboratorNames)
   }
 
-  static async setCustomPermissions(
-    page: Page,
-    permissions: CustomPermissionType[],
-    resourceType: string
-  ): Promise<void> {
-    const CUSTOM_PERMISSIONS: readonly CustomPermissionType[] =
-      resourceType === 'folder'
-        ? Collaborator.FOLDER_CUSTOM_PERMISSIONS
-        : Collaborator.FILE_CUSTOM_PERMISSIONS
-    for (const permission of permissions) {
-      if (!CUSTOM_PERMISSIONS.includes(permission)) {
-        throw new Error(
-          `Invalid custom permission: ${permission}\nAvailable permissions: ${CUSTOM_PERMISSIONS}`
-        )
-      }
-
-      await page.check(util.format(Collaborator.customPermissionCheckbox, permission))
-    }
-
-    // uncheck others
-    const removePermissions = difference(CUSTOM_PERMISSIONS, permissions)
-
-    for (const permission of removePermissions) {
-      await page.uncheck(util.format(Collaborator.customPermissionCheckbox, permission))
-    }
-  }
-
   static async setCollaboratorRole(
     page: Page,
     role: string,
@@ -208,30 +143,11 @@ export default class Collaborator {
   ): Promise<void> {
     if (!dropdownSelector) {
       dropdownSelector = Collaborator.newCollaboratorRoleDropdown
-      itemSelector = Collaborator.newCollaboratorRoleItemSelector
+      itemSelector = util.format(Collaborator.collaboratorRoleItemSelector, '')
     }
     await page.click(dropdownSelector)
 
-    // custom permissions should be set as below
-    // custom_permissions:read,share
-    if (role.includes('custom_permissions')) {
-      await page.click(util.format(itemSelector, 'custom'))
-      const custom_permissions = role.split(':')[1]
-
-      if (!custom_permissions) {
-        throw new Error('No custom permissions provided: ' + custom_permissions)
-      }
-
-      const permissions = custom_permissions.split(',')
-      await Collaborator.setCustomPermissions(
-        page,
-        permissions as CustomPermissionType[],
-        resourceType
-      )
-
-      return await page.click(Collaborator.customPermissionApplyButton)
-    }
-    return await page.click(util.format(itemSelector, shareRoles[role]))
+    return await page.click(util.format(itemSelector, role))
   }
 
   static async changeCollaboratorRole(args: CollaboratorArgs): Promise<void> {
@@ -271,8 +187,8 @@ export default class Collaborator {
     await Promise.all([
       page.waitForResponse(
         (resp) =>
-          resp.url().includes('shares') &&
-          resp.status() === 200 &&
+          resp.url().includes('permissions') &&
+          resp.status() === 204 &&
           resp.request().method() === 'DELETE'
       ),
       page.locator(Collaborator.removeCollaboratorConfirmationButton).click()
@@ -363,9 +279,9 @@ export default class Collaborator {
     await Promise.all([
       page.waitForResponse(
         (resp) =>
-          resp.url().includes('shares') &&
+          resp.url().includes('permissions') &&
           resp.status() === 200 &&
-          resp.request().method() === 'POST'
+          resp.request().method() === 'PATCH'
       ),
       page
         .locator(util.format(Collaborator.removeExpirationDateCollaboratorButton, collaboratorRow))
@@ -382,9 +298,9 @@ export default class Collaborator {
       ? util.format(
           Collaborator.collaboratorGroupSelector,
           collaborator.displayName,
-          collaborator.id
+          collaborator.displayName
         )
-      : util.format(Collaborator.collaboratorUserSelector, collaborator.id)
+      : util.format(Collaborator.collaboratorUserSelector, collaborator.displayName)
   }
 
   static async setDenyShareForCollaborator(args: SetDenyShareForCollaboratorArgs): Promise<void> {
@@ -432,7 +348,7 @@ export default class Collaborator {
 
     return page.locator('.share-access-details-drop dl').evaluate((el) => {
       const nodes = el.childNodes
-      const details = {}
+      const details: Record<string, string> = {}
       nodes.forEach((node) => {
         if (node.nodeName === 'DT') {
           details[node.textContent] = node.nextSibling.textContent

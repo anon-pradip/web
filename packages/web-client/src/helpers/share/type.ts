@@ -1,7 +1,7 @@
 import { intersection } from 'lodash-es'
 
 // dummy to trick gettext string extraction into recognizing strings
-const $gettext = (str) => {
+const $gettext = (str: string) => {
   return str
 }
 
@@ -41,29 +41,12 @@ export abstract class ShareTypes {
   static readonly link = new ShareType('link', 3, $gettext('Link'), 'link')
   static readonly guest = new ShareType('guest', 4, $gettext('Guest'), 'global')
   static readonly remote = new ShareType('remote', 6, $gettext('Federated'), 'earth')
-  static readonly spaceUser = new ShareType('spaceUser', 7, $gettext('User'), 'user')
-  static readonly spaceGroup = new ShareType('spaceGroup', 8, $gettext('Group'), 'group')
 
-  static readonly individuals = [this.user, this.guest, this.remote, this.spaceUser]
-  static readonly collectives = [this.group, this.spaceGroup]
+  static readonly individuals = [this.user, this.guest, this.remote]
+  static readonly collectives = [this.group]
   static readonly unauthenticated = [this.link]
-  static readonly authenticated = [
-    this.user,
-    this.group,
-    this.guest,
-    this.remote,
-    this.spaceUser,
-    this.spaceGroup
-  ]
-  static readonly all = [
-    this.user,
-    this.group,
-    this.link,
-    this.guest,
-    this.remote,
-    this.spaceUser,
-    this.spaceGroup
-  ]
+  static readonly authenticated = [this.user, this.group, this.guest, this.remote]
+  static readonly all = [this.user, this.group, this.link, this.guest, this.remote]
 
   static isIndividual(type: ShareType): boolean {
     return this.individuals.includes(type)
@@ -87,6 +70,10 @@ export abstract class ShareTypes {
 
   static getByValues(values: number[]): ShareType[] {
     return values.map((value) => this.getByValue(value))
+  }
+
+  static getByKeys(keys: string[]): ShareType[] {
+    return keys.map((key) => this.all.find((type) => type.key === key))
   }
 
   static getValues(types: ShareType[]): number[] {

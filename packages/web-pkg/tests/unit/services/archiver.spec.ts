@@ -1,20 +1,26 @@
-import { ArchiverCapability, ArchiverService } from '../../../src/services'
+import { ArchiverService } from '../../../src/services'
 import { RuntimeError } from '../../../src/errors'
-import { mock, mockDeep } from 'jest-mock-extended'
+import { mock, mockDeep } from 'vitest-mock-extended'
 import { ClientService } from '../../../src/services'
 import { unref, ref, Ref } from 'vue'
 import { AxiosResponse } from 'axios'
+import { ArchiverCapability } from '@ownclouders/web-client/ocs'
+import { createTestingPinia } from 'web-test-helpers'
+import { useUserStore } from '../../../src/composables/piniaStores'
 
 const serverUrl = 'https://demo.owncloud.com'
 const getArchiverServiceInstance = (capabilities: Ref<ArchiverCapability[]>) => {
+  createTestingPinia()
+  const userStore = useUserStore()
+
   const clientServiceMock = mockDeep<ClientService>()
   clientServiceMock.httpUnAuthenticated.get.mockResolvedValue({
     data: new ArrayBuffer(8),
     headers: { 'content-disposition': 'filename="download.tar"' }
-  } as any as AxiosResponse)
-  clientServiceMock.owncloudSdk.signUrl.mockImplementation((url) => url)
+  } as unknown as AxiosResponse)
+  clientServiceMock.ocsUserContext.signUrl.mockImplementation((url) => Promise.resolve(url))
 
-  return new ArchiverService(clientServiceMock, serverUrl, capabilities)
+  return new ArchiverService(clientServiceMock, userStore, serverUrl, capabilities)
 }
 
 describe('archiver', () => {
@@ -60,8 +66,7 @@ describe('archiver', () => {
     })
     it('returns a download url for a valid archive download trigger', async () => {
       const archiverService = getArchiverServiceInstance(capabilities)
-      window.URL.createObjectURL = jest.fn()
-
+      window.URL.createObjectURL = vi.fn(() => '')
       const fileId = 'asdf'
       const url = await archiverService.triggerDownload({ fileIds: [fileId] })
       expect(window.URL.createObjectURL).toHaveBeenCalled()
@@ -93,7 +98,7 @@ describe('archiver', () => {
     })
     it('returns a download url for a valid archive download trigger', async () => {
       const archiverService = getArchiverServiceInstance(capabilities)
-      window.URL.createObjectURL = jest.fn()
+      window.URL.createObjectURL = vi.fn(() => '')
       const dir = '/some/path'
       const fileName = 'qwer'
       const url = await archiverService.triggerDownload({ dir, files: [fileName] })
@@ -114,7 +119,7 @@ describe('archiver', () => {
       formats: [],
       max_num_files: '42',
       max_size: '1073741824'
-    }
+    } as ArchiverCapability
     const capabilityV2 = {
       enabled: true,
       version: 'v2.3.5',
@@ -122,7 +127,7 @@ describe('archiver', () => {
       formats: [],
       max_num_files: '42',
       max_size: '1073741824'
-    }
+    } as ArchiverCapability
     const capabilityV3 = {
       enabled: false,
       version: 'v3.2.5',
@@ -130,7 +135,7 @@ describe('archiver', () => {
       formats: [],
       max_num_files: '42',
       max_size: '1073741824'
-    }
+    } as ArchiverCapability
 
     it('uses the highest major version', async () => {
       const capabilities = ref([capabilityV1, capabilityV2, capabilityV3])

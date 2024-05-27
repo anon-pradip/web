@@ -1,11 +1,17 @@
 import { DataTable, Then, When } from '@cucumber/cucumber'
 import { expect } from '@playwright/test'
 import { World } from '../../environment'
-import { objects } from '../../../support'
-import { ICollaborator } from '../../../support/objects/app-files/share/collaborator'
+import { environment, objects } from '../../../support'
+import {
+  CollaboratorType,
+  ICollaborator
+} from '../../../support/objects/app-files/share/collaborator'
 
-const parseShareTable = function (stepTable: DataTable, usersEnvironment) {
-  return stepTable.hashes().reduce((acc, stepRow) => {
+const parseShareTable = function (
+  stepTable: DataTable,
+  usersEnvironment: environment.UsersEnvironment
+) {
+  return stepTable.hashes().reduce<Record<string, ICollaborator[]>>((acc, stepRow) => {
     const { resource, recipient, type, role, resourceType, expirationDate } = stepRow
 
     if (!acc[resource]) {
@@ -18,13 +24,13 @@ const parseShareTable = function (stepTable: DataTable, usersEnvironment) {
           ? usersEnvironment.getGroup({ key: recipient })
           : usersEnvironment.getUser({ key: recipient }),
       role,
-      type,
+      type: type as CollaboratorType,
       resourceType,
       expirationDate
     })
 
     return acc
-  }, [])
+  }, {})
 }
 
 When(
@@ -50,29 +56,13 @@ When(
 )
 
 When(
-  '{string} reshares the following resource(s)',
-  async function (this: World, stepUser: string, stepTable: DataTable) {
-    const { page } = this.actorsEnvironment.getActor({ key: stepUser })
-    const shareObject = new objects.applicationFiles.Share({ page })
-    const shareInfo = parseShareTable(stepTable, this.usersEnvironment)
-
-    for (const resource of Object.keys(shareInfo)) {
-      await shareObject.create({
-        resource,
-        recipients: shareInfo[resource]
-      })
-    }
-  }
-)
-
-When(
-  '{string} accepts the following share(s)',
+  '{string} enables the sync for the following share(s)',
   async function (this: World, stepUser: string, stepTable: DataTable) {
     const { page } = this.actorsEnvironment.getActor({ key: stepUser })
     const shareObject = new objects.applicationFiles.Share({ page })
 
     for (const info of stepTable.hashes()) {
-      await shareObject.accept({ resource: info.name })
+      await shareObject.enableSync({ resource: info.name })
     }
   }
 )
@@ -119,20 +109,6 @@ Then(
   }
 )
 
-Then(
-  /"([^"]*)" (should|should not) be able to reshare the following resource(?:s)?$/,
-  async function (this: World, stepUser: string, condition: string, stepTable: DataTable) {
-    const ableToShare = condition === 'should'
-    const { page } = this.actorsEnvironment.getActor({ key: stepUser })
-    const shareObject = new objects.applicationFiles.Share({ page })
-
-    for (const { resource } of stepTable.hashes()) {
-      const hasSharePermission = await shareObject.hasPermissionToShare(resource)
-      expect(hasSharePermission).toBe(ableToShare)
-    }
-  }
-)
-
 When(
   '{string} navigates to the shared with me page',
   async function (this: World, stepUser: string): Promise<void> {
@@ -167,40 +143,40 @@ When(
     const shareObject = new objects.applicationFiles.Share({ page })
 
     for (const resource of stepTable.hashes()) {
-      await shareObject.declineShare({ resource: resource.name })
+      await shareObject.disableSync({ resource: resource.name })
     }
   }
 )
 
 When(
-  '{string} accepts the following share(s) from the context menu',
+  '{string} enables the sync for the following share(s) using the context menu',
   async function (this: World, stepUser: string, stepTable: DataTable): Promise<void> {
     const { page } = this.actorsEnvironment.getActor({ key: stepUser })
     const shareObject = new objects.applicationFiles.Share({ page })
 
     for (const resource of stepTable.hashes()) {
-      await shareObject.accept({ resource: resource.name, via: 'CONTEXT_MENU' })
+      await shareObject.enableSync({ resource: resource.name, via: 'CONTEXT_MENU' })
     }
   }
 )
 
 When(
-  '{string} accepts all pending shares using the batch actions',
+  '{string} enables the sync for all shares using the batch actions',
   async function (this: World, stepUser: string): Promise<void> {
     const { page } = this.actorsEnvironment.getActor({ key: stepUser })
     const shareObject = new objects.applicationFiles.Share({ page })
-    await shareObject.acceptAll()
+    await shareObject.syncAll()
   }
 )
 
 When(
-  '{string} declines the following share from the context menu',
+  '{string} disables the sync for the following share(s) using the context menu',
   async function (this: World, stepUser: string, stepTable: DataTable): Promise<void> {
     const { page } = this.actorsEnvironment.getActor({ key: stepUser })
     const shareObject = new objects.applicationFiles.Share({ page })
 
     for (const resource of stepTable.hashes()) {
-      await shareObject.declineShare({ resource: resource.name, via: 'CONTEXT_MENU' })
+      await shareObject.disableSync({ resource: resource.name, via: 'CONTEXT_MENU' })
     }
   }
 )
@@ -362,11 +338,12 @@ Then(
 )
 
 Then(
-  /^"([^"]*)" (should|should not) be able to manage share with user "([^"]*)"$/,
+  /^"([^"]*)" (should|should not) be able to manage share of a file "([^"]*)" for user "([^"]*)"$/,
   async function (
     this: World,
     stepUser: any,
     actionType: string,
+    resource: string,
     recipient: string
   ): Promise<void> {
     const { page } = this.actorsEnvironment.getActor({ key: stepUser })
@@ -377,6 +354,8 @@ Then(
     const changeShare = shareObject.changeShareLocator(
       this.usersEnvironment.getUser({ key: recipient })
     )
+
+    await shareObject.openSharingPanel(resource)
 
     if (actionType === 'should') {
       await expect(changeRole).not.toBeDisabled()

@@ -1,13 +1,12 @@
 import { App, ComponentCustomProperties, Ref } from 'vue'
 import { RouteLocationRaw, Router, RouteRecordRaw } from 'vue-router'
-import { Module, Store } from 'vuex'
-import { Extension } from '../composables/piniaStores'
+import { Extension, ExtensionPoint } from '../composables/piniaStores'
+import { IconFillType } from '../helpers'
+import { Resource, SpaceResource } from '@ownclouders/web-client'
 
 export interface AppReadyHookArgs {
-  announceExtension: (extension: { [key: string]: unknown }) => void
   globalProperties: ComponentCustomProperties & Record<string, any>
   router: Router
-  store: Store<unknown>
   instance?: App
   portal?: any
 }
@@ -15,12 +14,11 @@ export interface AppReadyHookArgs {
 export interface AppNavigationItem {
   isActive?: () => boolean
   activeFor?: { name?: string; path?: string }[]
-  enabled?: (capabilities?: Record<string, any>) => boolean
-  fillType?: string
+  isVisible?: () => boolean
+  fillType?: IconFillType
   icon?: string
-  name?: string | ((capabilities?: Record<string, any>) => string)
+  name: string | (() => string)
   route?: RouteLocationRaw
-  tag?: string
   handler?: () => void
   priority?: number
 }
@@ -32,39 +30,51 @@ export interface AppNavigationItem {
  */
 export interface ApplicationQuickAction {
   id?: string
-  label?: (...args) => string | string
+  label?: (...args: unknown[]) => string | string
   icon?: string
-  iconFillType?: string
-  handler?: (...args) => Promise<void> | void
-  displayed?: (...args) => boolean | boolean
-}
-
-/**
- * ApplicationQuickActions describes a map of application actions that are used in the runtime
- *
- * @deprecated Quick actions should be registered as extension via the `files.quick-action` scope.
- */
-export interface ApplicationQuickActions {
-  [key: string]: ApplicationQuickAction
+  iconFillType?: IconFillType
+  handler?: (...args: unknown[]) => Promise<void> | void
+  displayed?: (...args: unknown[]) => boolean | boolean
 }
 
 export type AppConfigObject = Record<string, any>
 
 export interface ApplicationMenuItem {
   enabled: () => boolean
-  priority: number
+  priority?: number
   openAsEditor?: boolean
+}
+
+export interface ApplicationFileExtension {
+  app?: string
+  extension?: string
+  createFileHandler?: (arg: {
+    fileName: string
+    space: SpaceResource
+    currentFolder: Resource
+  }) => Promise<Resource>
+  hasPriority?: boolean
+  label?: string
+  name?: string
+  icon?: string
+  mimeType?: string
+  newFileMenu?: { menuTitle: () => string }
+  routeName?: string
 }
 
 /** ApplicationInformation describes required information of an application */
 export interface ApplicationInformation {
+  color?: string
   id?: string
   name?: string
   icon?: string
+  iconFillType?: IconFillType
+  iconColor?: string
+  img?: string
   isFileEditor?: boolean
-  extensions?: any[]
+  extensions?: ApplicationFileExtension[]
   defaultExtension?: string
-  fileSideBars?: any[]
+  type?: string
   applicationMenu?: ApplicationMenuItem
 }
 
@@ -80,16 +90,14 @@ export interface ApplicationTranslations {
 /** ClassicApplicationScript reflects classic application script structure */
 export interface ClassicApplicationScript {
   appInfo?: ApplicationInformation
-  store?: Module<unknown, unknown>
-  routes?: ((...args) => RouteRecordRaw[]) | RouteRecordRaw[]
-  navItems?: ((...args) => AppNavigationItem[]) | AppNavigationItem[]
-  /** @deprecated Quick actions should be registered as extension via the `files.quick-action` scope. */
-  quickActions?: ApplicationQuickActions
+  routes?: ((args: ComponentCustomProperties) => RouteRecordRaw[]) | RouteRecordRaw[]
+  navItems?: ((args: ComponentCustomProperties) => AppNavigationItem[]) | AppNavigationItem[]
   translations?: ApplicationTranslations
   extensions?: Ref<Extension[]>
+  extensionPoints?: Ref<ExtensionPoint<any>[]>
   initialize?: () => void
-  ready?: (args: AppReadyHookArgs) => void
-  mounted?: (...args) => void
+  ready?: (args: AppReadyHookArgs) => Promise<void> | void
+  mounted?: (args: AppReadyHookArgs) => void
   // TODO: move this to its own type
   setup?: (args: { applicationConfig: AppConfigObject }) => ClassicApplicationScript
 }

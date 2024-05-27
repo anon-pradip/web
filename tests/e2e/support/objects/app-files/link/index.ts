@@ -11,7 +11,7 @@ export class Link {
     this.#linksEnvironment = new LinksEnvironment()
   }
 
-  roleDisplayText = {
+  roleDisplayText: Record<string, string> = {
     'Invited people': 'Only for invited people',
     'Can view': 'Anyone with the link can view',
     'Can upload': 'Anyone with the link can upload',
@@ -61,20 +61,20 @@ export class Link {
     await po.fillPassword({ page: this.#page, ...args })
   }
 
-  async showOrHidePassword(args): Promise<void> {
-    return po.showOrHidePassword({ page: this.#page, ...args })
+  async showOrHidePassword(args: { showOrHide: string }): Promise<void> {
+    return await po.showOrHidePassword({ page: this.#page, ...args })
   }
 
   async copyEnteredPassword(): Promise<void> {
-    return po.copyEnteredPassword(this.#page)
+    return await po.copyEnteredPassword(this.#page)
   }
 
   async generatePassword(): Promise<void> {
-    return po.generatePassword(this.#page)
+    return await po.generatePassword(this.#page)
   }
 
   async setPassword(): Promise<void> {
-    return po.setPassword(this.#page)
+    return await po.setPassword(this.#page)
   }
 
   async changeRole(args: Omit<po.changeRoleArgs, 'page'>): Promise<string> {
@@ -99,7 +99,7 @@ export class Link {
     })
   }
 
-  async islinkEditButtonVisibile(linkName): Promise<boolean> {
+  async islinkEditButtonVisibile(linkName: string): Promise<boolean> {
     return await po.getLinkEditButtonVisibility({ page: this.#page, linkName })
   }
 

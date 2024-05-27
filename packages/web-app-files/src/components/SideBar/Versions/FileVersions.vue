@@ -1,7 +1,6 @@
 <template>
   <div id="oc-file-versions-sidebar" class="-oc-mt-s">
-    <oc-loader v-if="areVersionsLoading" />
-    <ul v-else-if="versions.length" class="oc-m-rm oc-position-relative">
+    <ul v-if="versions.length" class="oc-m-rm oc-position-relative">
       <li class="spacer oc-pb-l" aria-hidden="true"></li>
       <li
         v-for="(item, index) in versions"
@@ -54,19 +53,17 @@
   </div>
 </template>
 <script lang="ts">
-import { DavPermission } from '@ownclouders/web-client/src/webdav/constants'
+import { DavPermission } from '@ownclouders/web-client/webdav'
 import {
   formatRelativeDateFromHTTP,
   formatDateFromJSDate,
   formatFileSize,
   useClientService,
   useDownloadFile,
-  useStore
+  useResourcesStore
 } from '@ownclouders/web-pkg'
-import { computed, defineComponent, inject, Ref, unref, watch } from 'vue'
-import { isShareSpaceResource, Resource, SpaceResource } from '@ownclouders/web-client/src/helpers'
-import { SharePermissions } from '@ownclouders/web-client/src/helpers/share'
-import { useTask } from 'vue-concurrency'
+import { computed, defineComponent, inject, Ref, unref } from 'vue'
+import { isShareSpaceResource, Resource, SpaceResource } from '@ownclouders/web-client'
 import { useGettext } from 'vue3-gettext'
 
 export default defineComponent({
@@ -79,39 +76,14 @@ export default defineComponent({
     }
   },
   setup(props) {
-    const store = useStore()
     const clientService = useClientService()
     const { current: currentLanguage } = useGettext()
-    const { downloadFile } = useDownloadFile({ store, clientService })
+    const { downloadFile } = useDownloadFile({ clientService })
+    const { updateResourceField } = useResourcesStore()
 
     const space = inject<Ref<SpaceResource>>('space')
     const resource = inject<Ref<Resource>>('resource')
-
-    const versions = computed(() => {
-      return store.getters['Files/versions']
-    })
-
-    const fetchVersionsTask = useTask(function* () {
-      yield store.dispatch('Files/loadVersions', {
-        client: clientService.webdav,
-        fileId: unref(resource).fileId
-      })
-    })
-    const areVersionsLoading = computed(() => {
-      return !fetchVersionsTask.last || fetchVersionsTask.isRunning
-    })
-    watch(
-      [() => unref(resource)?.id, () => unref(resource)?.etag],
-      ([id, etag]) => {
-        if (!id || !etag) {
-          return
-        }
-        fetchVersionsTask.perform()
-      },
-      {
-        immediate: true
-      }
-    )
+    const versions = inject<Ref<Resource[]>>('versions')
 
     const isRevertible = computed(() => {
       if (props.isReadOnly) {
@@ -122,9 +94,6 @@ export default defineComponent({
         if (unref(resource).permissions !== undefined) {
           return unref(resource).permissions.includes(DavPermission.Updateable)
         }
-        if (unref(resource).share?.role) {
-          return unref(resource).share.role.hasPermission(SharePermissions.update)
-        }
       }
 
       return true
@@ -134,21 +103,19 @@ export default defineComponent({
       await clientService.webdav.restoreFileVersion(unref(space), unref(resource), version.name)
       const restoredResource = await clientService.webdav.getFileInfo(unref(space), unref(resource))
 
-      const fieldsToUpdate = ['size', 'mdate']
+      const fieldsToUpdate = ['size', 'mdate'] as const
       for (const field of fieldsToUpdate) {
         if (Object.prototype.hasOwnProperty.call(unref(resource), field)) {
-          store.commit('Files/UPDATE_RESOURCE_FIELD', {
+          updateResourceField({
             id: unref(resource).id,
-            field,
+            field: field,
             value: restoredResource[field]
           })
         }
       }
-
-      fetchVersionsTask.perform()
     }
     const downloadVersion = (version: Resource) => {
-      return downloadFile(unref(resource), version.name)
+      return downloadFile(unref(space), unref(resource), version.name)
     }
     const formatVersionDateRelative = (version: Resource) => {
       return formatRelativeDateFromHTTP(version.mdate, currentLanguage)
@@ -164,16 +131,12 @@ export default defineComponent({
       space,
       resource,
       versions,
-      areVersionsLoading,
       isRevertible,
       revertToVersion,
       downloadVersion,
       formatVersionDateRelative,
       formatVersionDate,
-      formatVersionFileSize,
-
-      // HACK: exported for unit tests
-      fetchVersionsTask
+      formatVersionFileSize
     }
   }
 })

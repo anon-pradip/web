@@ -1,4 +1,4 @@
-import { defineConfig, PluginOption, UserConfig, ViteDevServer } from 'vite'
+import { defineConfig, Plugin, UserConfig, ViteDevServer } from 'vite'
 import { mergeConfig, searchForWorkspaceRoot } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import EnvironmentPlugin from 'vite-plugin-environment'
@@ -6,8 +6,8 @@ import { viteStaticCopy } from 'vite-plugin-static-copy'
 import { treatAsCommonjs } from 'vite-plugin-treat-umd-as-commonjs'
 import visualizer from 'rollup-plugin-visualizer'
 import compression from 'rollup-plugin-gzip'
+import { nodePolyfills } from 'vite-plugin-node-polyfills'
 
-import ejs from 'ejs'
 import { basename, join } from 'path'
 import { existsSync, readdirSync, readFileSync } from 'fs'
 
@@ -19,8 +19,9 @@ import browserslistToEsbuild from 'browserslist-to-esbuild'
 import fetch from 'node-fetch'
 import { Agent } from 'https'
 
-// ignoredPackages specifies which packages should be explicitly ignored and thus not be transpiled
-const ignoredPackages = ['web-app-skeleton']
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore
+import ejs from 'ejs'
 
 const buildConfig = {
   requirejs: {},
@@ -40,13 +41,13 @@ const stripScssMarker = '/* STYLES STRIP IMPORTS MARKER */'
 // determine inputs
 const input = readdirSync('packages').reduce(
   (acc, i) => {
-    if (!i.startsWith('web-app') || ignoredPackages.includes(i)) {
+    if (!i.startsWith('web-app')) {
       return acc
     }
     for (const extension of ['js', 'ts']) {
       const root = join('packages', i, 'src', `index.${extension}`)
       if (existsSync(root)) {
-        acc[i] = root
+        acc[i as keyof typeof acc] = root
         break
       }
     }
@@ -73,7 +74,7 @@ type ConfigJsonResponseBody = {
   options: Record<string, any>
 }
 
-const getConfigJson = async (url: string, config: UserConfig) => {
+const getConfigJson = async (url: string) => {
   const configJson = (await getJson(url)) as ConfigJsonResponseBody
 
   // enable previews and enable lazy resources, which are disabled for fast tests
@@ -103,9 +104,8 @@ export const historyModePlugins = () =>
     }
   ] as const
 
-export default defineConfig(async ({ mode, command }) => {
+export default defineConfig(({ mode, command }) => {
   const production = mode === 'production'
-  let config: UserConfig
 
   /**
     When setting `OWNCLOUD_WEB_CONFIG_URL` make sure to configure the oauth/oidc client
@@ -124,14 +124,16 @@ export default defineConfig(async ({ mode, command }) => {
   const configUrl =
     process.env.OWNCLOUD_WEB_CONFIG_URL || 'https://host.docker.internal:9200/config.json'
 
-  config = {
+  const config: UserConfig = {
     ...(!production && {
       server: {
         port: 9201,
-        https: {
-          key: readFileSync('./dev/docker/traefik/certificates/server.key'),
-          cert: readFileSync('./dev/docker/traefik/certificates/server.crt')
-        }
+        ...(process.env.VITEST !== 'true' && {
+          https: {
+            key: readFileSync('./dev/docker/traefik/certificates/server.key'),
+            cert: readFileSync('./dev/docker/traefik/certificates/server.crt')
+          }
+        })
       }
     })
   }
@@ -153,7 +155,7 @@ export default defineConfig(async ({ mode, command }) => {
             dir: 'dist',
             chunkFileNames: join('js', 'chunks', '[name]-[hash].mjs'),
             entryFileNames: join('js', '[name]-[hash].mjs'),
-            manualChunks: (id) => {
+            manualChunks: (id: string) => {
               if (id.includes('node_modules')) {
                 return 'vendor'
               }
@@ -176,22 +178,16 @@ export default defineConfig(async ({ mode, command }) => {
       resolve: {
         dedupe: ['vue3-gettext'],
         alias: {
-          crypto: join(projectRootDir, 'polyfills/crypto.js'),
-          buffer: 'rollup-plugin-node-polyfills/polyfills/buffer-es6',
-          path: 'rollup-plugin-node-polyfills/polyfills/path',
-          caf: 'caf/caf',
-
-          // owncloud-sdk // sax
-          stream: 'rollup-plugin-node-polyfills/polyfills/stream',
-          util: 'rollup-plugin-node-polyfills/polyfills/util',
-          string_decoder: 'rollup-plugin-node-polyfills/polyfills/string-decoder',
-          process: 'rollup-plugin-node-polyfills/polyfills/process-es6',
-          events: 'rollup-plugin-node-polyfills/polyfills/events'
+          crypto: join(projectRootDir, 'polyfills/crypto.js')
         }
       },
       plugins: [
+        nodePolyfills({
+          exclude: ['crypto']
+        }),
+
         // We need to "undefine" `define` which is set by requirejs loaded in index.html
-        treatAsCommonjs() as any as PluginOption, // treatAsCommonjs currently returns a Plugin_2 instance
+        treatAsCommonjs(),
 
         // In order to avoid multiple definitions of the global styles we import via additionalData into every component
         // we also insert a marker, so we can remove the global definitions after processing.
@@ -199,7 +195,7 @@ export default defineConfig(async ({ mode, command }) => {
         // a warning if `@extend` is used in the code base.
         {
           name: '@ownclouders/vite-plugin-strip-css',
-          transform(src: string, id) {
+          transform(src: string, id: string) {
             if (id.endsWith('.vue') && !id.includes('node_modules') && src.includes('@extend')) {
               console.warn(
                 'You are using @extend in your component. This is likely not working in your styles. Please use mixins instead.',
@@ -251,7 +247,7 @@ export default defineConfig(async ({ mode, command }) => {
             server.middlewares.use(async (request, response, next) => {
               if (request.url === '/config.json') {
                 try {
-                  const configJson = await getConfigJson(configUrl, config)
+                  const configJson = await getConfigJson(configUrl)
                   response.statusCode = 200
                   response.setHeader('Content-Type', 'application/json')
                   response.end(JSON.stringify(configJson))
@@ -312,11 +308,11 @@ export default defineConfig(async ({ mode, command }) => {
                 moduleNames = Object.keys(bundle)
                 // We are in production mode here and need to provide paths relative to the module that contains the import, i.e. web-runtime-*.mjs
                 // so it works when oC Web is hosted in a sub folder, e.g. when using the oC 10 integration app
-                buildModulePath = (moduleName) => moduleName.replace('js/', './')
+                buildModulePath = (moduleName: string) => moduleName.replace('js/', './')
               } else {
                 // We are in development mode here, so we can just use absolute module paths
                 moduleNames = Object.keys(input)
-                buildModulePath = (moduleName) => `/packages/${moduleName}/src/index`
+                buildModulePath = (moduleName: string) => `/packages/${moduleName}/src/index`
               }
 
               const re = new RegExp(/(web-app-.*)/)
@@ -346,7 +342,7 @@ export default defineConfig(async ({ mode, command }) => {
           : visualizer({
               filename: join('dist', 'report.html')
             })
-      ]
+      ] as Plugin[]
     },
     config
   )

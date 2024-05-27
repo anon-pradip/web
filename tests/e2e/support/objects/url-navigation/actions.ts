@@ -79,7 +79,7 @@ const getTheFileIdOfSpaceFile = async (
     spaceName = space
     spaceType = 'project'
   }
-  return getIdOfFileInsideSpace({
+  return await getIdOfFileInsideSpace({
     user,
     pathToFileName,
     spaceType,

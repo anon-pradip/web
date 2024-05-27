@@ -14,10 +14,10 @@
       </div>
       <oc-button
         v-oc-tooltip="$gettext('Create link')"
-        class="oc-ml-s"
+        class="oc-ml-s create-quicklink-button"
         size="small"
         :aria-label="$gettext('Create link')"
-        @click="createQuickLink"
+        @click="$emit('createPublicLink')"
       >
         <span v-text="$gettext('Create link')" />
       </oc-button>
@@ -26,44 +26,10 @@
 </template>
 
 <script lang="ts">
-import { defineComponent, PropType } from 'vue'
-import {
-  useAbility,
-  getDefaultLinkPermissions,
-  useStore,
-  ExpirationRules
-} from '@ownclouders/web-pkg'
-import { useGettext } from 'vue3-gettext'
+import { defineComponent } from 'vue'
 
 export default defineComponent({
   name: 'CreateQuickLink',
-  props: {
-    expirationRules: {
-      type: Object as PropType<ExpirationRules>,
-      required: true
-    }
-  },
-  emits: ['createPublicLink'],
-  setup(props, { emit }) {
-    const store = useStore()
-    const ability = useAbility()
-    const { $gettext } = useGettext()
-
-    const createQuickLink = () => {
-      const emitData = {
-        link: {
-          name: $gettext('Link'),
-          permissions: getDefaultLinkPermissions({ ability, store }).toString(),
-          expiration: props.expirationRules.enforced ? props.expirationRules.default : null,
-          quicklink: true,
-          password: false
-        }
-      }
-      emit('createPublicLink', emitData)
-    }
-    return {
-      createQuickLink
-    }
-  }
+  emits: ['createPublicLink']
 })
 </script>

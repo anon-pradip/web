@@ -48,9 +48,9 @@
 
 <script lang="ts">
 import { DateTime } from 'luxon'
-import { computed, watch, defineComponent, customRef } from 'vue'
-import { useStore } from '@ownclouders/web-pkg'
-import { ShareTypes } from '@ownclouders/web-client/src/helpers/share'
+import { computed, watch, defineComponent, customRef, PropType } from 'vue'
+import { useCapabilityStore } from '@ownclouders/web-pkg'
+import { ShareTypes } from '@ownclouders/web-client'
 import { formatRelativeDateFromDateTime, getLocaleFromLanguage } from '@ownclouders/web-pkg'
 import { useGettext } from 'vue3-gettext'
 
@@ -58,18 +58,18 @@ export default defineComponent({
   name: 'DateCurrentpicker',
   props: {
     shareTypes: {
-      type: Array,
+      type: Array as PropType<number[]>,
       required: false,
-      default: () => []
+      default: (): number[] => []
     }
   },
   emits: ['optionChange'],
   setup(props, { emit }) {
     const language = useGettext()
-    const store = useStore()
-    const capabilities = computed(() => store.getters.capabilities)
-    const optionsUser = computed(() => capabilities.value.files_sharing.user?.expire_date)
-    const optionsGroup = computed(() => capabilities.value.files_sharing.group?.expire_date)
+    const capabilityStore = useCapabilityStore()
+
+    const optionsUser = computed(() => capabilityStore.sharingUserExpireDate)
+    const optionsGroup = computed(() => capabilityStore.sharingGroupExpireDate)
     const enforced = computed(() => optionsUser.value?.enforced || optionsGroup.value?.enforced)
     const dateMin = DateTime.now().setLocale(language.current).toJSDate()
     const dateDefault = computed(() => {
@@ -107,7 +107,7 @@ export default defineComponent({
     })
     const dateMax = computed(() => (enforced.value ? dateDefault.value : null))
     const dateCurrent = customRef<Date>((track, trigger) => {
-      let date = null
+      let date: Date = null
       return {
         get() {
           track()
@@ -130,10 +130,9 @@ export default defineComponent({
       const dateCurrent = DateTime.fromJSDate(val)
         .setLocale(getLocaleFromLanguage(language.current))
         .endOf('day')
+
       emit('optionChange', {
-        expirationDate: dateCurrent.isValid
-          ? dateCurrent.toFormat("yyyy-MM-dd'T'HH:mm:ssZZZ")
-          : null
+        expirationDate: dateCurrent.isValid ? dateCurrent.toString() : null
       })
     })
 

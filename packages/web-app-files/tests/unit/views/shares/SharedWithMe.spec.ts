@@ -4,30 +4,25 @@ import {
   queryItemAsString,
   InlineFilterOption,
   useSort,
-  useOpenWithDefaultApp
+  useOpenWithDefaultApp,
+  ItemFilter
 } from '@ownclouders/web-pkg'
 import { useResourcesViewDefaultsMock } from 'web-app-files/tests/mocks/useResourcesViewDefaultsMock'
 import { ref } from 'vue'
 import { defaultStubs, RouteLocation } from 'web-test-helpers'
 import { useSortMock } from 'web-app-files/tests/mocks/useSortMock'
-import { mock } from 'jest-mock-extended'
-import {
-  createStore,
-  defaultPlugins,
-  mount,
-  defaultStoreMockOptions,
-  defaultComponentMocks
-} from 'web-test-helpers'
-import { Resource } from '@ownclouders/web-client'
-import { ShareTypes } from '@ownclouders/web-client/src/helpers'
+import { mock } from 'vitest-mock-extended'
+import { defaultPlugins, mount, defaultComponentMocks } from 'web-test-helpers'
+import { ShareTypes, IncomingShareResource } from '@ownclouders/web-client'
+import SharedWithMeSection from '../../../../src/components/Shares/SharedWithMeSection.vue'
 
-jest.mock('web-app-files/src/composables/resourcesViewDefaults')
-jest.mock('@ownclouders/web-pkg', () => ({
-  ...jest.requireActual('@ownclouders/web-pkg'),
-  useSort: jest.fn().mockImplementation(() => useSortMock()),
-  queryItemAsString: jest.fn(),
-  useRouteQuery: jest.fn(),
-  useOpenWithDefaultApp: jest.fn()
+vi.mock('web-app-files/src/composables/resourcesViewDefaults')
+vi.mock('@ownclouders/web-pkg', async (importOriginal) => ({
+  ...(await importOriginal<any>()),
+  useSort: vi.fn().mockImplementation(() => useSortMock()),
+  queryItemAsString: vi.fn(),
+  useRouteQuery: vi.fn(),
+  useOpenWithDefaultApp: vi.fn()
 }))
 
 describe('SharedWithMe view', () => {
@@ -71,18 +66,22 @@ describe('SharedWithMe view', () => {
       it('shows all visible shares', () => {
         const { wrapper } = getMountedWrapper()
         expect(wrapper.findAll('shared-with-me-section-stub').length).toBe(1)
-        expect(wrapper.findComponent<any>('shared-with-me-section-stub').props('title')).toEqual(
-          'Shares'
-        )
+        expect(
+          wrapper
+            .findComponent<typeof SharedWithMeSection>('shared-with-me-section-stub')
+            .props('title')
+        ).toEqual('Shares')
       })
       it('shows all hidden shares', async () => {
         const { wrapper } = getMountedWrapper()
         wrapper.vm.setAreHiddenFilesShown(mock<InlineFilterOption>({ name: 'hidden' }))
         await wrapper.vm.$nextTick()
         expect(wrapper.findAll('shared-with-me-section-stub').length).toBe(1)
-        expect(wrapper.findComponent<any>('shared-with-me-section-stub').props('title')).toEqual(
-          'Hidden Shares'
-        )
+        expect(
+          wrapper
+            .findComponent<typeof SharedWithMeSection>('shared-with-me-section-stub')
+            .props('title')
+        ).toEqual('Hidden Shares')
       })
     })
     describe('share type', () => {
@@ -91,32 +90,36 @@ describe('SharedWithMe view', () => {
         const shareType2 = ShareTypes.group
         const { wrapper } = getMountedWrapper({
           files: [
-            mock<Resource>({ share: { shareType: shareType1.value } }),
-            mock<Resource>({ share: { shareType: shareType2.value } })
+            mock<IncomingShareResource>({ shareTypes: [shareType1.value] }),
+            mock<IncomingShareResource>({ shareTypes: [shareType2.value] })
           ]
         })
-        const filterItems = wrapper.findComponent<any>('.share-type-filter').props('items')
+        const filterItems = wrapper
+          .findComponent<typeof ItemFilter>('.share-type-filter')
+          .props('items')
         expect(wrapper.find('.share-type-filter').exists()).toBeTruthy()
         expect(filterItems).toEqual([shareType1, shareType2])
       })
     })
     describe('shared by', () => {
       it('shows all available collaborators as filter option', () => {
-        const collaborator1 = { username: 'user1', displayName: 'user1' }
-        const collaborator2 = { username: 'user2', displayName: 'user2' }
+        const collaborator1 = { id: 'user1', displayName: 'user1' }
+        const collaborator2 = { id: 'user2', displayName: 'user2' }
         const { wrapper } = getMountedWrapper({
           files: [
-            mock<Resource>({
-              owner: [collaborator1],
-              share: { shareType: ShareTypes.user.value }
+            mock<IncomingShareResource>({
+              sharedBy: [collaborator1],
+              shareTypes: [ShareTypes.user.value]
             }),
-            mock<Resource>({
-              owner: [collaborator2],
-              share: { shareType: ShareTypes.user.value }
+            mock<IncomingShareResource>({
+              sharedBy: [collaborator2],
+              shareTypes: [ShareTypes.user.value]
             })
           ]
         })
-        const filterItems = wrapper.findComponent<any>('.shared-by-filter').props('items')
+        const filterItems = wrapper
+          .findComponent<typeof ItemFilter>('.shared-by-filter')
+          .props('items')
         expect(wrapper.find('.shared-by-filter').exists()).toBeTruthy()
         expect(filterItems).toEqual([collaborator1, collaborator2])
       })
@@ -129,15 +132,15 @@ describe('SharedWithMe view', () => {
       it('filters shares accordingly by name', async () => {
         const { wrapper } = getMountedWrapper({
           files: [
-            mock<Resource>({
+            mock<IncomingShareResource>({
               name: 'share1',
               hidden: false,
-              share: { shareType: ShareTypes.user.value }
+              shareTypes: [ShareTypes.user.value]
             }),
-            mock<Resource>({
+            mock<IncomingShareResource>({
               name: 'share2',
               hidden: false,
-              share: { shareType: ShareTypes.user.value }
+              shareTypes: [ShareTypes.user.value]
             })
           ]
         })
@@ -156,23 +159,28 @@ function getMountedWrapper({
   loading = false,
   files = [],
   openWithDefaultAppQuery = ''
+}: {
+  mocks?: Record<string, unknown>
+  files?: IncomingShareResource[]
+  loading?: boolean
+  openWithDefaultAppQuery?: string
 } = {}) {
-  jest.mocked(useResourcesViewDefaults).mockImplementation(() =>
+  vi.mocked(useResourcesViewDefaults).mockImplementation(() =>
     useResourcesViewDefaultsMock({
-      storeItems: ref(files),
+      paginatedResources: ref(files),
       areResourcesLoading: ref(loading)
     })
   )
-  jest.mocked(useSort).mockImplementation((options) => useSortMock({ items: ref(options.items) }))
+  vi.mocked(useSort).mockImplementation((options) => useSortMock({ items: ref(options.items) }))
   // selected share types
-  jest.mocked(queryItemAsString).mockImplementationOnce(() => undefined)
+  vi.mocked(queryItemAsString).mockImplementationOnce(() => undefined)
   // selected shared by
-  jest.mocked(queryItemAsString).mockImplementationOnce(() => undefined)
+  vi.mocked(queryItemAsString).mockImplementationOnce(() => undefined)
   // openWithDefaultAppQuery
-  jest.mocked(queryItemAsString).mockImplementationOnce(() => openWithDefaultAppQuery)
+  vi.mocked(queryItemAsString).mockImplementationOnce(() => openWithDefaultAppQuery)
 
-  const openWithDefaultApp = jest.fn()
-  jest.mocked(useOpenWithDefaultApp).mockReturnValue({ openWithDefaultApp })
+  const openWithDefaultApp = vi.fn()
+  vi.mocked(useOpenWithDefaultApp).mockReturnValue({ openWithDefaultApp })
 
   const defaultMocks = {
     ...defaultComponentMocks({
@@ -181,14 +189,12 @@ function getMountedWrapper({
     ...(mocks && mocks),
     openWithDefaultApp
   }
-  const storeOptions = { ...defaultStoreMockOptions }
-  const store = createStore(storeOptions)
+
   return {
     mocks: defaultMocks,
-    storeOptions,
     wrapper: mount(SharedWithMe, {
       global: {
-        plugins: [...defaultPlugins(), store],
+        plugins: [...defaultPlugins()],
         mocks: defaultMocks,
         stubs: { ...defaultStubs, itemFilterInline: true, ItemFilter: true }
       }

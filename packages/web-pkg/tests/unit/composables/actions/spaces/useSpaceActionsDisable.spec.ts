@@ -1,23 +1,22 @@
-import { useSpaceActionsDisable } from '../../../../../src'
-import { buildSpace, SpaceResource } from '@ownclouders/web-client/src/helpers'
+import { useSpaceActionsDisable } from '../../../../../src/composables/actions/spaces'
+import { useMessages, useModals } from '../../../../../src/composables/piniaStores'
+import { buildSpace, SpaceResource } from '@ownclouders/web-client'
 import {
-  createStore,
   defaultComponentMocks,
   mockAxiosResolve,
-  defaultStoreMockOptions,
   RouteLocation,
   getComposableWrapper
 } from 'web-test-helpers'
-import { mock } from 'jest-mock-extended'
+import { mock } from 'vitest-mock-extended'
 import { unref } from 'vue'
-import { Drive } from '@ownclouders/web-client/src/generated'
+import { Drive } from '@ownclouders/web-client/graph/generated'
 
 describe('disable', () => {
-  describe('isEnabled property', () => {
+  describe('isVisible property', () => {
     it('should be false when no resource given', () => {
-      const { wrapper } = getWrapper({
+      getWrapper({
         setup: ({ actions }) => {
-          expect(unref(actions)[0].isEnabled({ resources: [] })).toBe(false)
+          expect(unref(actions)[0].isVisible({ resources: [] })).toBe(false)
         }
       })
     })
@@ -30,9 +29,9 @@ describe('disable', () => {
         driveType: 'project',
         special: null
       })
-      const { wrapper } = getWrapper({
+      getWrapper({
         setup: ({ actions }) => {
-          expect(unref(actions)[0].isEnabled({ resources: [buildSpace(spaceMock)] })).toBe(true)
+          expect(unref(actions)[0].isVisible({ resources: [buildSpace(spaceMock)] })).toBe(true)
         }
       })
     })
@@ -45,9 +44,9 @@ describe('disable', () => {
         },
         special: null
       })
-      const { wrapper } = getWrapper({
+      getWrapper({
         setup: ({ actions }) => {
-          expect(unref(actions)[0].isEnabled({ resources: [buildSpace(spaceMock)] })).toBe(false)
+          expect(unref(actions)[0].isVisible({ resources: [buildSpace(spaceMock)] })).toBe(false)
         }
       })
     })
@@ -60,67 +59,71 @@ describe('disable', () => {
         driveType: 'project',
         special: null
       })
-      const { wrapper } = getWrapper({
+      getWrapper({
         setup: ({ actions }) => {
-          expect(unref(actions)[0].isEnabled({ resources: [buildSpace(spaceMock)] })).toBe(false)
+          expect(unref(actions)[0].isVisible({ resources: [buildSpace(spaceMock)] })).toBe(false)
         }
       })
     })
   })
 
   describe('handler', () => {
-    it('should trigger the disable modal window', async () => {
-      const { wrapper } = getWrapper({
-        setup: async ({ actions }, { storeOptions }) => {
+    it('should trigger the disable modal window', () => {
+      getWrapper({
+        setup: async ({ actions }) => {
+          const { dispatchModal } = useModals()
           await unref(actions)[0].handler({
             resources: [
               mock<SpaceResource>({ id: '1', canDisable: () => true, driveType: 'project' })
             ]
           })
 
-          expect(storeOptions.actions.createModal).toHaveBeenCalledTimes(1)
+          expect(dispatchModal).toHaveBeenCalledTimes(1)
         }
       })
     })
-    it('should not trigger the disable modal window without any resource', async () => {
-      const { wrapper } = getWrapper({
-        setup: async ({ actions }, { storeOptions }) => {
+    it('should not trigger the disable modal window without any resource', () => {
+      getWrapper({
+        setup: async ({ actions }) => {
+          const { dispatchModal } = useModals()
           await unref(actions)[0].handler({
             resources: [
               mock<SpaceResource>({ id: '1', canDisable: () => false, driveType: 'project' })
             ]
           })
 
-          expect(storeOptions.actions.createModal).toHaveBeenCalledTimes(0)
+          expect(dispatchModal).toHaveBeenCalledTimes(0)
         }
       })
     })
   })
 
   describe('method "disableSpace"', () => {
-    it('should hide the modal on success', async () => {
-      const { wrapper, mocks } = getWrapper({
-        setup: async ({ disableSpaces }, { storeOptions, clientService }) => {
+    it('should show message on success', () => {
+      getWrapper({
+        setup: async ({ disableSpaces }, { clientService }) => {
           clientService.graphAuthenticated.drives.disableDrive.mockResolvedValue(mockAxiosResolve())
           await disableSpaces([
             mock<SpaceResource>({ id: '1', canDisable: () => true, driveType: 'project' })
           ])
 
-          expect(storeOptions.actions.hideModal).toHaveBeenCalledTimes(1)
+          const { showMessage } = useMessages()
+          expect(showMessage).toHaveBeenCalledTimes(1)
         }
       })
     })
 
-    it('should show message on error', async () => {
-      jest.spyOn(console, 'error').mockImplementation(() => undefined)
-      const { wrapper } = getWrapper({
-        setup: async ({ actions, disableSpaces }, { storeOptions, clientService }) => {
+    it('should show message on error', () => {
+      vi.spyOn(console, 'error').mockImplementation(() => undefined)
+      getWrapper({
+        setup: async ({ disableSpaces }, { clientService }) => {
           clientService.graphAuthenticated.drives.disableDrive.mockRejectedValue(new Error())
           await disableSpaces([
             mock<SpaceResource>({ id: '1', canDisable: () => true, driveType: 'project' })
           ])
 
-          expect(storeOptions.actions.showErrorMessage).toHaveBeenCalledTimes(1)
+          const { showErrorMessage } = useMessages()
+          expect(showErrorMessage).toHaveBeenCalledTimes(1)
         }
       })
     })
@@ -133,20 +136,12 @@ function getWrapper({
   setup: (
     instance: ReturnType<typeof useSpaceActionsDisable>,
     {
-      storeOptions,
       clientService
     }: {
-      storeOptions: typeof defaultStoreMockOptions
       clientService: ReturnType<typeof defaultComponentMocks>['$clientService']
     }
   ) => void
 }) {
-  const storeOptions = {
-    ...defaultStoreMockOptions
-  }
-  storeOptions.getters.user.mockReturnValue({ id: 'alice', uuid: 1 })
-
-  const store = createStore(storeOptions)
   const mocks = defaultComponentMocks({
     currentRoute: mock<RouteLocation>({ name: 'files-spaces-projects' })
   })
@@ -154,13 +149,15 @@ function getWrapper({
     mocks,
     wrapper: getComposableWrapper(
       () => {
-        const instance = useSpaceActionsDisable({ store })
-        setup(instance, { storeOptions, clientService: mocks.$clientService })
+        const instance = useSpaceActionsDisable()
+        setup(instance, { clientService: mocks.$clientService })
       },
       {
         mocks,
         provide: mocks,
-        store
+        pluginOptions: {
+          piniaOptions: { userState: { user: { id: '1', onPremisesSamAccountName: 'alice' } } }
+        }
       }
     )
   }

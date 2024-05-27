@@ -1,19 +1,18 @@
-import { mock, mockDeep } from 'jest-mock-extended'
+import { mock, mockDeep } from 'vitest-mock-extended'
 import { Language } from 'vue3-gettext'
-import { ResourceConflict } from 'web-app-files/src/helpers/resource'
-import { ResolveStrategy, UppyResource } from '@ownclouders/web-pkg'
-import { Resource } from '@ownclouders/web-client/src/helpers'
-import { createStore, defaultStoreMockOptions } from 'web-test-helpers/src'
+import { UploadResourceConflict } from 'web-app-files/src/helpers/resource'
+import { ResolveStrategy, UppyResource, useResourcesStore } from '@ownclouders/web-pkg'
+import { Resource } from '@ownclouders/web-client'
+import { createTestingPinia } from 'web-test-helpers/src'
 
 const getResourceConflictInstance = ({
   currentFiles = [mockDeep<Resource>()]
 }: {
   currentFiles?: Resource[]
 } = {}) => {
-  const storeOptions = defaultStoreMockOptions
-  storeOptions.modules.Files.getters.files.mockReturnValue(currentFiles)
-  const store = createStore(storeOptions)
-  return new ResourceConflict(store, mock<Language>())
+  createTestingPinia({ initialState: { resources: { resources: currentFiles } } })
+  const resourcesStore = useResourcesStore()
+  return new UploadResourceConflict(resourcesStore, mock<Language>())
 }
 
 describe('upload helper', () => {
@@ -56,7 +55,7 @@ describe('upload helper', () => {
         }
 
         const instance = getResourceConflictInstance()
-        const resolveFileConflictMethod = jest.fn(() =>
+        const resolveFileConflictMethod = vi.fn(() =>
           Promise.resolve({ strategy, doForAllConflicts: true })
         )
         instance.resolveFileExists = resolveFileConflictMethod
@@ -72,7 +71,7 @@ describe('upload helper', () => {
 
       const instance = getResourceConflictInstance()
 
-      const resolveFileConflictMethod = jest.fn(() =>
+      const resolveFileConflictMethod = vi.fn(() =>
         Promise.resolve({ strategy: ResolveStrategy.SKIP, doForAllConflicts: true })
       )
       instance.resolveFileExists = resolveFileConflictMethod
@@ -87,7 +86,7 @@ describe('upload helper', () => {
       const conflictTwo = { name: uppyResourceTwo.name, type: 'file' }
 
       const instance = getResourceConflictInstance()
-      const resolveFileConflictMethod = jest.fn(() =>
+      const resolveFileConflictMethod = vi.fn(() =>
         Promise.resolve({ strategy: ResolveStrategy.REPLACE, doForAllConflicts: true })
       )
       instance.resolveFileExists = resolveFileConflictMethod
@@ -110,7 +109,7 @@ describe('upload helper', () => {
       const conflictTwo = { name: uppyResourceTwo.name, type: 'folder' }
 
       const instance = getResourceConflictInstance()
-      instance.resolveFileExists = jest.fn(() =>
+      instance.resolveFileExists = vi.fn(() =>
         Promise.resolve({ strategy: ResolveStrategy.REPLACE, doForAllConflicts: true })
       )
 

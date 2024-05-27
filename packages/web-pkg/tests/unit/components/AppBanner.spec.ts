@@ -3,10 +3,10 @@ import AppBanner from '../../../src/components/AppBanner.vue'
 import { createRouter, createWebHashHistory, createWebHistory } from 'vue-router'
 import { useSessionStorage } from '@vueuse/core'
 import { ref } from 'vue'
-import { createMockThemeStore } from 'web-test-helpers/src/mocks/pinia'
 
-jest.mock('@vueuse/core')
+vi.mock('@vueuse/core')
 
+// @vitest-environment jsdom
 describe('AppBanner', () => {
   it('generates app url with correct app scheme', () => {
     const baseElement = document.createElement('base')
@@ -38,7 +38,13 @@ describe('AppBanner', () => {
   })
 })
 
-function getWrapper({ fileId, sessionStorageReturnValue }) {
+function getWrapper({
+  fileId,
+  sessionStorageReturnValue
+}: {
+  fileId: string
+  sessionStorageReturnValue: string
+}) {
   const router = createRouter({
     routes: [
       {
@@ -49,7 +55,7 @@ function getWrapper({ fileId, sessionStorageReturnValue }) {
     history: ('/' && createWebHistory('/')) || createWebHashHistory()
   })
 
-  jest.mocked(useSessionStorage).mockImplementation(() => {
+  vi.mocked(useSessionStorage).mockImplementation(() => {
     return ref<string>(sessionStorageReturnValue)
   })
 
@@ -62,15 +68,20 @@ function getWrapper({ fileId, sessionStorageReturnValue }) {
       },
       global: {
         plugins: [
-          ...defaultPlugins(),
-          createMockThemeStore({
-            appBanner: {
-              title: 'ownCloud',
-              publisher: 'ownCloud GmbH',
-              additionalInformation: '',
-              ctaText: 'OPEN',
-              icon: 'themes/owncloud/assets/owncloud-app-icon.png',
-              appScheme: 'owncloud'
+          ...defaultPlugins({
+            piniaOptions: {
+              themeState: {
+                currentTheme: {
+                  appBanner: {
+                    title: 'ownCloud',
+                    publisher: 'ownCloud GmbH',
+                    additionalInformation: '',
+                    ctaText: 'OPEN',
+                    icon: 'themes/owncloud/assets/owncloud-app-icon.png',
+                    appScheme: 'owncloud'
+                  }
+                }
+              }
             }
           })
         ],

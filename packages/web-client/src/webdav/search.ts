@@ -1,12 +1,7 @@
-import { Resource, buildResource } from '../helpers'
+import { SearchResource, buildResource } from '../helpers'
 import { WebDavOptions } from './types'
 import { DavProperties, DavProperty, DavPropertyValue } from './constants'
-import { DAV, buildAuthHeader } from './client'
-import { unref } from 'vue'
-
-export interface SearchResource extends Resource {
-  highlights: string
-}
+import { DAV } from './client'
 
 export type SearchOptions = {
   davProperties?: DavPropertyValue[]
@@ -18,18 +13,17 @@ export type SearchResult = {
   totalResults: number
 }
 
-export const SearchFactory = (dav: DAV, { accessToken }: WebDavOptions) => {
+export const SearchFactory = (dav: DAV, options: WebDavOptions) => {
   return {
     async search(
       term: string,
       { davProperties = DavProperties.Default, searchLimit }: SearchOptions
     ): Promise<SearchResult> {
       const path = '/spaces/'
-      const headers = buildAuthHeader(unref(accessToken))
-      const { range, results } = await dav.search(term, path, {
+      const { range, results } = await dav.report(path, {
+        pattern: term,
         limit: searchLimit,
-        properties: davProperties,
-        headers
+        properties: davProperties
       })
 
       return {

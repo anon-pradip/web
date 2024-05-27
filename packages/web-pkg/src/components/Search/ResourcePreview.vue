@@ -1,5 +1,5 @@
 <template>
-  <oc-resource
+  <resource-list-item
     :resource="resource"
     :path-prefix="pathPrefix"
     :is-path-displayed="true"
@@ -17,15 +17,23 @@ import { ImageDimension } from '../../constants'
 import { VisibilityObserver } from '../../observer'
 import { debounce } from 'lodash-es'
 import { computed, defineComponent, PropType, ref, unref } from 'vue'
-import { mapGetters } from 'vuex'
-import { useGetMatchingSpace, useFileActions, useFolderLink, useStore } from '../../composables'
-import { Resource } from '@ownclouders/web-client/src/helpers'
+import {
+  useGetMatchingSpace,
+  useFileActions,
+  useFolderLink,
+  useConfigStore,
+  useResourcesStore
+} from '../../composables'
+import { isSpaceResource, Resource } from '@ownclouders/web-client'
 import { isResourceTxtFileAlmostEmpty } from '../../helpers'
+import ResourceListItem from '../FilesList/ResourceListItem.vue'
 import { SearchResultValue } from './types'
+import { storeToRefs } from 'pinia'
 
 const visibilityObserver = new VisibilityObserver()
 
 export default defineComponent({
+  components: { ResourceListItem },
   props: {
     searchResult: {
       type: Object as PropType<SearchResultValue>,
@@ -48,10 +56,13 @@ export default defineComponent({
       getParentFolderLinkIconAdditionalAttributes,
       getFolderLink
     } = useFolderLink()
-    const store = useStore()
+    const configStore = useConfigStore()
+    const { options: configOptions } = storeToRefs(configStore)
+    const resourcesStore = useResourcesStore()
+
     const previewData = ref()
 
-    const areFileExtensionsShown = computed(() => unref(store.state.Files.areFileExtensionsShown))
+    const areFileExtensionsShown = computed(() => resourcesStore.areFileExtensionsShown)
 
     const resource = computed((): Resource => {
       return {
@@ -66,7 +77,8 @@ export default defineComponent({
     const space = computed(() => getMatchingSpace(unref(resource)))
 
     const resourceDisabled = computed(() => {
-      return unref(resource).disabled === true
+      const res = unref(resource)
+      return isSpaceResource(res) && res.disabled === true
     })
 
     const resourceClicked = () => {
@@ -90,6 +102,7 @@ export default defineComponent({
     })
 
     return {
+      configOptions,
       space,
       previewData,
       resource,
@@ -107,14 +120,8 @@ export default defineComponent({
     }
   },
   computed: {
-    ...mapGetters(['configuration']),
-    ...mapGetters('runtime/spaces', ['spaces']),
-
     displayThumbnails() {
-      return (
-        !this.configuration?.options?.disablePreviews &&
-        !isResourceTxtFileAlmostEmpty(this.resource)
-      )
+      return !this.configOptions.disablePreviews && !isResourceTxtFileAlmostEmpty(this.resource)
     }
   },
   mounted() {
@@ -126,8 +133,7 @@ export default defineComponent({
       return
     }
 
-    const debounced = debounce(async ({ unobserve }) => {
-      unobserve()
+    const loadPreview = async () => {
       const preview = await this.$previewService.loadPreview(
         {
           space: this.space,
@@ -136,7 +142,13 @@ export default defineComponent({
         },
         true
       )
+
       preview && (this.previewData = preview)
+    }
+
+    const debounced = debounce(({ unobserve }) => {
+      unobserve()
+      loadPreview()
     }, 250)
 
     visibilityObserver.observe(this.$el, { onEnter: debounced, onExit: debounced.cancel })

@@ -88,7 +88,7 @@ export class MustContainRule implements PasswordPolicyRule {
 
     return true
   }
-  missing(options, password) {
+  missing(options: PasswordPolicyRuleOptions, password: string) {
     return this.explain(options, this.assert(options, password))
   }
 }
@@ -99,10 +99,12 @@ export class AtMostBaseRule implements PasswordPolicyRule {
     this.$ngettext = $ngettext
   }
 
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   assert(options: PasswordPolicyRuleOptions, password: string): boolean {
     throw new Error('Method not implemented.')
   }
 
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   explain(options: PasswordPolicyRuleOptions, verified?: boolean): PasswordPolicyRuleExplained {
     throw new Error('Method not implemented.')
   }
@@ -154,10 +156,12 @@ export class AtLeastBaseRule implements PasswordPolicyRule {
     this.$ngettext = $ngettext
   }
 
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   assert(options: PasswordPolicyRuleOptions, password: string): boolean {
     throw new Error('Method not implemented.')
   }
 
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   explain(options: PasswordPolicyRuleOptions, verified?: boolean): PasswordPolicyRuleExplained {
     throw new Error('Method not implemented.')
   }

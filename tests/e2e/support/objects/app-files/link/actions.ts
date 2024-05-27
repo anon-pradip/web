@@ -3,7 +3,6 @@ import util from 'util'
 import { sidebar } from '../utils'
 import { getActualExpiryDate } from '../../../utils/datePicker'
 import { clickResource } from '../resource/actions'
-import { shareRoles } from '../share/collaborator'
 
 export interface createLinkArgs {
   page: Page
@@ -62,7 +61,7 @@ export type publicLinkAndItsEditButtonVisibilityArgs = {
   resource?: string
   space?: boolean
 }
-const publicLinkSetRoleButton = `#files-role-%s`
+const publicLinkSetRoleButton = `//span[contains(@class,"role-dropdown-list-option-label") and text()='%s']`
 const linkExpiryDatepicker = '.link-expiry-picker:not(.vc-container)'
 const publicLinkEditRoleButton =
   `//h4[contains(@class, "oc-files-file-link-name") and text()="%s"]//ancestor::li//div[contains(@class, "link-details")]/` +
@@ -101,11 +100,11 @@ const expectedRegexForGeneratedPassword = /^[A-Za-z0-9\s\S]{12}$/
 const passwordInputDescription = '.oc-text-input-description .oc-text-input-description'
 
 const getRecentLinkUrl = async (page: Page): Promise<string> => {
-  return page.locator(publicLinkUrlList).first().textContent()
+  return await page.locator(publicLinkUrlList).first().textContent()
 }
 
 const getRecentLinkName = async (page: Page): Promise<string> => {
-  return page.locator(publicLinkNameList).first().textContent()
+  return await page.locator(publicLinkNameList).first().textContent()
 }
 
 export const createLink = async (args: createLinkArgs): Promise<string> => {
@@ -121,7 +120,7 @@ export const createLink = async (args: createLinkArgs): Promise<string> => {
   }
   await page.locator(addPublicLinkButton).click()
   if (role) {
-    await page.locator(util.format(publicLinkSetRoleButton, shareRoles[role])).click()
+    await page.locator(util.format(publicLinkSetRoleButton, role)).click()
   }
 
   role === 'Invited people'
@@ -133,7 +132,7 @@ export const createLink = async (args: createLinkArgs): Promise<string> => {
   await Promise.all([
     page.waitForResponse(
       (res) =>
-        res.url().includes('api/v1/shares') &&
+        res.url().includes('createLink') &&
         res.request().method() === 'POST' &&
         res.status() === 200
     ),
@@ -166,11 +165,11 @@ export const changeRole = async (args: changeRoleArgs): Promise<string> => {
   await Promise.all([
     page.waitForResponse(
       (res) =>
-        res.url().includes('api/v1/shares/') &&
-        res.request().method() === 'PUT' &&
+        res.url().includes('permissions') &&
+        res.request().method() === 'PATCH' &&
         res.status() === 200
     ),
-    page.locator(util.format(publicLinkSetRoleButton, shareRoles[role])).click()
+    page.locator(util.format(publicLinkSetRoleButton, role)).click()
   ])
 
   const message = await page.locator(linkUpdateDialog).textContent()
@@ -229,7 +228,10 @@ export const addPassword = async (args: addPasswordArgs): Promise<void> => {
   expect(message.trim()).toBe('Link was updated successfully')
 }
 
-export const showOrHidePassword = async (args): Promise<void> => {
+export const showOrHidePassword = async (args: {
+  page: Page
+  showOrHide: string
+}): Promise<void> => {
   const { page, showOrHide } = args
   await page.locator(showOrHidePasswordButton).click()
   showOrHide === 'reveals'
@@ -254,8 +256,8 @@ export const setPassword = async (page: Page): Promise<void> => {
   await Promise.all([
     page.waitForResponse(
       (res) =>
-        res.url().includes('api/v1/shares/') &&
-        res.request().method() === 'PUT' &&
+        res.url().includes('permissions') &&
+        res.request().method() === 'POST' &&
         res.status() === 200
     ),
     page.locator(editPublicLinkRenameConfirm).click()

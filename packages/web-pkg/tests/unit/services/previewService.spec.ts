@@ -1,9 +1,15 @@
 import { ClientService, PreviewService } from '../../../src/services'
-import { mock, mockDeep } from 'jest-mock-extended'
-import { ConfigurationManager } from '../../../src/configuration'
-import { createStore, defaultStoreMockOptions } from 'web-test-helpers'
+import { mock, mockDeep } from 'vitest-mock-extended'
+import { createTestingPinia } from 'web-test-helpers'
 import { Resource, SpaceResource } from '@ownclouders/web-client'
 import { AxiosResponse } from 'axios'
+import {
+  useAuthStore,
+  useUserStore,
+  useCapabilityStore,
+  useConfigStore
+} from '../../../src/composables/piniaStores'
+import { User } from '@ownclouders/web-client/graph/generated'
 
 describe('PreviewService', () => {
   describe('method "isMimetypeSupported"', () => {
@@ -70,7 +76,7 @@ describe('PreviewService', () => {
           supportedMimeTypes,
           version: '1'
         })
-        window.URL.createObjectURL = jest.fn().mockImplementation(() => objectUrl)
+        window.URL.createObjectURL = vi.fn().mockImplementation(() => objectUrl)
         const preview = await previewService.loadPreview({
           space: mock<SpaceResource>(),
           resource: mock<Resource>({ mimeType: supportedMimeTypes[0], webDavPath: '/', etag: '' })
@@ -90,7 +96,7 @@ describe('PreviewService', () => {
           webDavPath: '/',
           etag: ''
         })
-        window.URL.createObjectURL = jest.fn().mockImplementation(() => objectUrl)
+        window.URL.createObjectURL = vi.fn().mockImplementation(() => objectUrl)
         const preview = await previewService.loadPreview(
           { space: mock<SpaceResource>(), resource: resourceMock },
           true
@@ -126,31 +132,31 @@ describe('PreviewService', () => {
 const getWrapper = ({
   supportedMimeTypes = [],
   version = undefined,
-  userId = '1',
-  token = 'token'
+  accessToken = 'token'
 } = {}) => {
-  const storeOptions = defaultStoreMockOptions
-  storeOptions.modules.runtime.modules.auth.getters.accessToken.mockReturnValue(token)
-  storeOptions.getters.user.mockReturnValue({ id: userId })
-  storeOptions.getters.capabilities.mockReturnValue({
-    files: {
-      thumbnail: {
-        supportedMimeTypes,
-        version
-      }
-    }
-  })
-  const store = createStore(storeOptions)
   const clientService = mockDeep<ClientService>()
   clientService.httpAuthenticated.get.mockResolvedValue({ data: {}, status: 200 } as AxiosResponse)
   clientService.httpUnAuthenticated.head.mockResolvedValue({
     data: {},
     status: 200
   } as AxiosResponse)
-  const configurationManager = mock<ConfigurationManager>()
-  configurationManager.serverUrl = 'https://someUrl.com'
+
+  createTestingPinia({ initialState: { user: { user: mock<User>() }, auth: { accessToken } } })
+  const userStore = useUserStore()
+  const authStore = useAuthStore()
+  const capabilityStore = useCapabilityStore()
+  const configStore = useConfigStore()
+
+  capabilityStore.capabilities.files = { thumbnail: { supportedMimeTypes, version } }
+
   return {
-    previewService: new PreviewService({ store, clientService, configurationManager }),
+    previewService: new PreviewService({
+      configStore,
+      clientService,
+      userStore,
+      authStore,
+      capabilityStore
+    }),
     clientService
   }
 }

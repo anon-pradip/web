@@ -1,19 +1,8 @@
-import { mock } from 'jest-mock-extended'
-import { SpaceResource } from '@ownclouders/web-client/src'
+import { mock } from 'vitest-mock-extended'
+import { SpaceResource } from '@ownclouders/web-client'
 import { RouteLocation, getComposableWrapper } from 'web-test-helpers/src'
 import { useBreadcrumbsFromPath } from '../../../../src/composables/breadcrumbs'
-import { ConfigurationManager } from '../../../../src/configuration'
-
-jest.mock('../../../../src/composables/configuration/useConfigurationManager', () => ({
-  useConfigurationManager: () =>
-    mock<ConfigurationManager>({
-      options: {
-        routing: {
-          fullShareOwnerPaths: false
-        }
-      }
-    })
-}))
+import { ref } from 'vue'
 
 describe('useBreadcrumbsFromPath', () => {
   describe('builds an array of breadcrumbitems', () => {
@@ -22,7 +11,7 @@ describe('useBreadcrumbsFromPath', () => {
       const { breadcrumbsFromPath } = wrapper.vm as ReturnType<typeof useBreadcrumbsFromPath>
       const breadCrumbs = breadcrumbsFromPath({
         route: { path: '/files/spaces/personal/home/test' } as RouteLocation,
-        space: mock<SpaceResource>(),
+        space: ref(mock<SpaceResource>()),
         resourcePath: '/test'
       })
       expect(breadCrumbs).toEqual([
@@ -44,7 +33,7 @@ describe('useBreadcrumbsFromPath', () => {
       const initialBreadCrumbs = [{ text: 'Foo' }, { text: 'Bar' }]
       const breadCrumbsFromPath = breadcrumbsFromPath({
         route: { path: '/app/foo/bar?all=500' } as RouteLocation,
-        space: mock<SpaceResource>(),
+        space: ref(mock<SpaceResource>()),
         resourcePath: '/bar'
       })
       const result = concatBreadcrumbs(...initialBreadCrumbs, ...breadCrumbsFromPath)

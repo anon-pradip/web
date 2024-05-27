@@ -1,9 +1,8 @@
 <template>
   <div id="files-app-bar" ref="filesAppBar" :class="{ 'files-app-bar-squashed': isSideBarOpen }">
-    <oc-hidden-announcer :announcement="selectedResourcesAnnouncement" level="polite" />
-
     <div class="files-topbar oc-py-s">
       <h1 class="oc-invisible-sr" v-text="pageTitle" />
+      <oc-hidden-announcer :announcement="selectedResourcesAnnouncement" level="polite" />
       <div
         class="oc-flex oc-flex-middle files-app-bar-controls"
         :class="{
@@ -45,12 +44,10 @@
       <div class="files-app-bar-actions oc-mt-xs">
         <div class="oc-flex-1 oc-flex oc-flex-start oc-flex-middle">
           <slot name="actions" :limited-screen-space="limitedScreenSpace" />
-          <!-- HACK: vue-tsc thinks BatchActions is of type FileAction[], the empty bind (currently) workarounds the resulting error -->
           <batch-actions
             v-if="showBatchActions"
-            v-bind="{} as any"
             :actions="batchActions"
-            :action-options="{ space, resources: selectedFiles }"
+            :action-options="{ space, resources: selectedResources }"
             :limited-screen-space="limitedScreenSpace"
           />
         </div>
@@ -63,23 +60,22 @@
 <script lang="ts">
 import last from 'lodash-es/last'
 import { computed, defineComponent, inject, PropType, ref, Ref, unref, useSlots } from 'vue'
-import { mapGetters } from 'vuex'
 import { Resource } from '@ownclouders/web-client'
 import {
   isPersonalSpaceResource,
   isProjectSpaceResource,
   isShareSpaceResource,
   SpaceResource
-} from '@ownclouders/web-client/src/helpers'
+} from '@ownclouders/web-client'
 import BatchActions from '../BatchActions.vue'
 import ContextActions from '../FilesList/ContextActions.vue'
 import ViewOptions from '../ViewOptions.vue'
 import { isLocationCommonActive, isLocationTrashActive } from '../../router'
-import { ViewMode } from '../../ui/types'
+import { FolderView } from '../../ui/types'
 import {
-  useFileActionsAcceptShare,
+  useFileActionsEnableSync,
   useFileActionsCopy,
-  useFileActionsDeclineShare,
+  useFileActionsDisableSync,
   useFileActionsDelete,
   useFileActionsDownloadArchive,
   useFileActionsDownloadFile,
@@ -91,9 +87,13 @@ import {
 import {
   useAbility,
   useFileActionsToggleHideShare,
+  useResourcesStore,
   useRouteMeta,
-  useStore,
-  ViewModeConstants
+  useSpacesStore,
+  useRouter,
+  FolderViewModeConstants,
+  useExtensionRegistry,
+  ActionExtension
 } from '../../composables'
 import { BreadcrumbItem } from 'design-system/src/components/OcBreadcrumb/types'
 import { useActiveLocation } from '../../composables'
@@ -106,6 +106,8 @@ import {
   useSpaceActionsEditQuota,
   useSpaceActionsRestore
 } from '../../composables'
+import { storeToRefs } from 'pinia'
+import { RouteLocationRaw } from 'vue-router'
 
 const { EVENT_ITEM_DROPPED } = helpers
 
@@ -119,19 +121,19 @@ export default defineComponent({
     viewModeDefault: {
       type: String,
       required: false,
-      default: () => ViewModeConstants.default.name
+      default: () => FolderViewModeConstants.name.table
     },
     breadcrumbs: {
       type: Array as PropType<BreadcrumbItem[]>,
-      default: () => []
+      default: (): BreadcrumbItem[] => []
     },
     breadcrumbsContextActionsItems: {
       type: Array as PropType<Resource[]>,
-      default: () => []
+      default: (): Resource[] => []
     },
     viewModes: {
-      type: Array as PropType<ViewMode[]>,
-      default: () => []
+      type: Array as PropType<FolderView[]>,
+      default: (): FolderView[] => []
     },
     hasBulkActions: { type: Boolean, default: false },
     hasViewOptions: { type: Boolean, default: true },
@@ -147,25 +149,32 @@ export default defineComponent({
     }
   },
   setup(props, { emit }) {
-    const store = useStore()
+    const spacesStore = useSpacesStore()
     const { $gettext } = useGettext()
     const { can } = useAbility()
+    const router = useRouter()
+    const { requestExtensions } = useExtensionRegistry()
 
-    const { actions: acceptShareActions } = useFileActionsAcceptShare({ store })
-    const { actions: hideShareActions } = useFileActionsToggleHideShare({ store })
-    const { actions: copyActions } = useFileActionsCopy({ store })
-    const { actions: duplicateActions } = useSpaceActionsDuplicate({ store })
-    const { actions: declineShareActions } = useFileActionsDeclineShare({ store })
-    const { actions: deleteActions } = useFileActionsDelete({ store })
-    const { actions: downloadArchiveActions } = useFileActionsDownloadArchive({ store })
+    const resourcesStore = useResourcesStore()
+    const { selectedResources } = storeToRefs(resourcesStore)
+
+    const space = computed(() => props.space)
+
+    const { actions: enableSyncActions } = useFileActionsEnableSync()
+    const { actions: hideShareActions } = useFileActionsToggleHideShare()
+    const { actions: copyActions } = useFileActionsCopy()
+    const { actions: duplicateActions } = useSpaceActionsDuplicate()
+    const { actions: disableSyncActions } = useFileActionsDisableSync()
+    const { actions: deleteActions } = useFileActionsDelete()
+    const { actions: downloadArchiveActions } = useFileActionsDownloadArchive()
     const { actions: downloadFileActions } = useFileActionsDownloadFile()
-    const { actions: emptyTrashBinActions } = useFileActionsEmptyTrashBin({ store })
-    const { actions: moveActions } = useFileActionsMove({ store })
-    const { actions: restoreActions } = useFileActionsRestore({ store })
-    const { actions: deleteSpaceActions } = useSpaceActionsDelete({ store })
-    const { actions: disableSpaceActions } = useSpaceActionsDisable({ store })
-    const { actions: editSpaceQuotaActions } = useSpaceActionsEditQuota({ store })
-    const { actions: restoreSpaceActions } = useSpaceActionsRestore({ store })
+    const { actions: emptyTrashBinActions } = useFileActionsEmptyTrashBin()
+    const { actions: moveActions } = useFileActionsMove()
+    const { actions: restoreActions } = useFileActionsRestore()
+    const { actions: deleteSpaceActions } = useSpaceActionsDelete()
+    const { actions: disableSpaceActions } = useSpaceActionsDisable()
+    const { actions: editSpaceQuotaActions } = useSpaceActionsEditQuota()
+    const { actions: restoreSpaceActions } = useSpaceActionsRestore()
 
     const breadcrumbMaxWidth = ref<number>(0)
     const isSearchLocation = useActiveLocation(isLocationCommonActive, 'files-common-search')
@@ -175,10 +184,10 @@ export default defineComponent({
     )
 
     const batchActions = computed(() => {
-      let actions = [
+      let actions: FileAction[] = [
         ...unref(hideShareActions),
-        ...unref(acceptShareActions),
-        ...unref(declineShareActions),
+        ...unref(enableSyncActions),
+        ...unref(disableSyncActions),
         ...unref(downloadArchiveActions),
         ...unref(downloadFileActions),
         ...unref(moveActions),
@@ -203,15 +212,21 @@ export default defineComponent({
         ] as FileAction[]
       }
 
+      const actionExtensions = requestExtensions<ActionExtension>({
+        id: 'global.files.batch-actions',
+        extensionType: 'action'
+      })
+      if (actionExtensions.length) {
+        actions = [...actions, ...actionExtensions.map((e) => e.action)]
+      }
+
       return actions.filter((item) =>
-        item.isEnabled({ space: props.space, resources: store.getters['Files/selectedFiles'] })
+        item.isVisible({ space: unref(space), resources: resourcesStore.selectedResources })
       )
     })
 
-    const spaces = computed<SpaceResource[]>(() =>
-      store.getters['runtime/spaces/spaces'].filter(
-        (s) => isPersonalSpaceResource(s) || isProjectSpaceResource(s)
-      )
+    const spaces = computed(() =>
+      spacesStore.spaces.filter((s) => isPersonalSpaceResource(s) || isProjectSpaceResource(s))
     )
 
     const isMobileWidth = inject<Ref<boolean>>('isMobileWidth')
@@ -233,14 +248,12 @@ export default defineComponent({
     })
 
     const breadcrumbTruncationOffset = computed(() => {
-      if (!props.space) {
+      if (!unref(space)) {
         return 2
       }
-      return isProjectSpaceResource(unref(props.space)) || isShareSpaceResource(unref(props.space))
-        ? 3
-        : 2
+      return isProjectSpaceResource(unref(space)) || isShareSpaceResource(unref(space)) ? 3 : 2
     })
-    const fileDroppedBreadcrumb = async (data) => {
+    const fileDroppedBreadcrumb = (data: RouteLocationRaw) => {
       emit(EVENT_ITEM_DROPPED, data)
     }
 
@@ -249,10 +262,11 @@ export default defineComponent({
       if (unref(routeMetaTitle)) {
         return $gettext(unref(routeMetaTitle))
       }
-      return props.space?.name || ''
+      return unref(space)?.name || ''
     })
 
     return {
+      router,
       hasSharesNavigation,
       batchActions,
       showBreadcrumb,
@@ -260,7 +274,8 @@ export default defineComponent({
       breadcrumbMaxWidth,
       breadcrumbTruncationOffset,
       fileDroppedBreadcrumb,
-      pageTitle
+      pageTitle,
+      selectedResources
     }
   },
   data: function () {
@@ -270,28 +285,26 @@ export default defineComponent({
     }
   },
   computed: {
-    ...mapGetters('Files', ['files', 'selectedFiles']),
-
     showContextActions() {
       return last<BreadcrumbItem>(this.breadcrumbs).allowContextActions
     },
     showBatchActions() {
       return (
         this.hasBulkActions &&
-        (this.selectedFiles.length >= 1 ||
-          isLocationTrashActive(this.$router, 'files-trash-generic'))
+        (this.selectedResources.length >= 1 ||
+          isLocationTrashActive(this.router, 'files-trash-generic'))
       )
     },
     selectedResourcesAnnouncement() {
-      if (this.selectedFiles.length === 0) {
+      if (this.selectedResources.length === 0) {
         return this.$gettext('No items selected.')
       }
       return this.$ngettext(
         '%{ amount } item selected. Actions are available above the table.',
         '%{ amount } items selected. Actions are available above the table.',
-        this.selectedFiles.length,
+        this.selectedResources.length,
         {
-          amount: this.selectedFiles.length
+          amount: this.selectedResources.length.toString()
         }
       )
     }

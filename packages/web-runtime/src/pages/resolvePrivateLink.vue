@@ -48,9 +48,9 @@ import {
   useRouter,
   queryItemAsString,
   useRouteQuery,
-  useConfigurationManager,
   createLocationSpaces,
   createLocationShares,
+  useConfigStore,
   useClientService
 } from '@ownclouders/web-pkg'
 import { unref, defineComponent, computed, onMounted, ref, Ref } from 'vue'
@@ -58,16 +58,17 @@ import { unref, defineComponent, computed, onMounted, ref, Ref } from 'vue'
 import { dirname } from 'path'
 import { createFileRouteOptions, useGetResourceContext } from '@ownclouders/web-pkg'
 import { useTask } from 'vue-concurrency'
-import { isShareSpaceResource, Resource, SHARE_JAIL_ID } from '@ownclouders/web-client/src/helpers'
+import { isShareSpaceResource, Resource, SHARE_JAIL_ID } from '@ownclouders/web-client'
 import { RouteLocationNamedRaw } from 'vue-router'
 import { useGettext } from 'vue3-gettext'
+import { DriveItem } from '@ownclouders/web-client/graph/generated'
 
 export default defineComponent({
   name: 'ResolvePrivateLink',
   setup() {
     const router = useRouter()
     const id = useRouteParam('fileId')
-    const configurationManager = useConfigurationManager()
+    const configStore = useConfigStore()
     const { $gettext } = useGettext()
     const clientService = useClientService()
 
@@ -121,9 +122,14 @@ export default defineComponent({
       if (isShareSpaceResource(space)) {
         sharedParentResource.value = resource
         resourceIsNestedInShare = path !== '/'
-        if (!resourceIsNestedInShare && space.shareId) {
-          const { shareInfo } = yield clientService.owncloudSdk.shares.getShare(space.shareId)
-          isHiddenShare = shareInfo.hidden === 'true'
+        if (!resourceIsNestedInShare) {
+          // FIXME: get drive item by id as soon as server supports it
+          const { data } = yield clientService.graphAuthenticated.drives.listSharedWithMe()
+          const share = (data.value as DriveItem[]).find(
+            ({ remoteItem }) => remoteItem.id === resource.id
+          )
+
+          isHiddenShare = share?.['@UI.Hidden']
         }
       }
 
@@ -143,15 +149,14 @@ export default defineComponent({
 
       const { params, query } = createFileRouteOptions(space, { fileId, path })
       const openWithDefault =
-        configurationManager.options.openLinksWithDefaultApp &&
+        configStore.options.openLinksWithDefaultApp &&
         unref(openWithDefaultApp) !== 'false' &&
         !unref(details)
 
       targetLocation.params = params
       targetLocation.query = {
         ...query,
-        scrollTo:
-          targetLocation.name === 'files-shares-with-me' ? space.shareId : unref(resource).fileId,
+        scrollTo: unref(resource).fileId,
         ...(unref(details) && { details: unref(details) }),
         ...(isHiddenShare && { 'q_share-visibility': 'hidden' }),
         ...(openWithDefault && { openWithDefaultApp: 'true' })

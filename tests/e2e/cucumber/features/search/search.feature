@@ -104,6 +104,7 @@ Feature: Search
 
     # search difficult names
     When "Alice" searches "strängéनेपालीName" using the global search and the "all files" filter and presses enter
+    And "Alice" enables the option to search title only
     Then following resources should be displayed in the files list for user "Alice"
       | strängéनेपालीName |
 
@@ -116,28 +117,7 @@ Feature: Search
       | resource          |
       | strängéनेपालीName |
 
-    And "Alice" navigates to the shared with me page
-    When "Alice" reshares the following resource
-      | resource             | recipient | type | role     | resourceType |
-      | new_share_from_brian | Carol     | user | Can view | folder       |
-      | new-lorem-big.txt    | Carol     | user | Can view | file         |
     And "Alice" logs out
-
-    # search re-shared resources
-    When "Carol" logs in
-    And "Carol" opens the "files" app
-    And "Carol" creates the following resources
-      | resource | type   |
-      | folder   | folder |
-    And "Carol" searches "NEW" using the global search and the "all files" filter
-    Then following resources should be displayed in the search list for user "Carol"
-      | resource             |
-      | new_share_from_brian |
-      | new-lorem-big.txt    |
-    But following resources should not be displayed in the search list for user "Carol"
-      | resource |
-      | folder   |
-    And "Carol" logs out
 
 
   Scenario: Search using "current folder" filter
@@ -192,6 +172,7 @@ Feature: Search
       | mediaTest.zip | I'm a Archive  |
     When "Alice" opens the "files" app
     And "Alice" searches "mediaTest" using the global search and the "all files" filter and presses enter
+    And "Alice" enables the option to search title only
     And "Alice" selects mediaType "Document" from the search result filter chip
     Then following resources should be displayed in the files list for user "Alice"
       | resource      |
@@ -244,6 +225,7 @@ Feature: Search
     And "Alice" opens the "files" app
     When "Alice" opens folder "mainFolder"
     And "Alice" searches "mediaTest" using the global search and the "current folder" filter and presses enter
+    And "Alice" enables the option to search title only
     And "Alice" selects lastModified "last 30 days" from the search result filter chip
     Then following resources should be displayed in the files list for user "Alice"
       | resource                 |

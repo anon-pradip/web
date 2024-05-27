@@ -59,27 +59,28 @@
 </template>
 
 <script lang="ts">
-import { computed, defineComponent, onMounted, ref, unref, VNodeRef } from 'vue'
+import { computed, defineComponent, onMounted, ref, unref } from 'vue'
 import {
-  useStore,
   queryItemAsString,
   useClientService,
   useRoute,
   useRouter,
-  useConfigurationManager
+  useMessages,
+  useConfigStore
 } from '@ownclouders/web-pkg'
 import { $gettext } from '@ownclouders/web-pkg/src/router/utils'
 import { useGettext } from 'vue3-gettext'
 import { onBeforeRouteUpdate, RouteLocationNormalized } from 'vue-router'
-import { providerListSchema } from '../schemas'
+import { ProviderSchema, providerListSchema } from '../schemas'
+import { OcTextInput } from '@ownclouders/design-system/src/components'
 
 export default defineComponent({
   emits: ['highlightNewConnections'],
   setup(props, { emit }) {
-    const store = useStore()
+    const { showErrorMessage } = useMessages()
     const router = useRouter()
     const clientService = useClientService()
-    const configurationManager = useConfigurationManager()
+    const configStore = useConfigStore()
     const { $gettext } = useGettext()
 
     const token = ref(undefined)
@@ -87,7 +88,7 @@ export default defineComponent({
     const providers = ref([])
     const loading = ref(true)
     const providerError = ref(false)
-    const tokenInput = ref<VNodeRef>()
+    const tokenInput = ref<InstanceType<typeof OcTextInput>>()
 
     const helperContent = computed(() => {
       return {
@@ -103,10 +104,10 @@ export default defineComponent({
 
     const errorPopup = (error: Error) => {
       console.error(error)
-      store.dispatch('showErrorMessage', {
+      showErrorMessage({
         title: $gettext('Error'),
         desc: $gettext('An error occurred'),
-        error
+        errors: [error]
       })
     }
     const acceptInvite = async () => {
@@ -150,15 +151,15 @@ export default defineComponent({
         el.scrollIntoView()
       }
     }
-    const isMyProviderSelectedProvider = (p) => {
-      return p.domain === new URL(configurationManager.serverUrl).hostname
+    const isMyProviderSelectedProvider = (p: ProviderSchema) => {
+      return p.domain === new URL(configStore.serverUrl).hostname
     }
 
     const handleParams = (to: RouteLocationNormalized) => {
       const tokenQuery = to.query.token
       if (tokenQuery) {
         token.value = queryItemAsString(tokenQuery)
-        ;(unref(tokenInput) as any).focus()
+        unref(tokenInput).focus()
         scrollToForm()
       }
       const providerDomainQuery = to.query.providerDomain

@@ -10,10 +10,10 @@
       variation="inverse"
       appearance="filled"
       :disabled="
-        areSelectActionsDisabled || !createLinkAction.isEnabled({ resources: selectedFiles, space })
+        areSelectActionsDisabled || !createLinkAction.isVisible({ resources: selectedFiles, space })
       "
       @click="createLinkAction.handler({ resources: selectedFiles, space })"
-      >{{ $gettext('Share links') }}</oc-button
+      >{{ $gettext('Share link(s)') }}</oc-button
     >
     <oc-button
       data-testid="button-select"
@@ -33,28 +33,33 @@ import {
   useAbility,
   useEmbedMode,
   useFileActionsCreateLink,
-  useStore
+  useResourcesStore,
+  useSpacesStore
 } from '@ownclouders/web-pkg'
-import { Resource, SpaceResource } from '@ownclouders/web-client'
+import { Resource } from '@ownclouders/web-client'
 import { useGettext } from 'vue3-gettext'
+import { storeToRefs } from 'pinia'
 
 export default {
   setup() {
-    const store = useStore()
     const ability = useAbility()
     const language = useGettext()
     const { isLocationPicker, postMessage } = useEmbedMode()
+    const spacesStore = useSpacesStore()
+    const { currentSpace: space } = storeToRefs(spacesStore)
 
-    const space = computed<SpaceResource>(() => store.getters['runtime/spaces/currentSpace'])
+    const resourcesStore = useResourcesStore()
+    const { currentFolder, selectedResources } = storeToRefs(resourcesStore)
+
     const selectedFiles = computed<Resource[]>(() => {
       if (isLocationPicker.value) {
-        return [store.getters['Files/currentFolder']]
+        return [unref(currentFolder)]
       }
 
-      return store.getters['Files/selectedFiles']
+      return unref(selectedResources)
     })
 
-    const { actions: createLinkActions } = useFileActionsCreateLink({ store, enforceModal: true })
+    const { actions: createLinkActions } = useFileActionsCreateLink({ enforceModal: true })
     const createLinkAction = computed<FileAction>(() => unref(createLinkActions)[0])
 
     const areSelectActionsDisabled = computed<boolean>(() => selectedFiles.value.length < 1)

@@ -1,30 +1,23 @@
 import { merge } from 'lodash-es'
-import { describe } from '@jest/globals'
 import { shallowMount } from '@vue/test-utils'
 import List from 'web-app-files/src/components/Search/List.vue'
 import { useResourcesViewDefaults } from 'web-app-files/src/composables'
 import { useResourcesViewDefaultsMock } from 'web-app-files/tests/mocks/useResourcesViewDefaultsMock'
 import { createRouter, createMemoryHistory } from 'vue-router'
 
-import {
-  createStore,
-  defaultComponentMocks,
-  defaultPlugins,
-  defaultStoreMockOptions,
-  mockAxiosResolve
-} from 'web-test-helpers/src'
-import { queryItemAsString, useCapabilitySearchModifiedDate } from '@ownclouders/web-pkg'
-import { computed, ref } from 'vue'
-import { Resource } from '@ownclouders/web-client/src'
-import { mock } from 'jest-mock-extended'
+import { defaultComponentMocks, defaultPlugins, mockAxiosResolve } from 'web-test-helpers/src'
+import { AppBar, ItemFilter, queryItemAsString, useResourcesStore } from '@ownclouders/web-pkg'
+import { ref } from 'vue'
+import { Resource } from '@ownclouders/web-client'
+import { mock } from 'vitest-mock-extended'
+import { Capabilities } from '@ownclouders/web-client/ocs'
 
-jest.mock('web-app-files/src/composables')
-jest.mock('@ownclouders/web-pkg', () => ({
-  ...jest.requireActual('@ownclouders/web-pkg'),
-  queryItemAsString: jest.fn(),
-  useAppDefaults: jest.fn(),
-  useCapabilitySearchModifiedDate: jest.fn(),
-  useFileActions: jest.fn()
+vi.mock('web-app-files/src/composables')
+vi.mock('@ownclouders/web-pkg', async (importOriginal) => ({
+  ...(await importOriginal<any>()),
+  queryItemAsString: vi.fn(),
+  useAppDefaults: vi.fn(),
+  useFileActions: vi.fn()
 }))
 
 const selectors = {
@@ -32,7 +25,7 @@ const selectors = {
   resourceTableStub: 'resource-table-stub',
   tagFilter: '.files-search-filter-tags',
   lastModifiedFilter: '.files-search-filter-last-modified',
-  fullTextFilter: '.files-search-filter-full-text',
+  titleOnlyFilter: '.files-search-filter-title-only',
   filter: '.files-search-result-filter'
 }
 
@@ -46,8 +39,10 @@ describe('List component', () => {
     expect(wrapper.find(selectors.resourceTableStub).exists()).toBeTruthy()
   })
   it('resets the initial store file state', () => {
-    const { storeOptions } = getWrapper({ resources: [mock<Resource>()] })
-    expect(storeOptions.modules.Files.mutations.CLEAR_CURRENT_FILES_LIST).toHaveBeenCalled()
+    getWrapper({ resources: [mock<Resource>()] })
+
+    const { clearResourceList } = useResourcesStore()
+    expect(clearResourceList).toHaveBeenCalled()
   })
   it('should emit search event on mount', async () => {
     const { wrapper } = getWrapper()
@@ -71,7 +66,7 @@ describe('List component', () => {
         name: 'files-common-search',
         query: merge(
           {
-            q_fullText: 'q_fullText',
+            q_titleOnly: 'q_titleOnly',
             q_tags: 'q_tags',
             q_lastModified: 'q_lastModified',
             useScope: 'useScope'
@@ -90,13 +85,13 @@ describe('List component', () => {
   describe('breadcrumbs', () => {
     it('show "Search" when no search term given', () => {
       const { wrapper } = getWrapper()
-      const appBar = wrapper.findComponent<any>('app-bar-stub')
+      const appBar = wrapper.findComponent<typeof AppBar>('app-bar-stub')
       expect(appBar.props('breadcrumbs')[0].text).toEqual('Search')
     })
     it('include the search term if given', () => {
       const searchTerm = 'term'
       const { wrapper } = getWrapper({ searchTerm })
-      const appBar = wrapper.findComponent<any>('app-bar-stub')
+      const appBar = wrapper.findComponent<typeof AppBar>('app-bar-stub')
       expect(appBar.props('breadcrumbs')[0].text).toEqual(`Search results for "${searchTerm}"`)
     })
   })
@@ -114,9 +109,9 @@ describe('List component', () => {
         const { wrapper } = getWrapper({ availableTags: [tag] })
         await wrapper.vm.loadAvailableTagsTask.last
         expect(wrapper.find(selectors.tagFilter).exists()).toBeTruthy()
-        expect(wrapper.findComponent<any>(selectors.tagFilter).props('items')).toEqual([
-          { label: tag, id: tag }
-        ])
+        expect(
+          wrapper.findComponent<typeof ItemFilter>(selectors.tagFilter).props('items')
+        ).toEqual([{ label: tag, id: tag }])
       })
       it('should set initial filter when tags are given via query param', async () => {
         const searchTerm = 'term'
@@ -128,7 +123,7 @@ describe('List component', () => {
         })
         await wrapper.vm.loadAvailableTagsTask.last
         expect(wrapper.emitted('search')[0][0]).toEqual(
-          `name:"*${searchTerm}*" AND tag:("${availableTags[0]}" OR "${availableTags[1]}")`
+          `(name:"*${searchTerm}*" OR content:"${searchTerm}") AND tag:("${availableTags[0]}" OR "${availableTags[1]}")`
         )
       })
     })
@@ -168,9 +163,9 @@ describe('List component', () => {
         await wrapper.vm.loadAvailableTagsTask.last
 
         expect(wrapper.find(selectors.lastModifiedFilter).exists()).toBeTruthy()
-        expect(wrapper.findComponent<any>(selectors.lastModifiedFilter).props('items')).toEqual(
-          expectation
-        )
+        expect(
+          wrapper.findComponent<typeof ItemFilter>(selectors.lastModifiedFilter).props('items')
+        ).toEqual(expectation)
       })
       it('should set initial filter when last modified is given via query param', async () => {
         const searchTerm = 'Screenshot'
@@ -181,25 +176,29 @@ describe('List component', () => {
         })
         await wrapper.vm.loadAvailableTagsTask.last
         expect(wrapper.emitted('search')[0][0]).toEqual(
-          `name:"*${searchTerm}*" AND mtime:"${lastModifiedFilterQuery}"`
+          `(name:"*${searchTerm}*" OR content:"${searchTerm}") AND mtime:${lastModifiedFilterQuery}`
         )
       })
     })
 
-    describe('fullText', () => {
+    describe('titleOnly', () => {
       it('should render filter if enabled via capabilities', () => {
         const { wrapper } = getWrapper({ fullTextSearchEnabled: true })
-        expect(wrapper.find(selectors.fullTextFilter).exists()).toBeTruthy()
+        expect(wrapper.find(selectors.titleOnlyFilter).exists()).toBeTruthy()
       })
-      it('should set initial filter when fullText is set active via query param', async () => {
+      it('should not render filter if not enabled via capabilities', () => {
+        const { wrapper } = getWrapper({ fullTextSearchEnabled: false })
+        expect(wrapper.find(selectors.titleOnlyFilter).exists()).toBeFalsy()
+      })
+      it('should set initial filter when titleOnly is set active via query param', async () => {
         const searchTerm = 'term'
         const { wrapper } = getWrapper({
           searchTerm,
-          fullTextFilterQuery: 'true',
+          titleOnlyFilterQuery: 'true',
           fullTextSearchEnabled: true
         })
         await wrapper.vm.loadAvailableTagsTask.last
-        expect(wrapper.emitted('search')[0][0]).toEqual(`content:"${searchTerm}"`)
+        expect(wrapper.emitted('search')[0][0]).toEqual(`name:"*${searchTerm}*"`)
       })
     })
   })
@@ -210,39 +209,52 @@ function getWrapper({
   resources = [],
   searchTerm = '',
   tagFilterQuery = null,
-  fullTextFilterQuery = null,
-  fullTextSearchEnabled = false,
+  titleOnlyFilterQuery = null,
+  fullTextSearchEnabled = true,
   availableLastModifiedValues = {},
   lastModifiedFilterQuery = null,
   mocks = {}
+}: {
+  availableTags?: string[]
+  resources?: Resource[]
+  searchTerm?: string
+  tagFilterQuery?: string
+  titleOnlyFilterQuery?: string
+  fullTextSearchEnabled?: boolean
+  availableLastModifiedValues?: Record<string, string[]>
+  lastModifiedFilterQuery?: string
+  mocks?: Record<string, unknown>
 } = {}) {
-  jest.mocked(queryItemAsString).mockImplementationOnce(() => searchTerm)
-  jest.mocked(queryItemAsString).mockImplementationOnce(() => fullTextFilterQuery)
-  jest.mocked(queryItemAsString).mockImplementationOnce(() => tagFilterQuery)
-  jest.mocked(queryItemAsString).mockImplementationOnce(() => lastModifiedFilterQuery)
-  jest
-    .mocked(useCapabilitySearchModifiedDate)
-    .mockReturnValue(computed(() => availableLastModifiedValues as any))
+  vi.mocked(queryItemAsString).mockImplementationOnce(() => searchTerm)
+  vi.mocked(queryItemAsString).mockImplementationOnce(() => titleOnlyFilterQuery)
+  vi.mocked(queryItemAsString).mockImplementationOnce(() => tagFilterQuery)
+  vi.mocked(queryItemAsString).mockImplementationOnce(() => lastModifiedFilterQuery)
 
   const resourcesViewDetailsMock = useResourcesViewDefaultsMock({
     paginatedResources: ref(resources)
   })
-  jest.mocked(useResourcesViewDefaults).mockImplementation(() => resourcesViewDetailsMock)
+  vi.mocked(useResourcesViewDefaults).mockImplementation(() => resourcesViewDetailsMock)
 
   const localMocks = {
     ...defaultComponentMocks(),
     ...mocks
   }
-  localMocks.$clientService.graphAuthenticated.tags.getTags.mockReturnValue(
+  localMocks.$clientService.graphAuthenticated.tags.getTags.mockResolvedValue(
     mockAxiosResolve({ value: availableTags })
   )
-  const storeOptions = defaultStoreMockOptions
-  storeOptions.getters.capabilities.mockReturnValue({
-    files: { tags: true, full_text_search: fullTextSearchEnabled }
-  })
-  const store = createStore(storeOptions)
+
+  const capabilities = {
+    files: { tags: true },
+    search: {
+      property: {
+        mtime: availableLastModifiedValues,
+        content: { enabled: fullTextSearchEnabled },
+        tags: { enabled: true }
+      }
+    }
+  } satisfies Partial<Capabilities['capabilities']>
+
   return {
-    storeOptions,
     mocks: localMocks,
     wrapper: shallowMount(List, {
       global: {
@@ -251,7 +263,7 @@ function getWrapper({
         stubs: {
           FilesViewWrapper: false
         },
-        plugins: [...defaultPlugins(), store]
+        plugins: [...defaultPlugins({ piniaOptions: { capabilityState: { capabilities } } })]
       }
     })
   }

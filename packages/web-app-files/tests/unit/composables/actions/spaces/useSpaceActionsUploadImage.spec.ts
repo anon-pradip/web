@@ -1,24 +1,22 @@
 import { useSpaceActionsUploadImage } from 'web-app-files/src/composables/actions/spaces/useSpaceActionsUploadImage'
-import { mock } from 'jest-mock-extended'
+import { mock } from 'vitest-mock-extended'
 import {
-  createStore,
-  defaultStoreMockOptions,
   defaultComponentMocks,
   RouteLocation,
   getComposableWrapper,
   mockAxiosResolve
 } from 'web-test-helpers'
 import { unref, VNodeRef } from 'vue'
-import { eventBus, useStore } from '@ownclouders/web-pkg'
-import { Resource, SpaceResource } from '@ownclouders/web-client/src'
-import { Drive } from '@ownclouders/web-client/src/generated'
+import { eventBus, useMessages } from '@ownclouders/web-pkg'
+import { Resource, SpaceResource } from '@ownclouders/web-client'
+import { Drive } from '@ownclouders/web-client/graph/generated'
 
 describe('uploadImage', () => {
   describe('method "uploadImageSpace"', () => {
     it('should show message on success', () => {
       getWrapper({
-        setup: async ({ uploadImageSpace }, { storeOptions, clientService }) => {
-          const busStub = jest.spyOn(eventBus, 'publish')
+        setup: async ({ uploadImageSpace }, { clientService }) => {
+          const busStub = vi.spyOn(eventBus, 'publish')
           const driveMock = mock<Drive>({ special: [{ specialFolder: { name: 'image' } }] })
           clientService.graphAuthenticated.drives.updateDrive.mockResolvedValue(
             mockAxiosResolve(driveMock)
@@ -41,18 +39,19 @@ describe('uploadImage', () => {
                 }
               ]
             }
-          })
+          } as unknown as Event)
 
           expect(busStub).toHaveBeenCalledWith('app.files.spaces.uploaded-image', expect.anything())
-          expect(storeOptions.actions.showMessage).toHaveBeenCalledTimes(1)
+          const { showMessage } = useMessages()
+          expect(showMessage).toHaveBeenCalledTimes(1)
         }
       })
     })
 
     it('should show showErrorMessage on error', () => {
-      jest.spyOn(console, 'error').mockImplementation(() => undefined)
+      vi.spyOn(console, 'error').mockImplementation(() => undefined)
       getWrapper({
-        setup: async ({ uploadImageSpace }, { storeOptions, clientService }) => {
+        setup: async ({ uploadImageSpace }, { clientService }) => {
           clientService.webdav.putFileContents.mockRejectedValue(new Error(''))
 
           await uploadImageSpace({
@@ -66,9 +65,10 @@ describe('uploadImage', () => {
                 }
               ]
             }
-          })
+          } as unknown as Event)
 
-          expect(storeOptions.actions.showErrorMessage).toHaveBeenCalledTimes(1)
+          const { showErrorMessage } = useMessages()
+          expect(showErrorMessage).toHaveBeenCalledTimes(1)
         }
       })
     })
@@ -81,11 +81,9 @@ function getWrapper({
   setup: (
     instance: ReturnType<typeof useSpaceActionsUploadImage>,
     {
-      spaceImageInput,
-      storeOptions
+      spaceImageInput
     }: {
       spaceImageInput: VNodeRef
-      storeOptions: typeof defaultStoreMockOptions
       clientService: ReturnType<typeof defaultComponentMocks>['$clientService']
     }
   ) => void
@@ -97,14 +95,11 @@ function getWrapper({
   }
   mocks.$previewService.isMimetypeSupported.mockReturnValue(true)
 
-  const storeOptions = defaultStoreMockOptions
-  const store = createStore(storeOptions)
   return {
     wrapper: getComposableWrapper(
       () => {
-        const store = useStore()
         const spaceImageInput = mock<VNodeRef>()
-        const instance = useSpaceActionsUploadImage({ store, spaceImageInput })
+        const instance = useSpaceActionsUploadImage({ spaceImageInput })
         unref(instance.actions)[0].handler({
           resources: [
             mock<SpaceResource>({
@@ -112,12 +107,11 @@ function getWrapper({
             })
           ]
         })
-        setup(instance, { spaceImageInput, storeOptions, clientService: mocks.$clientService })
+        setup(instance, { spaceImageInput, clientService: mocks.$clientService })
       },
       {
         mocks,
-        provide: mocks,
-        store
+        provide: mocks
       }
     )
   }

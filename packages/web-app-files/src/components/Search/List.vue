@@ -27,7 +27,7 @@
               class="file-category-option-wrapper oc-flex oc-flex-middle"
               :data-test-id="`media-type-${item.id.toLowerCase()}`"
             >
-              <oc-resource-icon :resource="getFakeResourceForIcon(item)" />
+              <resource-icon :resource="getFakeResourceForIcon(item)" />
               <span class="oc-ml-s">{{ item.label }}</span>
             </div>
           </template>
@@ -71,9 +71,9 @@
 
         <item-filter-toggle
           v-if="fullTextSearchEnabled"
-          :filter-label="$gettext('Search only in content')"
-          filter-name="fullText"
-          class="files-search-filter-full-text oc-mr-s"
+          :filter-label="$gettext('Title only')"
+          filter-name="titleOnly"
+          class="files-search-filter-title-only oc-mr-s"
         />
       </div>
       <app-loading-spinner v-if="loading" />
@@ -94,8 +94,7 @@
         <resource-table
           v-else
           v-model:selectedIds="selectedResourcesIds"
-          class="files-table"
-          :class="{ 'files-table-squashed': false }"
+          :is-side-bar-open="isSideBarOpen"
           :header-position="fileListHeaderY"
           :resources="paginatedResources"
           :are-paths-displayed="true"
@@ -111,11 +110,13 @@
           @sort="handleSort"
         >
           <template #additionalResourceContent="{ resource }">
+            <!-- eslint-disable vue/no-v-html -->
             <span
               v-if="resource.highlights"
               class="files-search-resource-highlights oc-text-truncate"
               v-html="resource.highlights"
             />
+            <!--eslint-enable-->
           </template>
           <template #contextMenu="{ resource }">
             <context-actions
@@ -133,9 +134,9 @@
             <list-info
               v-else-if="paginatedResources.length > 0"
               class="oc-width-1-1 oc-my-s"
-              :files="totalFilesCount.files"
-              :folders="totalFilesCount.folders"
-              :size="totalFilesSize"
+              :files="totalResourcesCount.files"
+              :folders="totalResourcesCount.folders"
+              :size="totalResourcesSize"
             />
           </template>
         </resource-table>
@@ -153,46 +154,45 @@
 import { useResourcesViewDefaults } from '../../composables'
 import {
   AppLoadingSpinner,
-  useCapabilitySearchMediaType,
-  useCapabilitySearchModifiedDate
+  SearchResult,
+  useCapabilityStore,
+  useConfigStore,
+  useResourcesStore
 } from '@ownclouders/web-pkg'
 import { VisibilityObserver } from '@ownclouders/web-pkg'
-import { ImageType, ImageDimension } from '@ownclouders/web-pkg'
+import { ImageDimension } from '@ownclouders/web-pkg'
 import { NoContentMessage } from '@ownclouders/web-pkg'
 import { ResourceTable } from '@ownclouders/web-pkg'
 import { ContextActions, FileSideBar } from '@ownclouders/web-pkg'
 import { debounce } from 'lodash-es'
-import { mapMutations, mapGetters, mapActions } from 'vuex'
 import { useGettext } from 'vue3-gettext'
 import { AppBar } from '@ownclouders/web-pkg'
 import {
+  ComponentPublicInstance,
   computed,
   defineComponent,
   nextTick,
   onMounted,
+  PropType,
   Ref,
   ref,
   unref,
-  VNodeRef,
   watch
 } from 'vue'
 import ListInfo from '../FilesList/ListInfo.vue'
 import { Pagination } from '@ownclouders/web-pkg'
 import { useFileActions } from '@ownclouders/web-pkg'
 import { searchLimit } from '../../search/sdk/list'
-import { Resource } from '@ownclouders/web-client'
+import { Resource, SearchResource, call } from '@ownclouders/web-client'
 import FilesViewWrapper from '../FilesViewWrapper.vue'
 import {
   queryItemAsString,
-  useCapabilityFilesTags,
   useClientService,
   useFileListHeaderPosition,
   useGetMatchingSpace,
-  useCapabilityFilesFullTextSearch,
   useRoute,
   useRouteQuery,
-  useRouter,
-  useStore
+  useRouter
 } from '@ownclouders/web-pkg'
 import { onBeforeRouteLeave } from 'vue-router'
 import { useTask } from 'vue-concurrency'
@@ -200,21 +200,17 @@ import { eventBus } from '@ownclouders/web-pkg'
 import { ItemFilter } from '@ownclouders/web-pkg'
 import { isLocationCommonActive } from '@ownclouders/web-pkg'
 import { ItemFilterToggle } from '@ownclouders/web-pkg'
-import { useKeyboardActions } from '@ownclouders/web-pkg'
+import { useKeyboardActions, ResourceIcon } from '@ownclouders/web-pkg'
 import {
   useKeyboardTableNavigation,
   useKeyboardTableMouseActions,
   useKeyboardTableActions
 } from 'web-app-files/src/composables/keyboardActions'
-import { extractDomSelector } from '@ownclouders/web-client/src/helpers'
+import { extractDomSelector } from '@ownclouders/web-client'
+import { storeToRefs } from 'pinia'
 
 const visibilityObserver = new VisibilityObserver()
 
-type FileCategoryKeyword = {
-  id: string
-  label: string
-  icon: string
-}
 type Tag = {
   id: string
   label: string
@@ -233,6 +229,7 @@ export default defineComponent({
     ListInfo,
     Pagination,
     NoContentMessage,
+    ResourceIcon,
     ResourceTable,
     FilesViewWrapper,
     ItemFilter,
@@ -240,7 +237,7 @@ export default defineComponent({
   },
   props: {
     searchResult: {
-      type: Object,
+      type: Object as PropType<SearchResult>,
       default: function () {
         return { totalResults: null, values: [] }
       }
@@ -252,17 +249,20 @@ export default defineComponent({
   },
   emits: ['search'],
   setup(props, { emit }) {
-    const store = useStore()
+    const capabilityStore = useCapabilityStore()
     const router = useRouter()
     const route = useRoute()
     const { $gettext } = useGettext()
     const { y: fileListHeaderY } = useFileListHeaderPosition()
     const clientService = useClientService()
-    const hasTags = useCapabilityFilesTags()
-    const fullTextSearchEnabled = useCapabilityFilesFullTextSearch()
-    const modifiedDateCapability = useCapabilitySearchModifiedDate()
-    const mediaTypeCapability = useCapabilitySearchMediaType()
     const { getMatchingSpace } = useGetMatchingSpace()
+
+    const resourcesStore = useResourcesStore()
+    const { initResourceList, clearResourceList, updateResourceField } = resourcesStore
+    const { totalResourcesCount, totalResourcesSize } = storeToRefs(resourcesStore)
+
+    const configStore = useConfigStore()
+    const { options: configOptions } = storeToRefs(configStore)
 
     const searchTermQuery = useRouteQuery('term')
     const scopeQuery = useRouteQuery('scope')
@@ -279,25 +279,27 @@ export default defineComponent({
     })
 
     const availableTags = ref<Tag[]>([])
-    const tagFilter = ref<VNodeRef>()
-    const mediaTypeFilter = ref<VNodeRef>()
+    const tagFilter = ref<InstanceType<typeof ItemFilter> | null>(null)
+    const mediaTypeFilter = ref<InstanceType<typeof ItemFilter> | null>()
     const tagParam = useRouteQuery('q_tags')
     const lastModifiedParam = useRouteQuery('q_lastModified')
     const mediaTypeParam = useRouteQuery('q_mediaType')
-    const fullTextParam = useRouteQuery('q_fullText')
+    const titleOnlyParam = useRouteQuery('q_titleOnly')
+
+    const fullTextSearchEnabled = computed(() => capabilityStore.searchContent?.enabled)
 
     const displayFilter = computed(() => {
       return (
         unref(fullTextSearchEnabled) ||
         unref(availableTags).length ||
-        (unref(modifiedDateCapability) && unref(modifiedDateCapability).enabled)
+        capabilityStore.searchLastMofifiedDate?.enabled
       )
     })
 
     const loadAvailableTagsTask = useTask(function* () {
       const {
         data: { value: tags = [] }
-      } = yield clientService.graphAuthenticated.tags.getTags()
+      } = yield* call(clientService.graphAuthenticated.tags.getTags())
       availableTags.value = [...tags.map((t) => ({ id: t, label: t }))]
     })
 
@@ -306,7 +308,7 @@ export default defineComponent({
     })
 
     // transifex hack b/c dynamically fetched values from backend will otherwise not be automatically translated
-    const lastModifiedTranslations = {
+    const lastModifiedTranslations: Record<string, string> = {
       today: $gettext('today'),
       yesterday: $gettext('yesterday'),
       'this week': $gettext('this week'),
@@ -319,15 +321,15 @@ export default defineComponent({
       'last year': $gettext('last year')
     }
 
-    const lastModifiedFilter = ref<VNodeRef>()
+    const lastModifiedFilter = ref<InstanceType<typeof ItemFilter> | null>()
     const availableLastModifiedValues = ref<LastModifiedKeyword[]>(
-      unref(modifiedDateCapability).keywords?.map((k: string) => ({
+      capabilityStore.searchLastMofifiedDate.keywords?.map((k: string) => ({
         id: k,
         label: lastModifiedTranslations[k]
       })) || []
     )
 
-    const mediaTypeMapping = {
+    const mediaTypeMapping: Record<string, { label: string; icon: string }> = {
       file: { label: $gettext('File'), icon: 'txt' },
       folder: { label: $gettext('Folder'), icon: 'folder' },
       document: { label: $gettext('Document'), icon: 'doc' },
@@ -339,40 +341,41 @@ export default defineComponent({
       audio: { label: $gettext('Audio'), icon: 'mp3' },
       archive: { label: $gettext('Archive'), icon: 'zip' }
     }
-    const availableMediaTypeValues: FileCategoryKeyword[] = []
-    unref(mediaTypeCapability).keywords?.forEach((key: string) => {
-      if (!mediaTypeMapping[key]) {
-        return
-      }
-      availableMediaTypeValues.push({
-        id: key,
-        ...mediaTypeMapping[key]
-      })
+
+    const availableMediaTypeValues = computed(() => {
+      return (
+        capabilityStore.searchMediaType.keywords?.filter((key) => mediaTypeMapping[key]) || []
+      ).map((key) => ({ id: key, ...mediaTypeMapping[key] }))
     })
 
-    const getFakeResourceForIcon = (item) => {
+    const getFakeResourceForIcon = (item: { label: string; icon: string }) => {
       return { type: 'file', extension: item.icon, isFolder: item.icon == 'folder' } as Resource
     }
 
     const buildSearchTerm = (manuallyUpdateFilterChip = false) => {
-      const query = {}
+      const query: string[] = []
 
       const humanSearchTerm = unref(searchTerm)
-      const isContentOnlySearch = queryItemAsString(unref(fullTextParam)) == 'true'
+      const isTitleOnlySearch = queryItemAsString(unref(titleOnlyParam)) == 'true'
+      const useFullTextSearch = unref(fullTextSearchEnabled) && !isTitleOnlySearch
 
-      if (isContentOnlySearch && !!humanSearchTerm) {
-        query['content'] = `"${humanSearchTerm}"`
-      } else if (!!humanSearchTerm) {
-        query['name'] = `"*${humanSearchTerm}*"`
+      if (!!humanSearchTerm) {
+        let nameQuery = `name:"*${humanSearchTerm}*"`
+
+        if (useFullTextSearch) {
+          nameQuery = `(name:"*${humanSearchTerm}*" OR content:"${humanSearchTerm}")`
+        }
+
+        query.push(nameQuery)
       }
 
       const humanScopeQuery = unref(scopeQuery)
       const isScopedSearch = unref(doUseScope) === 'true'
       if (isScopedSearch && humanScopeQuery) {
-        query['scope'] = `${humanScopeQuery}`
+        query.push(`scope:${humanScopeQuery}`)
       }
 
-      const updateFilter = (v: Ref) => {
+      const updateFilter = (v: Ref<InstanceType<typeof ItemFilter>>) => {
         if (manuallyUpdateFilterChip && unref(v)) {
           /**
            * Handles edge cases where a filter is not being applied via the filter directly,
@@ -380,52 +383,32 @@ export default defineComponent({
            * We need to manually update the selected items in the ItemFilter component because normally
            * it only does this on mount or when interacting with the filter directly.
            */
-          ;(unref(v) as any).setSelectedItemsBasedOnQuery()
+          unref(v).setSelectedItemsBasedOnQuery()
         }
       }
 
       const humanTagsParams = queryItemAsString(unref(tagParam))
       if (humanTagsParams) {
-        query['tag'] = humanTagsParams.split('+').map((t) => `"${t}"`)
+        const tags = humanTagsParams.split('+').map((t) => `"${t}"`)
+        query.push(`tag:(${tags.join(' OR ')})`)
         updateFilter(tagFilter)
       }
 
       const lastModifiedParams = queryItemAsString(unref(lastModifiedParam))
       if (lastModifiedParams) {
-        query['mtime'] = `"${lastModifiedParams}"`
+        query.push(`mtime:${lastModifiedParams}`)
         updateFilter(lastModifiedFilter)
       }
 
       const mediaTypeParams = queryItemAsString(unref(mediaTypeParam))
       if (mediaTypeParams) {
-        query['mediatype'] = mediaTypeParams.split('+').map((t) => `"${t}"`)
+        const mediatypes = mediaTypeParams.split('+').map((t) => `"${t}"`)
+        query.push(`mediatype:(${mediatypes.join(' OR ')})`)
         updateFilter(mediaTypeFilter)
       }
-      return (
-        // By definition (KQL spec) OR, AND or (GROUP) is implicit for simple cases where
-        // different or identical keys are part of the query.
-        //
-        // We list these operators for the following reasons nevertheless explicit:
-        // * request readability
-        // * code readability
-        // * complex cases readability
-        Object.keys(query)
-          .reduce((acc, prop) => {
-            const isArrayValue = Array.isArray(query[prop])
-
-            if (!isArrayValue) {
-              acc.push(`${prop}:${query[prop]}`)
-            }
-
-            if (isArrayValue) {
-              acc.push(`${prop}:(${query[prop].join(' OR ')})`)
-            }
-
-            return acc
-          }, [])
-          .sort((a, b) => a.startsWith('scope:') - b.startsWith('scope:'))
-          .join(' AND ')
-      )
+      return query
+        .sort((a, b) => Number(a.startsWith('scope:')) - Number(b.startsWith('scope:')))
+        .join(' AND ')
     }
 
     const breadcrumbs = computed(() => {
@@ -438,10 +421,10 @@ export default defineComponent({
       ]
     })
 
-    const resourceDomSelector = ({ id, shareId }: Resource) => {
+    const resourceDomSelector = ({ id, remoteItemId }: Resource) => {
       let selectorStr = id.toString()
-      if (shareId) {
-        selectorStr += shareId
+      if (remoteItemId) {
+        selectorStr += remoteItemId
       }
       return extractDomSelector(selectorStr)
     }
@@ -450,9 +433,9 @@ export default defineComponent({
       // Store resources are shared across table views, therefore
       // the store state needs a reset to prevent the old list of resources
       // from being rendered while the request retrieves the new resources from the server.
-      store.commit('Files/CLEAR_CURRENT_FILES_LIST', null)
+      clearResourceList()
 
-      if (unref(hasTags)) {
+      if (capabilityStore.filesTags) {
         await loadAvailableTagsTask.perform()
       }
       emit('search', buildSearchTerm())
@@ -473,7 +456,7 @@ export default defineComponent({
         {
           const isSameTerm = newVal?.term === oldVal?.term
           const isSameFilter = [
-            'q_fullText',
+            'q_titleOnly',
             'q_tags',
             'q_lastModified',
             'q_mediaType',
@@ -490,8 +473,9 @@ export default defineComponent({
     )
 
     return {
-      ...useFileActions({ store }),
+      ...useFileActions(),
       ...resourcesView,
+      configOptions,
       loadAvailableTagsTask,
       fileListHeaderY,
       fullTextSearchEnabled,
@@ -505,17 +489,20 @@ export default defineComponent({
       mediaTypeFilter,
       availableMediaTypeValues,
       getFakeResourceForIcon,
-      resourceDomSelector
+      resourceDomSelector,
+      initResourceList,
+      clearResourceList,
+      updateResourceField,
+      totalResourcesCount,
+      totalResourcesSize
     }
   },
   computed: {
-    ...mapGetters(['configuration']),
-    ...mapGetters('Files', ['totalFilesCount', 'totalFilesSize']),
     displayThumbnails() {
-      return !this.configuration?.options?.disablePreviews
+      return !this.configOptions.disablePreviews
     },
     itemCount() {
-      return this.totalFilesCount.files + this.totalFilesCount.folders
+      return this.totalResourcesCount.files + this.totalResourcesCount.folders
     },
     rangeSupported() {
       return this.searchResult.totalResults
@@ -536,8 +523,8 @@ export default defineComponent({
       return this.$gettext(
         'Found %{totalResults}, showing the %{itemCount} best matching results',
         {
-          itemCount: this.itemCount,
-          totalResults: this.searchResult.totalResults
+          itemCount: this.itemCount.toString(),
+          totalResults: this.searchResult.totalResults.toString()
         }
       )
     }
@@ -549,11 +536,11 @@ export default defineComponent({
           return
         }
 
-        this.CLEAR_CURRENT_FILES_LIST()
-        this.LOAD_FILES({
+        this.clearResourceList()
+        this.initResourceList<SearchResource>({
           currentFolder: null,
-          files: this.searchResult.values.length
-            ? this.searchResult.values.map((searchResult) => searchResult.data)
+          resources: this.searchResult.values.length
+            ? this.searchResult.values.map((searchResult) => searchResult.data as SearchResource)
             : []
         })
         await nextTick()
@@ -565,22 +552,28 @@ export default defineComponent({
     visibilityObserver.disconnect()
   },
   methods: {
-    ...mapMutations('Files', ['CLEAR_CURRENT_FILES_LIST', 'LOAD_FILES']),
-    ...mapActions('Files', ['loadPreview']),
-    rowMounted(resource, component) {
+    rowMounted(resource: Resource, component: ComponentPublicInstance<unknown>) {
       if (!this.displayThumbnails) {
         return
       }
 
+      const loadPreview = async () => {
+        const preview = await this.$previewService.loadPreview(
+          {
+            space: this.getMatchingSpace(resource),
+            resource,
+            dimensions: ImageDimension.Thumbnail
+          },
+          true
+        )
+        if (preview) {
+          this.updateResourceField({ id: resource.id, field: 'thumbnail', value: preview })
+        }
+      }
+
       const debounced = debounce(({ unobserve }) => {
         unobserve()
-        this.loadPreview({
-          previewService: this.$previewService,
-          space: this.getMatchingSpace(resource),
-          resource,
-          dimensions: ImageDimension.Thumbnail,
-          type: ImageType.Thumbnail
-        })
+        loadPreview()
       }, 250)
 
       visibilityObserver.observe(component.$el, { onEnter: debounced, onExit: debounced.cancel })

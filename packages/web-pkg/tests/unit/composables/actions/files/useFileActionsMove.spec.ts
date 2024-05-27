@@ -1,19 +1,12 @@
-import { mock, mockDeep } from 'jest-mock-extended'
+import { mock, mockDeep } from 'vitest-mock-extended'
 import { unref } from 'vue'
 import { useFileActionsMove } from '../../../../../src/composables/actions'
-import { Resource, SpaceResource } from '@ownclouders/web-client/src'
-import { useStore } from '../../../../../src/composables/store'
-import {
-  RouteLocation,
-  createStore,
-  defaultComponentMocks,
-  defaultStoreMockOptions,
-  getComposableWrapper
-} from 'web-test-helpers/src'
+import { Resource, SpaceResource } from '@ownclouders/web-client'
+import { RouteLocation, defaultComponentMocks, getComposableWrapper } from 'web-test-helpers/src'
 
 describe('move', () => {
   describe('computed property "actions"', () => {
-    describe('move isEnabled property of returned element', () => {
+    describe('move isVisible property of returned element', () => {
       it.each([
         {
           resources: [{ isReceivedShare: () => true, canBeDeleted: () => true }] as Resource[],
@@ -26,13 +19,12 @@ describe('move', () => {
           expectedStatus: false
         }
       ])('should be set correctly', (inputData) => {
-        const { wrapper } = getWrapper({
+        getWrapper({
           setup: () => {
-            const store = useStore()
-            const { actions } = useFileActionsMove({ store })
+            const { actions } = useFileActionsMove()
 
             const resources = inputData.resources
-            expect(unref(actions)[0].isEnabled({ space: null, resources })).toBe(
+            expect(unref(actions)[0].isVisible({ space: null, resources })).toBe(
               inputData.expectedStatus
             )
           }
@@ -44,14 +36,7 @@ describe('move', () => {
 function getWrapper({
   setup
 }: {
-  setup: (
-    instance: ReturnType<typeof useFileActionsMove>,
-    {
-      storeOptions
-    }: {
-      storeOptions: typeof defaultStoreMockOptions
-    }
-  ) => void
+  setup: (instance: ReturnType<typeof useFileActionsMove>) => void
 }) {
   const routeName = 'files-spaces-generic'
   const mocks = {
@@ -61,24 +46,17 @@ function getWrapper({
     })
   }
 
-  const storeOptions = {
-    ...defaultStoreMockOptions
-  }
-  storeOptions.modules.Files.getters.currentFolder.mockImplementation(() => mocks.space)
-  const store = createStore(storeOptions)
   return {
     mocks,
-    storeOptions,
     wrapper: getComposableWrapper(
       () => {
-        const store = useStore()
-        const instance = useFileActionsMove({ store })
-        setup(instance, { storeOptions })
+        const instance = useFileActionsMove()
+        setup(instance)
       },
       {
         mocks,
         provide: mocks,
-        store
+        pluginOptions: { piniaOptions: { resourcesStore: { currentFolder: mocks.space } } }
       }
     )
   }

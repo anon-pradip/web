@@ -1,22 +1,39 @@
 import { computed, unref } from 'vue'
-import { Store } from 'vuex'
-import { eventBus, useCapabilityDeleteUsersDisabled, useLoadingService } from '@ownclouders/web-pkg'
-import { useClientService, useStore } from '@ownclouders/web-pkg'
+import {
+  queryItemAsString,
+  useCapabilityStore,
+  useMessages,
+  useModals,
+  useRouteQuery
+} from '@ownclouders/web-pkg'
+import { useClientService } from '@ownclouders/web-pkg'
 import { UserAction, UserActionOptions } from '@ownclouders/web-pkg'
 import { useGettext } from 'vue3-gettext'
+import { User } from '@ownclouders/web-client/graph/generated'
+import { useUserSettingsStore } from '../../stores/userSettings'
 
-export const useUserActionsDelete = ({ store }: { store?: Store<any> }) => {
-  store = store || useStore()
+export const useUserActionsDelete = () => {
+  const { showMessage, showErrorMessage } = useMessages()
+  const capabilityStore = useCapabilityStore()
   const { $gettext, $ngettext } = useGettext()
   const clientService = useClientService()
-  const loadingService = useLoadingService()
+  const { dispatchModal } = useModals()
+  const userSettingsStore = useUserSettingsStore()
 
-  const deleteUsers = async (users) => {
+  const currentPageQuery = useRouteQuery('page', '1')
+  const currentPage = computed(() => {
+    return parseInt(queryItemAsString(unref(currentPageQuery)))
+  })
+
+  const itemsPerPageQuery = useRouteQuery('items-per-page', '1')
+  const itemsPerPage = computed(() => {
+    return parseInt(queryItemAsString(unref(itemsPerPageQuery)))
+  })
+
+  const deleteUsers = async (users: User[]) => {
     const graphClient = clientService.graphAuthenticated
     const promises = users.map((user) => graphClient.users.deleteUser(user.id))
-    const results = await loadingService.addTask(() => {
-      return Promise.allSettled(promises)
-    })
+    const results = await Promise.allSettled(promises)
 
     const succeeded = results.filter((r) => r.status === 'fulfilled')
     if (succeeded.length) {
@@ -30,7 +47,7 @@ export const useUserActionsDelete = ({ store }: { store?: Store<any> }) => {
               { userCount: succeeded.length.toString() },
               true
             )
-      store.dispatch('showMessage', { title })
+      showMessage({ title })
     }
 
     const failed = results.filter((r) => r.status === 'rejected')
@@ -47,14 +64,20 @@ export const useUserActionsDelete = ({ store }: { store?: Store<any> }) => {
               { userCount: failed.length.toString() },
               true
             )
-      store.dispatch('showErrorMessage', {
+      showErrorMessage({
         title,
         errors: (failed as PromiseRejectedResult[]).map((f) => f.reason)
       })
     }
 
-    store.dispatch('hideModal')
-    eventBus.publish('app.admin-settings.list.load')
+    userSettingsStore.removeUsers(users)
+    userSettingsStore.setSelectedUsers([])
+
+    const pageCount = Math.ceil(userSettingsStore.users.length / unref(itemsPerPage))
+    if (unref(currentPage) > 1 && unref(currentPage) > pageCount) {
+      // reset pagination to avoid empty lists (happens when deleting all items on the last page)
+      currentPageQuery.value = pageCount.toString()
+    }
   }
 
   const handler = ({ resources }: UserActionOptions) => {
@@ -62,13 +85,12 @@ export const useUserActionsDelete = ({ store }: { store?: Store<any> }) => {
       return
     }
 
-    const modal = {
+    dispatchModal({
       variation: 'danger',
       title: $ngettext('Delete user "%{user}"?', 'Delete %{userCount} users?', resources.length, {
         user: resources[0].displayName,
         userCount: resources.length.toString()
       }),
-      cancelText: $gettext('Cancel'),
       confirmText: $gettext('Delete'),
       message: $ngettext(
         'Are you sure you want to delete this user?',
@@ -79,11 +101,8 @@ export const useUserActionsDelete = ({ store }: { store?: Store<any> }) => {
         }
       ),
       hasInput: false,
-      onCancel: () => store.dispatch('hideModal'),
       onConfirm: () => deleteUsers(resources)
-    }
-
-    store.dispatch('createModal', modal)
+    })
   }
 
   const actions = computed((): UserAction[] => [
@@ -94,8 +113,8 @@ export const useUserActionsDelete = ({ store }: { store?: Store<any> }) => {
         return $gettext('Delete')
       },
       handler,
-      isEnabled: ({ resources }) => {
-        return !!resources.length && !unref(useCapabilityDeleteUsersDisabled())
+      isVisible: ({ resources }) => {
+        return !!resources.length && !capabilityStore.graphUsersDeleteDisabled
       },
       componentType: 'button',
       class: 'oc-users-actions-delete-trigger'

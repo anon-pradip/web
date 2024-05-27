@@ -3,9 +3,10 @@ import { RouteLocation } from 'vue-router'
 import omit from 'lodash-es/omit'
 import { BreadcrumbItem } from 'design-system/src/components/OcBreadcrumb/types'
 import { v4 as uuidv4 } from 'uuid'
-import { SpaceResource } from '@ownclouders/web-client/src'
-import { urlJoin } from '@ownclouders/web-client/src/utils'
+import { SpaceResource } from '@ownclouders/web-client'
+import { urlJoin } from '@ownclouders/web-client'
 import { useGetMatchingSpace } from '../spaces'
+import { Ref, unref } from 'vue'
 
 export const useBreadcrumbsFromPath = () => {
   const { isResourceAccessible } = useGetMatchingSpace()
@@ -16,7 +17,7 @@ export const useBreadcrumbsFromPath = () => {
     resourcePath
   }: {
     route: RouteLocation
-    space: SpaceResource
+    space: Ref<SpaceResource>
     resourcePath: string
   }): BreadcrumbItem[] => {
     const pathSplit = (p = '') => p.split('/').filter(Boolean)
@@ -25,7 +26,7 @@ export const useBreadcrumbsFromPath = () => {
 
     return resource.map((text, i) => {
       const isAccessible = isResourceAccessible({
-        space,
+        space: unref(space),
         path: urlJoin(...resource.slice(0, i + 1), { leadingSlash: true })
       })
 

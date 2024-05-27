@@ -33,31 +33,34 @@
         <h3 class="oc-text-bold oc-text-medium" v-text="$gettext('Viewers')" />
         <members-role-section :members="filteredSpaceViewers" />
       </div>
+      <div
+        v-if="filteredSpaceSecureViewers.length"
+        class="oc-mb-m"
+        data-testid="space-members-role-secure-viewers"
+      >
+        <h3 class="oc-text-bold oc-text-medium" v-text="$gettext('Secure viewers')" />
+        <members-role-section :members="filteredSpaceSecureViewers" />
+      </div>
     </div>
   </div>
 </template>
 <script lang="ts">
 import { computed, defineComponent, inject, ref, watch, unref } from 'vue'
-import { Resource } from '@ownclouders/web-client/src'
+import { SpaceResource, SpaceRole } from '@ownclouders/web-client'
 import MembersRoleSection from './MembersRoleSection.vue'
 import Fuse from 'fuse.js'
 import Mark from 'mark.js'
-import {
-  spaceRoleEditor,
-  spaceRoleManager,
-  spaceRoleViewer
-} from '@ownclouders/web-client/src/helpers/share'
 import { defaultFuseOptions } from '@ownclouders/web-pkg'
 
 export default defineComponent({
   name: 'MembersPanel',
   components: { MembersRoleSection },
   setup() {
-    const resource = inject<Resource>('resource')
+    const resource = inject<SpaceResource>('resource')
     const filterTerm = ref('')
     const markInstance = ref(null)
     const membersListRef = ref(null)
-    const filterMembers = (collection, term) => {
+    const filterMembers = (collection: Array<SpaceRole & { roleType: string }>, term: string) => {
       if (!(term || '').trim()) {
         return collection
       }
@@ -70,15 +73,19 @@ export default defineComponent({
       return [
         ...unref(resource).spaceRoles.manager.map((r) => ({
           ...r,
-          roleType: spaceRoleManager.name
+          roleType: 'manager'
         })),
         ...unref(resource).spaceRoles.editor.map((r) => ({
           ...r,
-          roleType: spaceRoleEditor.name
+          roleType: 'editor'
         })),
         ...unref(resource).spaceRoles.viewer.map((r) => ({
           ...r,
-          roleType: spaceRoleViewer.name
+          roleType: 'viewer'
+        })),
+        ...unref(resource).spaceRoles['secure-viewer'].map((r) => ({
+          ...r,
+          roleType: 'secure-viewer'
         }))
       ].sort((a, b) => a.displayName.localeCompare(b.displayName))
     })
@@ -87,13 +94,16 @@ export default defineComponent({
       return filterMembers(unref(spaceMembers), unref(filterTerm))
     })
     const filteredSpaceManagers = computed(() => {
-      return unref(filteredSpaceMembers).filter((m) => m.roleType === spaceRoleManager.name)
+      return unref(filteredSpaceMembers).filter((m) => m.roleType === 'manager')
     })
     const filteredSpaceEditors = computed(() => {
-      return unref(filteredSpaceMembers).filter((m) => m.roleType === spaceRoleEditor.name)
+      return unref(filteredSpaceMembers).filter((m) => m.roleType === 'editor')
     })
     const filteredSpaceViewers = computed(() => {
-      return unref(filteredSpaceMembers).filter((m) => m.roleType === spaceRoleViewer.name)
+      return unref(filteredSpaceMembers).filter((m) => m.roleType === 'viewer')
+    })
+    const filteredSpaceSecureViewers = computed(() => {
+      return unref(filteredSpaceMembers).filter((m) => m.roleType === 'secure-viewer')
     })
 
     watch(filterTerm, () => {
@@ -113,6 +123,7 @@ export default defineComponent({
       filteredSpaceManagers,
       filteredSpaceEditors,
       filteredSpaceViewers,
+      filteredSpaceSecureViewers,
       membersListRef
     }
   }

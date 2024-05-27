@@ -1,26 +1,13 @@
-import { mock } from 'jest-mock-extended'
+import { mock } from 'vitest-mock-extended'
 import { ref, unref } from 'vue'
-import {
-  createStore,
-  defaultComponentMocks,
-  defaultStoreMockOptions,
-  RouteLocation,
-  getComposableWrapper
-} from 'web-test-helpers'
-import { ConfigurationManager, useFileActionsOpenShortcut, useRoute } from '../../../../../src'
+import { defaultComponentMocks, RouteLocation, getComposableWrapper } from 'web-test-helpers'
+import { useFileActionsOpenShortcut, useRoute } from '../../../../../src'
 import { Resource } from '@ownclouders/web-client'
-import { GetFileContentsResponse } from '@ownclouders/web-client/src/webdav/getFileContents'
+import { GetFileContentsResponse } from '@ownclouders/web-client/webdav'
 
-jest.mock('../../../../../src/composables/router', () => ({
-  ...jest.requireActual('../../../../../src/composables/router'),
-  useRoute: jest.fn()
-}))
-
-jest.mock('../../../../../src/composables/configuration', () => ({
-  useConfigurationManager: () =>
-    mock<ConfigurationManager>({
-      serverUrl: 'https://demo.owncloud.com'
-    })
+vi.mock('../../../../../src/composables/router', async (importOriginal) => ({
+  ...(await importOriginal<any>()),
+  useRoute: vi.fn()
 }))
 
 window = Object.create(window)
@@ -31,11 +18,12 @@ Object.defineProperty(window, 'location', {
   writable: true
 })
 Object.defineProperty(window, 'open', { writable: true })
-window.open = jest.fn()
+window.open = vi.fn()
 
+// @vitest-environment jsdom
 describe('openShortcut', () => {
   describe('computed property "actions"', () => {
-    describe('method "isEnabled"', () => {
+    describe('method "isVisible"', () => {
       it.each([
         {
           resources: [],
@@ -56,7 +44,7 @@ describe('openShortcut', () => {
       ])('should be set correctly', ({ resources, expectedStatus }) => {
         getWrapper({
           setup: ({ actions }) => {
-            expect(unref(actions)[0].isEnabled({ resources, space: null })).toBe(expectedStatus)
+            expect(unref(actions)[0].isVisible({ resources, space: null })).toBe(expectedStatus)
           }
         })
       })
@@ -126,12 +114,7 @@ function getWrapper({
   getFileContentsValue = null
 }: {
   getFileContentsValue?: string
-  setup: (
-    instance: ReturnType<typeof useFileActionsOpenShortcut>,
-    options: {
-      storeOptions: typeof defaultStoreMockOptions
-    }
-  ) => void
+  setup: (instance: ReturnType<typeof useFileActionsOpenShortcut>) => void
 }) {
   const mocks = {
     ...defaultComponentMocks({
@@ -145,26 +128,17 @@ function getWrapper({
     })
   )
 
-  jest
-    .mocked(useRoute)
-    .mockImplementation(() =>
-      ref(mock<RouteLocation>({ name: 'files-spaces-generic', path: '/files/' }) as any)
-    )
-
-  const storeOptions = {
-    ...defaultStoreMockOptions
-  }
-
-  const store = createStore(storeOptions)
+  vi.mocked(useRoute).mockImplementation(() =>
+    ref(mock<RouteLocation>({ name: 'files-spaces-generic', path: '/files/' }))
+  )
 
   return {
     wrapper: getComposableWrapper(
       () => {
-        const instance = useFileActionsOpenShortcut({ store })
-        setup(instance, { storeOptions })
+        const instance = useFileActionsOpenShortcut()
+        setup(instance)
       },
       {
-        store,
         mocks,
         provide: mocks
       }

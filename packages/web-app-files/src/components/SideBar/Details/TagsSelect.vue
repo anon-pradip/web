@@ -73,16 +73,18 @@ import {
 import {
   createLocationCommon,
   eventBus,
-  isLocationPublicActive,
   SideBarEventTopics,
+  useAuthStore,
   useClientService,
-  useRouter,
-  useStore
+  useMessages,
+  useResourcesStore,
+  useRouter
 } from '@ownclouders/web-pkg'
 import { useGettext } from 'vue3-gettext'
 import { useTask } from 'vue-concurrency'
 import diff from 'lodash-es/difference'
-import { Resource } from '@ownclouders/web-client'
+import { call, Resource } from '@ownclouders/web-client'
+import { storeToRefs } from 'pinia'
 
 type TagOption = {
   label: string
@@ -111,17 +113,21 @@ export default defineComponent({
     }
   },
   setup(props) {
-    const store = useStore()
+    const { showErrorMessage } = useMessages()
     const clientService = useClientService()
     const router = useRouter()
+    const { updateResourceField } = useResourcesStore()
 
-    const isPublicLocation = isLocationPublicActive(router, 'files-public-link')
-    const type = unref(isPublicLocation) ? 'span' : 'router-link'
+    const authStore = useAuthStore()
+    const { publicLinkContextReady } = storeToRefs(authStore)
+
+    const type = unref(publicLinkContextReady) ? 'span' : 'router-link'
     const resource = toRef(props, 'resource')
     const { $gettext } = useGettext()
     const readonly = computed(
       () =>
         unref(resource).locked === true ||
+        unref(publicLinkContextReady) ||
         (typeof unref(resource).canEditTags === 'function' &&
           unref(resource).canEditTags() === false)
     )
@@ -142,7 +148,7 @@ export default defineComponent({
     const loadAvailableTagsTask = useTask(function* () {
       const {
         data: { value: tags = [] }
-      } = yield clientService.graphAuthenticated.tags.getTags()
+      } = yield* call(clientService.graphAuthenticated.tags.getTags())
 
       allTags = tags
       const selectedLabels = new Set(unref(selectedTags).map((o) => o.label))
@@ -202,11 +208,7 @@ export default defineComponent({
           })
         }
 
-        store.commit('Files/UPDATE_RESOURCE_FIELD', {
-          id: id,
-          field: 'tags',
-          value: [...selectedTagLabels]
-        })
+        updateResourceField({ id: id, field: 'tags', value: [...selectedTagLabels] })
 
         eventBus.publish('sidebar.entity.saved')
         if (unref(tagSelect) !== null) {
@@ -216,9 +218,9 @@ export default defineComponent({
         allTags.push(...tagsToAdd)
       } catch (e) {
         console.error(e)
-        store.dispatch('showErrorMessage', {
+        showErrorMessage({
           title: $gettext('Failed to edit tags'),
-          error: e
+          errors: [e]
         })
       }
     }
@@ -234,15 +236,21 @@ export default defineComponent({
       if (unref(resource)?.tags) {
         selectedTags.value = unref(currentTags)
       }
-      loadAvailableTagsTask.perform()
+
+      /**
+       * If the user can't edit the tags, for example on a public link, there is no need to load the available tags
+       */
+      if (!unref(readonly)) {
+        loadAvailableTagsTask.perform()
+      }
     })
 
-    const keydownMethods = (map, vm) => {
+    const keydownMethods = (map: Record<string, (e: Event) => void>) => {
       const objectMapping = {
         ...map
       }
-      objectMapping[KeyCode.Backspace] = async (e) => {
-        if (e.target.value || selectedTags.value.length === 0) {
+      objectMapping[KeyCode.Backspace] = async (e: Event) => {
+        if ((e.target as HTMLInputElement).value || selectedTags.value.length === 0) {
           return
         }
 
@@ -263,7 +271,7 @@ export default defineComponent({
     }
 
     const getAdditionalAttributes = (tag: string) => {
-      if (unref(isPublicLocation)) {
+      if (unref(publicLinkContextReady)) {
         return {}
       }
       return {
@@ -289,7 +297,6 @@ export default defineComponent({
       readonly,
       getAdditionalAttributes,
       onTagClicked,
-      isPublicLocation,
       type
     }
   }

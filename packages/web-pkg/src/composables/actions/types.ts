@@ -1,27 +1,31 @@
-import { Resource, SpaceResource } from '@ownclouders/web-client/src'
-import { Group, User } from '@ownclouders/web-client/src/generated'
+import { Resource, SpaceResource } from '@ownclouders/web-client'
+import { Group, User } from '@ownclouders/web-client/graph/generated'
 import { RouteLocationRaw } from 'vue-router'
+import { IconFillType } from '../../helpers'
+import { StringUnionOrAnyString } from '../../utils'
 
 export type ActionOptions = Record<string, unknown | unknown[]>
 export interface Action<T = ActionOptions> {
   name: string
+  category?: StringUnionOrAnyString<'context' | 'share' | 'actions' | 'sidebar'>
   icon: string
-  iconFillType?: string
+  iconFillType?: IconFillType
   variation?: string
   appearance?: string
   id?: string
   img?: string
-  componentType: 'button' | 'router-link'
+  componentType: 'button' | 'router-link' // FIXME: Should be determined by handler/route
   class?: string
   hasPriority?: boolean
   hideLabel?: boolean
   shortcut?: string
   keepOpen?: boolean
   opensInNewWindow?: boolean
+  isExternal?: boolean
   ext?: string
 
   label(options?: T): string
-  isEnabled(options?: T): boolean
+  isVisible(options?: T): boolean
 
   // componentType: button
   handler?(options?: T): Promise<void> | void
@@ -34,11 +38,11 @@ export interface Action<T = ActionOptions> {
   disabledTooltip?(options?: T): string
 }
 
-export type FileActionOptions = {
+export type FileActionOptions<T extends Resource = Resource> = {
   space: SpaceResource
-  resources?: Resource[]
+  resources?: T[]
 }
-export type FileAction = Action<FileActionOptions>
+export type FileAction<T extends Resource = Resource> = Action<FileActionOptions<T>>
 
 export type GroupActionOptions = {
   resources: Group[]

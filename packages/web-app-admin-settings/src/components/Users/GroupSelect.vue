@@ -40,7 +40,7 @@
 </template>
 <script lang="ts">
 import { computed, defineComponent, PropType, ref, unref, watch } from 'vue'
-import { Group } from '@ownclouders/web-client/src/generated'
+import { Group } from '@ownclouders/web-client/graph/generated'
 
 export default defineComponent({
   name: 'GroupSelect',
@@ -57,8 +57,8 @@ export default defineComponent({
   emits: ['selectedOptionChange'],
   setup(props, { emit }) {
     const selectedOptions = ref()
-    const onUpdate = (event) => {
-      selectedOptions.value = event
+    const onUpdate = (group: Group) => {
+      selectedOptions.value = group
       emit('selectedOptionChange', unref(selectedOptions))
     }
 

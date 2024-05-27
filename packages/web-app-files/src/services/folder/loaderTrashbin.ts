@@ -1,14 +1,12 @@
 import { FolderLoader, FolderLoaderTask, TaskContext } from '../folder'
 import { Router } from 'vue-router'
 import { useTask } from 'vue-concurrency'
-import { DavProperties } from '@ownclouders/web-client/src/webdav/constants'
+import { DavProperties } from '@ownclouders/web-client/webdav'
 import { isLocationTrashActive } from '@ownclouders/web-pkg'
-import { SpaceResource } from '@ownclouders/web-client/src/helpers'
-import { Store } from 'vuex'
+import { SpaceResource } from '@ownclouders/web-client'
 
 export class FolderLoaderTrashbin implements FolderLoader {
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  public isEnabled(store: Store<any>): boolean {
+  public isEnabled(): boolean {
     return true
   }
 
@@ -18,12 +16,12 @@ export class FolderLoaderTrashbin implements FolderLoader {
 
   public getTask(context: TaskContext): FolderLoaderTask {
     const {
-      store,
+      resourcesStore,
       clientService: { webdav }
     } = context
     return useTask(function* (signal1, signal2, space: SpaceResource) {
-      store.commit('Files/CLEAR_CURRENT_FILES_LIST')
-      store.commit('runtime/ancestorMetaData/SET_ANCESTOR_META_DATA', {})
+      resourcesStore.clearResourceList()
+      resourcesStore.setAncestorMetaData({})
 
       const { resource, children } = yield webdav.listFiles(
         space,
@@ -31,10 +29,7 @@ export class FolderLoaderTrashbin implements FolderLoader {
         { depth: 1, davProperties: DavProperties.Trashbin, isTrash: true }
       )
 
-      store.commit('Files/LOAD_FILES', {
-        currentFolder: resource,
-        files: children
-      })
+      resourcesStore.initResourceList({ currentFolder: resource, resources: children })
     })
   }
 }
